@@ -1,0 +1,119 @@
+{
+	"admin/services/v2ray_adv": {
+		"title": "V2Ray Advanced",
+		"action": {
+			"type": "alias",
+			"path": "admin/services/v2ray_adv/global"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 10
+	},
+	"admin/services/v2ray_adv/global": {
+		"title": "Global Settings",
+		"action": {
+			"type": "view",
+			"path": "v2ray_adv/global"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 1
+	},
+	"admin/services/v2ray_adv/inbounds": {
+		"title": "Inbound Management",
+		"action": {
+			"type": "view",
+			"path": "v2ray_adv/inbounds"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 2
+	},
+	"admin/services/v2ray_adv/transparent_proxy": {
+		"title": "Transparent Proxy",
+		"action": {
+			"type": "view",
+			"path": "v2ray_adv/transparent_proxy"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 3
+	},
+	"admin/services/v2ray_adv/servers": {
+		"title": "Servers",
+		"action": {
+			"type": "view",
+			"path": "v2ray_adv/servers"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 4
+	},
+	"admin/services/v2ray_adv/rules": {
+		"title": "Routing Rules",
+		"action": {
+			"type": "view",
+			"path": "v2ray_adv/rules"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 5
+	},
+	"admin/services/v2ray_adv/data": {
+		"title": "Data Management",
+		"action": {
+			"type": "view",
+			"path": "v2ray_adv/data"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 6
+	},
+	"admin/services/v2ray_adv/config": {
+		"title": "Config File",
+		"action": {
+			"type": "view",
+			"path": "v2ray_adv/config_view"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 7
+	},
+	"admin/services/v2ray_adv/log": {
+		"title": "Log",
+		"action": {
+			"type": "view",
+			"path": "v2ray_adv/log"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-v2ray-adv"
+			]
+		},
+		"order": 8
+	}
+}

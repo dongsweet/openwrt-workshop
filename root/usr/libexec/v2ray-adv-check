@@ -1,0 +1,29 @@
+#!/bin/sh
+
+PATH_TO_V2RAY="$1"
+
+if [ -z "$PATH_TO_V2RAY" ]; then
+    echo "Usage: $0 <path_to_v2ray>"
+    exit 1
+fi
+
+if [ ! -x "$PATH_TO_V2RAY" ]; then
+    echo "Not found or not executable"
+    exit 1
+fi
+
+# Try to get the version
+# V2Ray usually outputs version to stdout via "version" or "-version"
+VERSION=$("$PATH_TO_V2RAY" version 2>&1 | head -n 1)
+
+if [ -z "$VERSION" ]; then
+    VERSION=$("$PATH_TO_V2RAY" -version 2>&1 | head -n 1)
+fi
+
+if [ -n "$VERSION" ]; then
+    echo "$VERSION"
+    exit 0
+else
+    echo "Found, but failed to get version"
+    exit 1
+fi

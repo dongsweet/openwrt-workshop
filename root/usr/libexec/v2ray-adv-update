@@ -1,0 +1,63 @@
+#!/bin/sh
+
+TYPE="$1"
+URL="$2"
+BG="$3"
+
+LOCK_FILE="/var/run/v2ray-adv-update.lock"
+LOG_FILE="/var/log/v2ray-adv-update.log"
+
+# Function to run the actual update
+run_update() {
+	echo "Updating $TYPE from $URL..." > "$LOG_FILE"
+	
+	case "$TYPE" in
+		"geoip")
+			dest="/usr/share/v2ray/geoip.dat"
+			;;
+		"geosite")
+			dest="/usr/share/v2ray/geosite.dat"
+			;;
+		"cn_ips")
+			dest="/etc/v2ray_adv/cn.ips"
+			;;
+		*)
+			echo "Unknown update type: $TYPE" >> "$LOG_FILE"
+			rm -f "$LOCK_FILE"
+			exit 1
+			;;
+	esac
+
+	mkdir -p "$(dirname "$dest")"
+	
+	if wget -q -O "$dest.tmp" "$URL"; then
+		mv "$dest.tmp" "$dest"
+		echo "Update successful." >> "$LOG_FILE"
+	else
+		echo "Update failed: wget returned $?" >> "$LOG_FILE"
+	fi
+	
+	rm -f "$LOCK_FILE"
+}
+
+# Principal logic
+if [ -f "$LOCK_FILE" ]; then
+	echo "Another update is already running."
+	exit 1
+fi
+
+if [ "$BG" = "-b" ]; then
+	echo "Update started in background."
+	# Try using start-stop-daemon for proper backgrounding
+	if [ -x /sbin/start-stop-daemon ]; then
+		/sbin/start-stop-daemon -S -b -x "/usr/libexec/v2ray-adv-update" -- "$TYPE" "$URL"
+	else
+		# Fallback to subshell backgrounding
+		( touch "$LOCK_FILE"; run_update >/dev/null 2>&1 ) &
+	fi
+	exit 0
+else
+	touch "$LOCK_FILE"
+	run_update
+	exit $?
+fi

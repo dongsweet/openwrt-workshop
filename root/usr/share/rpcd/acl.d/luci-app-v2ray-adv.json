@@ -1,0 +1,26 @@
+{
+	"luci-app-v2ray-adv": {
+		"description": "Full access ACL for v2ray-adv",
+		"read": {
+			"uci": [ "*" ],
+			"file": {
+				"/": [ "list", "stat", "read", "exec" ],
+				"/*": [ "list", "stat", "read", "exec" ]
+			},
+			"ubus": {
+				"*": [ "*" ]
+			}
+		},
+		"write": {
+			"uci": [ "*" ],
+			"file": {
+				"/": [ "write", "remove" ],
+				"/*": [ "write", "remove" ]
+			}
+		},
+		"luci-access": {
+			"admin/services/v2ray_adv": [ "read", "write" ],
+			"admin/services/v2ray_adv/*": [ "read", "write" ]
+		}
+	}
+}
