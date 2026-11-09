@@ -36,6 +36,10 @@ def main():
     assert "data_json[0]" not in rpc_source
     assert "substr(data_json, 0, 1)" in rpc_source
     assert "substr(data_json, length(data_json) - 1, 1)" in rpc_source
+    assert "function reloadPage()" in view_source
+    assert "history.replaceState(null, '', '#' + active.dataset.tab)" in view_source
+    assert "window.location.hash.replace(/^#/, '')" in view_source
+    assert "v2rayb-table .cbi-section-table-cell { text-align: left !important;" in view_source
     assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('return view.extend')]
     for method in methods:
         assert f"\n\t{method}: {{" in rpc_source

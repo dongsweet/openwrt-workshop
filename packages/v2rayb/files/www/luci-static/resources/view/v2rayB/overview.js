@@ -81,6 +81,7 @@ function css() {
 		.v2rayb-status-off { color: #9a3b35; background: #fbe9e7; }
 		.v2rayb-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1rem; }
 		.v2rayb-toolbar .cbi-button { margin: 0; }
+		.v2rayb-table .cbi-section-table-cell { text-align: left !important; vertical-align: middle; }
 		.v2rayb-help { color: #687587; font-size: .88rem; line-height: 1.5; }
 		.v2rayb-code { display: block; max-height: 20rem; overflow: auto; padding: 1rem; border-radius: 10px;
 			background: #17212b; color: #cfe6e7; white-space: pre-wrap; font: .82rem/1.5 monospace; }
@@ -109,7 +110,7 @@ function table(headers, rows, empty) {
 		[ E('tr', { class: 'tr cbi-section-table-row' }, [
 			E('td', { class: 'td cbi-section-table-cell', colspan: headers.length }, E('em', {}, empty))
 		]) ];
-	return E('table', { class: 'table cbi-section-table' }, [
+	return E('table', { class: 'table cbi-section-table v2rayb-table' }, [
 		E('thead', { class: 'thead cbi-section-thead' }, E('tr', { class: 'tr cbi-section-table-titles' },
 			headers.map(value => E('th', { class: 'th cbi-section-table-cell' }, value)))),
 		E('tbody', { class: 'tbody cbi-section-tbody' }, body)
@@ -149,10 +150,17 @@ function showRequestError(error) {
 	ui.addNotification(null, E('p', {}, errorMessage(error)), 'error');
 }
 
+function reloadPage() {
+	const active = document.querySelector('.v2rayb-nav-link.active');
+	if (active && active.dataset.tab && window.history && window.history.replaceState)
+		window.history.replaceState(null, '', '#' + active.dataset.tab);
+	window.location.reload();
+}
+
 function notify(result, successText, reload) {
 	if (result && (result.success || result.code === 0)) {
 		ui.addNotification(null, E('p', {}, successText), 'info');
-		if (reload) window.setTimeout(() => window.location.reload(), 700);
+		if (reload) window.setTimeout(reloadPage, 700);
 	} else {
 		showRequestError(result);
 	}
@@ -169,7 +177,14 @@ function actionButton(view, title, action, style) {
 
 function renderTabs(panes) {
 	const buttons = [], panels = [];
-	function activate(id) {
+	const ids = panes.map(pane => pane.id);
+	let initial = window.location.hash.replace(/^#/, '');
+	if (!ids.includes(initial))
+		initial = panes[0].id;
+
+	function activate(id, remember) {
+		if (!ids.includes(id))
+			return;
 		buttons.forEach(button => {
 			const active = button.dataset.tab === id;
 			button.classList.toggle('active', active);
@@ -180,16 +195,19 @@ function renderTabs(panes) {
 			panel.style.display = visible ? '' : 'none';
 			panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
 		});
+		if (remember && window.history && window.history.replaceState)
+			window.history.replaceState(null, '', '#' + id);
 	}
 	panes.forEach((pane, index) => {
+		const selected = pane.id === initial;
 		const button = E('button', {
-			class: 'v2rayb-nav-link' + (index === 0 ? ' active' : ''), type: 'button', role: 'tab',
-			'aria-selected': index === 0 ? 'true' : 'false', 'data-tab': pane.id,
-			click: () => activate(pane.id)
+			class: 'v2rayb-nav-link' + (selected ? ' active' : ''), type: 'button', role: 'tab',
+			'aria-selected': selected ? 'true' : 'false', 'data-tab': pane.id,
+			click: () => activate(pane.id, true)
 		}, [ E('span', { class: 'v2rayb-nav-title' }, pane.title), E('span', { class: 'v2rayb-nav-caption' }, pane.caption) ]);
 		const panel = E('div', {
 			class: 'v2rayb-panel', role: 'tabpanel', 'data-tab': pane.id,
-			style: index === 0 ? '' : 'display:none', 'aria-hidden': index === 0 ? 'false' : 'true'
+			style: selected ? '' : 'display:none', 'aria-hidden': selected ? 'false' : 'true'
 		}, pane.nodes);
 		buttons.push(button); panels.push(panel);
 	});
