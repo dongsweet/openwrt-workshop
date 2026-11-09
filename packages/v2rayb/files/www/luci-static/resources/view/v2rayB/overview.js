@@ -104,9 +104,9 @@ function css() {
 		.v2rayb-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1rem; }
 		.v2rayb-toolbar .cbi-button { margin: 0; }
 		.v2rayb-table .cbi-section-table-cell { text-align: left !important; vertical-align: middle; }
-		.v2rayb-table .v2rayb-actions { text-align: right !important; white-space: nowrap; }
-		.v2rayb-row-actions { display: inline-flex; gap: .35rem; align-items: center; }
-		.v2rayb-row-actions .cbi-button { margin: 0; }
+		.v2rayb-table .v2rayb-actions { width: 1%; padding-left: .5rem; text-align: right !important; vertical-align: middle; white-space: nowrap; }
+		.v2rayb-row-actions { display: inline-flex; flex: none; gap: .35rem; align-items: center; justify-content: flex-end; }
+		.v2rayb-row-actions .cbi-button { flex: none; margin: 0; }
 		.v2rayb-create { display: flex; justify-content: flex-start; margin-top: .75rem; }
 		.v2rayb-help { color: #687587; font-size: .88rem; line-height: 1.5; }
 		.v2rayb-code { display: block; max-height: 20rem; overflow: auto; padding: 1rem; border-radius: 10px;
@@ -155,7 +155,7 @@ function confirmDelete(message) {
 }
 
 function actionCell(buttons) {
-	return E('td', { class: 'td cbi-section-table-cell cbi-section-actions v2rayb-actions' },
+	return E('td', { class: 'td cbi-section-table-cell v2rayb-actions' },
 		E('div', { class: 'v2rayb-row-actions' }, buttons));
 }
 
