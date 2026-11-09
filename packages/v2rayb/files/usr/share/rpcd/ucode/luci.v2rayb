@@ -48,6 +48,16 @@ function valid_id(value) {
 	return match(value, /^[0-9]+$/);
 }
 
+function valid_profile_policy(direct_dns, ports, bypass_china) {
+	if (!match(direct_dns, /^[A-Za-z0-9.:\[\]-]+$/))
+		return 'Invalid direct DNS endpoint';
+	if (!match(ports, /^[0-9]+(,[0-9]+)*$/))
+		return 'Invalid transparent proxy port list';
+	if (!match(bypass_china, /^[01]$/))
+		return 'Invalid bypass China setting';
+	return null;
+}
+
 function valid_node_fields(name, protocol, server, port, data_json) {
 	if (length(name) > 64 || length(server) > 255 || length(data_json) > 16384)
 		return 'One or more fields are too long';
@@ -104,6 +114,33 @@ const methods = {
 	list_profiles: {
 		call: function() {
 			return ctl([ 'list-profiles' ]);
+		}
+	},
+
+	get_profile: {
+		args: { profile_id: '' },
+		call: function(request) {
+			let profile_id = string_arg(request, 'profile_id');
+			if (!valid_id(profile_id))
+				return { success: false, error: 'Invalid profile id' };
+			let result = ctl([ 'get-profile', profile_id ]);
+			if (result.code != 0)
+				return failed(result);
+			let columns = split(result.output, '\t');
+			if (length(columns) != 6)
+				return { success: false, error: 'Profile details could not be read' };
+			return {
+				success: true,
+				profile: {
+					id: profile_id,
+					name: columns[0],
+					node_id: columns[1],
+					enabled: columns[2],
+					direct_dns: columns[3],
+					transparent_proxy_ports: columns[4],
+					bypass_china: columns[5]
+				}
+			};
 		}
 	},
 
@@ -182,14 +219,20 @@ const methods = {
 	},
 
 	add_profile: {
-		args: { name: '', node_id: '' },
+		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1' },
 		call: function(request) {
 			let name = string_arg(request, 'name');
 			let node_id = string_arg(request, 'node_id');
+			let direct_dns = string_arg(request, 'direct_dns');
+			let transparent_proxy_ports = string_arg(request, 'transparent_proxy_ports');
+			let bypass_china = string_arg(request, 'bypass_china');
 			if (length(name) > 64)
 				return { success: false, error: 'Profile name is too long' };
 			if (!match(node_id, /^[0-9]+$/))
 				return { success: false, error: 'Select a valid primary node' };
+			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china);
+			if (policy_error != null)
+				return { success: false, error: policy_error };
 
 			let profiles = ctl([ 'list-profiles' ]);
 			if (profiles.code != 0)
@@ -201,7 +244,7 @@ const methods = {
 					return { success: false, error: 'A profile with this name already exists' };
 			}
 
-			let result = ctl([ 'add-profile', name, node_id ]);
+			let result = ctl([ 'add-profile', name, node_id, direct_dns, transparent_proxy_ports, bypass_china ]);
 			if (result.code != 0)
 				return failed(result);
 
@@ -252,16 +295,22 @@ const methods = {
 	},
 
 	update_profile: {
-		args: { profile_id: '', name: '', node_id: '' },
+		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1' },
 		call: function(request) {
 			let profile_id = string_arg(request, 'profile_id');
 			let name = string_arg(request, 'name');
 			let node_id = string_arg(request, 'node_id');
+			let direct_dns = string_arg(request, 'direct_dns');
+			let transparent_proxy_ports = string_arg(request, 'transparent_proxy_ports');
+			let bypass_china = string_arg(request, 'bypass_china');
 			if (!valid_id(profile_id) || !valid_id(node_id))
 				return { success: false, error: 'Invalid profile or node id' };
 			if (name == '' || length(name) > 64)
 				return { success: false, error: 'Invalid profile name' };
-			let result = ctl([ 'update-profile', profile_id, name, node_id ]);
+			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china);
+			if (policy_error != null)
+				return { success: false, error: policy_error };
+			let result = ctl([ 'update-profile', profile_id, name, node_id, direct_dns, transparent_proxy_ports, bypass_china ]);
 			return result.code == 0 ? { success: true, profile_id: profile_id } : failed(result);
 		}
 	},

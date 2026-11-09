@@ -34,12 +34,19 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
         profile_columns = {
             row[1]
             for row in conn.execute("PRAGMA table_info(profiles)")
         }
         assert "engine_options_json" in profile_columns
+        policy_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(policies)")
+        }
+        assert {
+            "direct_dns", "transparent_proxy_ports", "bypass_china"
+        } <= policy_columns
 
         conn.execute(
             "INSERT INTO sources(type, name) VALUES ('manual', 'local')"

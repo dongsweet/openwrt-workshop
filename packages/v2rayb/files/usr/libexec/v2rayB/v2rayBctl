@@ -77,6 +77,20 @@ format_ports() {
 	printf '{ %s }' "$formatted"
 }
 
+validate_dns_endpoint() {
+	value="$1"
+	case "$value" in *[!A-Za-z0-9.:\[\]-]*|*:|:*) return 1 ;; esac
+	port="${value##*:}"
+	is_uint "$port" && [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || return 1
+	[ -n "${value%:*}" ]
+}
+
+validate_profile_policy() {
+	validate_dns_endpoint "$1" || die "invalid profile DNS endpoint"
+	format_ports "$2" >/dev/null || die "invalid profile transparent proxy port list"
+	case "$3" in 0|1) ;; *) die "profile bypass_china must be 0 or 1" ;; esac
+}
+
 db_sql() {
 	"$SQLITE3" -batch -bail "$DB" "PRAGMA foreign_keys=ON; $1"
 }
@@ -95,7 +109,13 @@ ensure_db() {
 		return 0
 	fi
 	version="$(db_sql 'PRAGMA user_version;' | tr -d '[:space:]')"
-	[ "$version" = 1 ] || die "unsupported database schema version: $version"
+	case "$version" in
+		1)
+			db_sql "ALTER TABLE policies ADD COLUMN direct_dns TEXT; ALTER TABLE policies ADD COLUMN transparent_proxy_ports TEXT; ALTER TABLE policies ADD COLUMN bypass_china INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)); INSERT OR IGNORE INTO schema_migrations(version) VALUES (2); PRAGMA user_version=2;"
+			version=2
+			;;
+	esac
+	[ "$version" = 2 ] || die "unsupported database schema version: $version"
 	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('direct_dns', '223.5.5.5:53'), ('force_proxy_port', '12346'), ('transparent_proxy_ports', '80,443,8080,8443');"
 }
 
@@ -143,10 +163,7 @@ cmd_set_setting() {
 	esac
 	case "$key" in
 		direct_dns)
-			case "$value" in *[!A-Za-z0-9.:\[\]-]*|*:|:*) die "invalid DNS endpoint" ;; esac
-			port="${value##*:}"
-			is_uint "$port" && [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || die "invalid DNS port"
-			[ -n "${value%:*}" ] || die "invalid DNS host"
+			validate_dns_endpoint "$value" || die "invalid DNS endpoint"
 			;;
 		transparent_proxy_ports)
 			format_ports "$value" >/dev/null || die "invalid transparent proxy port list"
@@ -196,12 +213,37 @@ cmd_add_manual_node() {
 	db_sql "SELECT id FROM nodes WHERE source_id=$source_id AND name=$(sql_quote "$name");" | sed -n '1p'
 }
 
+cmd_set_profile_policy() {
+	ensure_db
+	profile_id="$1"
+	direct_dns="$2"
+	transparent_proxy_ports="$3"
+	bypass_china="$4"
+	is_uint "$profile_id" || die "profile id must be numeric"
+	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china"
+	count="$(db_sql "SELECT COUNT(*) FROM profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "profile not found: $profile_id"
+	policy_id="$(db_sql "SELECT COALESCE(policy_id, 0) FROM profiles WHERE id=$profile_id;" | sed -n '1p')"
+	if is_uint "$policy_id" && [ "$policy_id" -gt 0 ] 2>/dev/null; then
+		db_sql "UPDATE policies SET direct_dns=$(sql_quote "$direct_dns"), transparent_proxy_ports=$(sql_quote "$transparent_proxy_ports"), bypass_china=$bypass_china, updated_at=CURRENT_TIMESTAMP WHERE id=$policy_id; UPDATE profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
+	else
+		policy_name="profile-$profile_id"
+		policy_id="$(db_sql "INSERT INTO policies(name, direct_dns, transparent_proxy_ports, bypass_china, updated_at) VALUES($(sql_quote "$policy_name"), $(sql_quote "$direct_dns"), $(sql_quote "$transparent_proxy_ports"), $bypass_china, CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET direct_dns=excluded.direct_dns, transparent_proxy_ports=excluded.transparent_proxy_ports, bypass_china=excluded.bypass_china, updated_at=CURRENT_TIMESTAMP; SELECT id FROM policies WHERE name=$(sql_quote "$policy_name");" | sed -n '1p')"
+		is_uint "$policy_id" || die "failed to create profile policy"
+		db_sql "UPDATE profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
+	fi
+}
+
 cmd_add_profile() {
 	ensure_db
 	name="$1"
 	node_id="$2"
+	direct_dns="${3:-$(setting direct_dns)}"
+	transparent_proxy_ports="${4:-$(setting transparent_proxy_ports)}"
+	bypass_china="${5:-1}"
 	is_name "$name" || die "invalid profile name"
 	is_uint "$node_id" || die "node id must be numeric"
+	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china"
 	count="$(db_sql "SELECT COUNT(*) FROM nodes WHERE id=$node_id AND enabled=1;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found or disabled: $node_id"
 	count="$(db_sql "SELECT COUNT(*) FROM profiles WHERE name=$(sql_quote "$name");" | tr -d '[:space:]')"
@@ -209,6 +251,7 @@ cmd_add_profile() {
 	db_sql "INSERT INTO profiles(name, engine, updated_at) VALUES($(sql_quote "$name"), 'v2ray', CURRENT_TIMESTAMP);"
 	profile_id="$(db_sql "SELECT id FROM profiles WHERE name=$(sql_quote "$name");" | sed -n '1p')"
 	db_sql "DELETE FROM profile_nodes WHERE profile_id=$profile_id; INSERT INTO profile_nodes(profile_id, node_id, role, priority) VALUES($profile_id, $node_id, 'primary', 0);"
+	cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china"
 	cmd_set_setting active_profile "$profile_id"
 	printf '%s\n' "$profile_id"
 }
@@ -281,6 +324,12 @@ cmd_update_profile() {
 	count="$(db_sql "SELECT COUNT(*) FROM profiles WHERE name=$(sql_quote "$name") AND id<>$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 0 ] || die "profile already exists: $name"
 	db_sql "UPDATE profiles SET name=$(sql_quote "$name"), updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id; DELETE FROM profile_nodes WHERE profile_id=$profile_id; INSERT INTO profile_nodes(profile_id, node_id, role, priority) VALUES($profile_id, $node_id, 'primary', 0);"
+	if [ "$#" -ge 4 ]; then
+		direct_dns="$4"
+		transparent_proxy_ports="$5"
+		bypass_china="$6"
+		cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china"
+	fi
 	printf '%s\n' "$profile_id"
 }
 
@@ -335,29 +384,41 @@ cmd_get_node() {
 
 cmd_list_profiles() {
 	ensure_db
-	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id ORDER BY p.id;"
+	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id ORDER BY p.id;"
 }
 
-active_node() {
+cmd_get_profile() {
+	ensure_db
+	profile_id="$1"
+	is_uint "$profile_id" || die "profile id must be numeric"
+	row="$(db_sql "SELECT p.name || char(9) || COALESCE(pn.node_id, '') || char(9) || p.enabled || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
+	[ -n "$row" ] || die "profile not found: $profile_id"
+	printf '%s\n' "$row"
+}
+
+active_profile() {
 	profile_id="$(setting active_profile)"
 	is_uint "$profile_id" || die "no active profile selected"
-	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
+	default_direct_dns="$(setting direct_dns)"
+	default_proxy_ports="$(setting transparent_proxy_ports)"
+	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, $(sql_quote "$default_direct_dns")) || char(9) || COALESCE(pol.transparent_proxy_ports, $(sql_quote "$default_proxy_ports")) || char(9) || COALESCE(pol.bypass_china, 1) FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
 	[ -n "$row" ] || die "active profile has no enabled node"
 	printf '%s\n' "$row"
 }
 
 cmd_render_v2ray() {
 	ensure_db
-	row="$(active_node)"
+	row="$(active_profile)"
 	old_ifs="$IFS"
 	IFS="$(printf '\t')"
-	read -r protocol server port data_json <<EOF
+	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china <<EOF
 $row
 EOF
 	IFS="$old_ifs"
 	is_protocol "$protocol" || die "unsupported active protocol: $protocol"
 	is_server "$server" || die "invalid active server"
 	is_uint "$port" || die "invalid active port"
+	case "$bypass_china" in 0|1) ;; *) die "invalid profile bypass_china value" ;; esac
 	case "$data_json" in
 		\{*\}) ;;
 		*) die "active node data_json is not an object" ;;
@@ -381,7 +442,9 @@ EOF
 		printf '%s\n' '  "routing": {"domainStrategy":"IPIfNonMatch","rules":['
 		printf '%s\n' '    {"type":"field","inboundTag":["dns-in","force-proxy-in"],"outboundTag":"proxy"},'
 		printf '%s\n' '    {"type":"field","ip":["geoip:private"],"outboundTag":"direct"},'
-		printf '%s\n' '    {"type":"field","ip":["geoip:cn"],"outboundTag":"direct"},'
+		if [ "$bypass_china" = 1 ]; then
+			printf '%s\n' '    {"type":"field","ip":["geoip:cn"],"outboundTag":"direct"},'
+		fi
 		printf '%s\n' '    {"type":"field","inboundTag":["redir-in"],"outboundTag":"proxy"}'
 		printf '%s\n' '  ]}'
 		printf '%s\n' '}'
@@ -404,9 +467,16 @@ hash_port_addr() {
 
 cmd_render_mosdns() {
 	ensure_db
+	row="$(active_profile)"
+	old_ifs="$IFS"
+	IFS="$(printf '\t')"
+	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china <<EOF
+$row
+EOF
+	IFS="$old_ifs"
 	listen="$(hash_port_addr "$(setting mosdns_listen)")"
 	proxy_dns="$(endpoint_to_addr "$(hash_port_addr "$(setting v2ray_dns_listen)")")"
-	direct_dns="$(endpoint_to_addr "$(setting direct_dns)")"
+	direct_dns="$(endpoint_to_addr "$profile_direct_dns")"
 	tmp="$ACTIVE_DIR/mosdns.yaml.tmp.$$"
 	{
 		printf '%s\n' 'log:'
@@ -498,9 +568,15 @@ nft_elements() {
 
 cmd_render_nft() {
 	ensure_db
+	row="$(active_profile)"
+	old_ifs="$IFS"
+	IFS="$(printf '\t')"
+	read -r protocol server port data_json profile_direct_dns proxy_ports bypass_china <<EOF
+$row
+EOF
+	IFS="$old_ifs"
 	proxy_port="$(setting transparent_proxy_port)"
 	force_proxy_port="$(setting force_proxy_port)"
-	proxy_ports="$(setting transparent_proxy_ports)"
 	is_uint "$proxy_port" || die "invalid transparent proxy port"
 	is_uint "$force_proxy_port" || die "invalid force-proxy port"
 	[ "$proxy_port" -ge 1 ] 2>/dev/null && [ "$proxy_port" -le 65535 ] 2>/dev/null || die "transparent proxy port out of range"
@@ -628,14 +704,16 @@ Usage:
   v2rayBctl update-node NODE_ID NAME PROTOCOL SERVER PORT DATA_JSON
   v2rayBctl set-node-enabled NODE_ID 0|1
   v2rayBctl delete-node NODE_ID
-  v2rayBctl add-profile NAME NODE_ID
-  v2rayBctl update-profile PROFILE_ID NAME NODE_ID
+  v2rayBctl add-profile NAME NODE_ID [DIRECT_DNS PORTS BYPASS_CHINA]
+  v2rayBctl update-profile PROFILE_ID NAME NODE_ID [DIRECT_DNS PORTS BYPASS_CHINA]
+  v2rayBctl set-profile-policy PROFILE_ID DIRECT_DNS PORTS BYPASS_CHINA
   v2rayBctl set-profile-enabled PROFILE_ID 0|1
   v2rayBctl delete-profile PROFILE_ID
   v2rayBctl select-profile PROFILE_ID
   v2rayBctl list-nodes
   v2rayBctl get-node NODE_ID
   v2rayBctl list-profiles
+  v2rayBctl get-profile PROFILE_ID
   v2rayBctl render-v2ray|render-mosdns|render-nft|render-all
   v2rayBctl apply-nft|delete-nft|test-v2ray|test-dns|test-dnsmasq
 EOF
@@ -657,14 +735,16 @@ case "$command" in
 	update-node) [ "$#" -eq 6 ] || usage; cmd_update_node "$@" ;;
 	set-node-enabled) [ "$#" -eq 2 ] || usage; cmd_set_node_enabled "$@" ;;
 	delete-node) [ "$#" -eq 1 ] || usage; cmd_delete_node "$1" ;;
-	add-profile) [ "$#" -eq 2 ] || usage; cmd_add_profile "$@" ;;
-	update-profile) [ "$#" -eq 3 ] || usage; cmd_update_profile "$@" ;;
+	add-profile) { [ "$#" -eq 2 ] || [ "$#" -eq 5 ]; } || usage; cmd_add_profile "$@" ;;
+	update-profile) { [ "$#" -eq 3 ] || [ "$#" -eq 6 ]; } || usage; cmd_update_profile "$@" ;;
+	set-profile-policy) [ "$#" -eq 4 ] || usage; cmd_set_profile_policy "$@" ;;
 	set-profile-enabled) [ "$#" -eq 2 ] || usage; cmd_set_profile_enabled "$@" ;;
 	delete-profile) [ "$#" -eq 1 ] || usage; cmd_delete_profile "$1" ;;
 	select-profile) [ "$#" -eq 1 ] || usage; cmd_select_profile "$1" ;;
 	list-nodes) [ "$#" -eq 0 ] || usage; cmd_list_nodes ;;
 	get-node) [ "$#" -eq 1 ] || usage; cmd_get_node "$1" ;;
 	list-profiles) [ "$#" -eq 0 ] || usage; cmd_list_profiles ;;
+	get-profile) [ "$#" -eq 1 ] || usage; cmd_get_profile "$1" ;;
 	render-v2ray) [ "$#" -eq 0 ] || usage; cmd_render_v2ray ;;
 	render-mosdns) [ "$#" -eq 0 ] || usage; cmd_render_mosdns ;;
 	render-nft) [ "$#" -eq 0 ] || usage; cmd_render_nft ;;

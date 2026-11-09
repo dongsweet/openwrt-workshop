@@ -31,13 +31,17 @@ def main():
     assert "E('textarea'" not in view_source
     assert "params: [ 'name', 'protocol', 'server', 'port', 'data_json' ]" in view_source
     assert "method: 'add_profile'" in view_source
+    assert "direct_dns', 'transparent_proxy_ports', 'bypass_china'" in view_source
+    assert "Profile policy" in view_source
+    assert "profilePolicyText(row)" in view_source
     assert "Array.isArray(error)" in view_source
     assert "rpc.getStatusText(error[0])" in view_source
     assert "expect: { '': {} }, reject: true" in view_source
     assert "args: {\n\t\t\tname: '', protocol: '', server: '', port: '', data_json: ''\n\t\t}" in rpc_source
     assert "function valid_node_fields" in rpc_source
+    assert "function valid_profile_policy" in rpc_source
     for method in (
-        "get_node", "update_node", "set_node_enabled", "delete_node",
+        "get_node", "get_profile", "update_node", "set_node_enabled", "delete_node",
         "update_profile", "set_profile_enabled", "delete_profile",
     ):
         assert f"\n\t{method}: {{" in rpc_source

@@ -44,8 +44,17 @@ if "$ctl" set-node-enabled 1 0 >/dev/null 2>&1; then
 	echo "referenced node unexpectedly disabled" >&2
 	exit 1
 fi
-"$ctl" update-profile 1 hk-profile-updated 1 >/dev/null
-"$ctl" list-profiles | grep -q 'hk-profile-updated.*hk-updated.*1.*1'
+if "$ctl" set-profile-policy 1 223.5.5.5:53 '80,,443' 1 >/dev/null 2>&1; then
+	echo "invalid profile port list unexpectedly accepted" >&2
+	exit 1
+fi
+"$ctl" update-profile 1 hk-profile-updated 1 1.1.1.1:53 '80,8443' 0 >/dev/null
+"$ctl" get-profile 1 | grep -q 'hk-profile-updated.*1.*1.*1.1.1.1:53.*80,8443.*0'
+"$ctl" list-profiles | grep -q 'hk-profile-updated.*hk-updated.*1.*1.*1.1.1.1:53.*80,8443.*0'
+"$ctl" render-all
+grep -q 'addr: "udp://1.1.1.1:53"' "$TEST_DIR/runtime/active/mosdns.yaml"
+grep -q 'tcp dport { 80, 8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
+! grep -q 'geoip:cn' "$TEST_DIR/runtime/active/v2ray.json"
 if "$ctl" set-profile-enabled 1 0 >/dev/null 2>&1; then
 	echo "active profile unexpectedly disabled" >&2
 	exit 1

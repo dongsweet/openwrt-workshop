@@ -51,6 +51,7 @@ python3 tests/test_rules.py
 python3 tests/test_luci.py
 sh tests/test_render.sh
 sh tests/test_lifecycle.sh
+sh tests/test_migration.sh
 ```
 
 The importer test uses only sanitized fixtures under `tests/fixtures/` and a

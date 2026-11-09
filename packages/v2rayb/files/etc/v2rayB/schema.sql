@@ -41,12 +41,15 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 
 CREATE TABLE IF NOT EXISTS policies (
-    id                  INTEGER PRIMARY KEY,
-    name                TEXT NOT NULL UNIQUE,
-    dns_policy_json     TEXT NOT NULL DEFAULT '{}',
-    routing_policy_json TEXT NOT NULL DEFAULT '{}',
-    created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id                      INTEGER PRIMARY KEY,
+    name                    TEXT NOT NULL UNIQUE,
+    dns_policy_json         TEXT NOT NULL DEFAULT '{}',
+    routing_policy_json     TEXT NOT NULL DEFAULT '{}',
+    direct_dns              TEXT,
+    transparent_proxy_ports TEXT,
+    bypass_china            INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)),
+    created_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS profiles (
@@ -103,6 +106,7 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
     ('transparent_proxy_ports', '80,443,8080,8443');
 
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
-PRAGMA user_version = 1;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
+PRAGMA user_version = 2;
 
 COMMIT;
