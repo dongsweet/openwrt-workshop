@@ -24,6 +24,9 @@ def main():
     view_source = (
         FILES / "www/luci-static/resources/view/v2rayB/overview.js"
     ).read_text(encoding="utf-8")
+    assert "function isEnabled(value)" in view_source
+    assert "profileAddButton.disabled = !enabled;" in view_source
+    assert "disabled: !nodes.some" not in view_source
     assert "function buildOutbound" in view_source
     assert "E('textarea'" not in view_source
     assert "params: [ 'name', 'protocol', 'server', 'port', 'data_json' ]" in view_source

@@ -72,6 +72,10 @@ function parseRows(text) {
 	return text.trim() ? text.trim().split('\n').map(line => line.split('\t')) : [];
 }
 
+function isEnabled(value) {
+	return value === '1' || value === 1 || value === true;
+}
+
 function css() {
 	return E('style', {}, `
 		.v2rayb-shell { max-width: 1180px; }
@@ -444,7 +448,7 @@ function showProfileModal(onSaved, nodes, existing) {
 	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true, value: existing ? existing.name : '' });
 	const nodeSelect = E('select', { class: 'cbi-input-select' }, [
 		E('option', { value: '' }, _('Select a primary node')),
-		...nodes.filter(row => row[5] === '1').map(row => E('option', {
+		...nodes.filter(row => isEnabled(row[5])).map(row => E('option', {
 			value: row[0], selected: existing && existing.node_id === row[0]
 		}, `${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`))
 	]);
@@ -498,8 +502,8 @@ return view.extend({
 		const directDns = outputOf(data[3]) || '223.5.5.5:53';
 		let activeProfile = status.active_profile || '';
 		const state = status.state || 'normal';
-		let enabledNodes = nodes.filter(row => row[5] === '1').length;
-		let enabledProfiles = profiles.filter(row => row[4] === '1').length;
+		let enabledNodes = nodes.filter(row => isEnabled(row[5])).length;
+		let enabledProfiles = profiles.filter(row => isEnabled(row[4])).length;
 
 		const dnsInput = E('input', { class: 'cbi-input-text', type: 'text', value: directDns });
 		const portsInput = E('input', { class: 'cbi-input-text', type: 'text', value: status.transparent_proxy_ports || '80,443,8080,8443' });
@@ -533,7 +537,7 @@ return view.extend({
 		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Enabled'), _('Actions') ];
 
 		function enabledToggle(enabled, change) {
-			const input = E('input', { type: 'checkbox', class: 'cbi-input-checkbox', checked: enabled === '1' });
+			const input = E('input', { type: 'checkbox', class: 'cbi-input-checkbox', checked: isEnabled(enabled) });
 			input.addEventListener('change', () => {
 				input.disabled = true;
 				change(input.checked ? '1' : '0').finally(() => { input.disabled = false; });
@@ -565,7 +569,7 @@ return view.extend({
 				}),
 				row[0] === activeProfile ? E('strong', {}, _('Active')) : '',
 				actionCell([
-					row[0] !== activeProfile && row[4] === '1'
+					row[0] !== activeProfile && isEnabled(row[4])
 						? E('button', { class: 'btn cbi-button cbi-button-apply', type: 'button', click: () => {
 							return callSelectProfile(row[0]).then(result => {
 								if (result && result.success) {
@@ -650,11 +654,11 @@ return view.extend({
 			profileTable = next;
 		}
 		function refreshNodeCard() {
-			enabledNodes = nodes.filter(row => row[5] === '1').length;
+			enabledNodes = nodes.filter(row => isEnabled(row[5])).length;
 			nodesCard.querySelector('.v2rayb-card-value').textContent = `${enabledNodes} / ${nodes.length}`;
 		}
 		function refreshProfileCard() {
-			enabledProfiles = profiles.filter(row => row[4] === '1').length;
+			enabledProfiles = profiles.filter(row => isEnabled(row[4])).length;
 			activeProfileCard.querySelector('.v2rayb-card-value').textContent = activeProfile || _('Not selected');
 			activeProfileCard.querySelector('.v2rayb-card-help').textContent = `${enabledProfiles} ${_('enabled profile(s)')}`;
 		}
@@ -671,8 +675,11 @@ return view.extend({
 			refreshProfileAddButton();
 		}
 		function refreshProfileAddButton() {
-			if (profileAddButton)
-				profileAddButton.disabled = !nodes.some(row => row[5] === '1');
+			if (!profileAddButton)
+				return;
+			const enabled = nodes.some(row => isEnabled(row[5]));
+			profileAddButton.disabled = !enabled;
+			profileAddButton.classList.toggle('disabled', !enabled);
 		}
 		function onProfileSaved(result, name, nodeId) {
 			const id = String(result.profile_id);
@@ -692,9 +699,9 @@ return view.extend({
 		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true);
 		profileAddButton = E('button', {
 			class: 'cbi-button cbi-button-add', type: 'button',
-			disabled: !nodes.some(row => row[5] === '1'),
 			click: () => showProfileModal(onProfileSaved, nodes)
 		}, _('Add'));
+		refreshProfileAddButton();
 		const nodesPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
