@@ -40,6 +40,12 @@ def main():
     assert "history.replaceState(null, '', '#' + active.dataset.tab)" in view_source
     assert "window.location.hash.replace(/^#/, '')" in view_source
     assert "v2rayb-table .cbi-section-table-cell { text-align: left !important;" in view_source
+    assert "showNodeModal(this, onNodeSaved)" in view_source
+    assert "refreshNodeTable();" in view_source
+    assert "refreshProfileTable();" in view_source
+    assert "notify(result, _('Direct DNS saved.'))" in view_source
+    assert "notify(result, _('Proxy ports saved.'))" in view_source
+    assert "notify(result, _('Node saved. Create a profile for it in the Profiles section.'));" in view_source
     assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('return view.extend')]
     for method in methods:
         assert f"\n\t{method}: {{" in rpc_source

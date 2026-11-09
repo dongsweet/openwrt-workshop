@@ -214,7 +214,7 @@ function renderTabs(panes) {
 	return E('div', {}, [ E('div', { class: 'v2rayb-nav', role: 'tablist' }, buttons), E('div', {}, panels) ]);
 }
 
-function showNodeModal(view) {
+function showNodeModal(view, onSaved) {
 	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true });
 	const protocol = E('select', { class: 'cbi-input-select' }, [ 'vless', 'vmess', 'trojan', 'shadowsocks' ].map(value => E('option', { value }, value.toUpperCase())));
 	const server = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '255', required: true });
@@ -296,10 +296,17 @@ function showNodeModal(view) {
 			ui.addNotification(null, E('p', {}, _('Name, server, port and UUID/password are required.')), 'warning'); return;
 		}
 		save.disabled = true;
-		return callAddNode(name.value, protocol.value, server.value, port.value, buildOutbound())
+		const outbound = buildOutbound();
+		return callAddNode(name.value, protocol.value, server.value, port.value, outbound)
 			.then(result => {
-				if (result && result.success) ui.hideModal();
-				notify(result, _('Node saved. Create a profile for it in the Profiles section.'), true);
+				if (result && result.success) {
+					ui.hideModal();
+					if (onSaved)
+						onSaved(result, {
+							name: name.value, protocol: protocol.value, server: server.value, port: port.value
+						});
+				}
+				notify(result, _('Node saved. Create a profile for it in the Profiles section.'));
 			})
 			.catch(error => showRequestError(error))
 			.finally(() => { save.disabled = false; });
@@ -349,10 +356,10 @@ return view.extend({
 		const nodes = parseRows(outputOf(data[1]));
 		const profiles = parseRows(outputOf(data[2]));
 		const directDns = outputOf(data[3]) || '223.5.5.5:53';
-		const activeProfile = status.active_profile || '';
+		let activeProfile = status.active_profile || '';
 		const state = status.state || 'normal';
-		const enabledNodes = nodes.filter(row => row[5] === '1').length;
-		const enabledProfiles = profiles.filter(row => row[4] === '1').length;
+		let enabledNodes = nodes.filter(row => row[5] === '1').length;
+		let enabledProfiles = profiles.filter(row => row[4] === '1').length;
 
 		const profileOptions = [ E('option', { value: '' }, _('Select a profile')) ];
 		profiles.forEach(row => profileOptions.push(E('option', { value: row[0], selected: row[0] === activeProfile }, `${row[1]} (#${row[0]})`)));
@@ -366,12 +373,14 @@ return view.extend({
 		const profileNodeSelect = E('select', { class: 'cbi-input-select' }, profileNodeOptions);
 		const dnsInput = E('input', { class: 'cbi-input-text', type: 'text', value: directDns });
 		const portsInput = E('input', { class: 'cbi-input-text', type: 'text', value: status.transparent_proxy_ports || '80,443,8080,8443' });
+		const activeProfileCard = card(_('Active profile'), activeProfile || _('Not selected'), `${enabledProfiles} ${_('enabled profile(s)')}`);
+		const nodesCard = card(_('Nodes'), `${enabledNodes} / ${nodes.length}`, _('Enabled nodes / total nodes'));
 
 		const overview = [
 			E('div', { class: 'v2rayb-cards' }, [
 				card(_('Service'), statusBadge(state), _('Unified V2Ray, MosDNS, dnsmasq and nftables lifecycle')),
-				card(_('Active profile'), activeProfile || _('Not selected'), `${enabledProfiles} ${_('enabled profile(s)')}`),
-				card(_('Nodes'), `${enabledNodes} / ${nodes.length}`, _('Enabled nodes / total nodes')),
+				activeProfileCard,
+				nodesCard,
 				card(_('DNS path'), state === 'proxy' ? _('V2Ray + MosDNS') : _('WAN / normal mode'), _('dnsmasq remains the primary resolver'))
 			]),
 			E('div', { class: 'cbi-section' }, [
@@ -389,9 +398,64 @@ return view.extend({
 			], _('No status data available.'))
 		];
 
-		const profileRows = profiles.map(row => [ row[0], row[1], row[2], row[3] || E('span', { class: 'v2rayb-muted' }, _('No node')),
-			row[4] === '1' ? _('Enabled') : _('Disabled'), row[0] === activeProfile ? E('strong', {}, _('Active')) : '' ]);
-		const nodeRows = nodes.map(row => [ row[0], row[1], row[2].toUpperCase(), row[3], row[4], row[5] === '1' ? _('Enabled') : _('Disabled') ]);
+		let profileTable, nodeTable;
+		const profileTableHeaders = [ _('ID'), _('Name'), _('Engine'), _('Primary node'), _('State'), _('Selected') ];
+		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('State') ];
+
+		function profileTableRows() {
+			return profiles.map(row => [ row[0], row[1], row[2], row[3] || E('span', { class: 'v2rayb-muted' }, _('No node')),
+				row[4] === '1' ? _('Enabled') : _('Disabled'), row[0] === activeProfile ? E('strong', {}, _('Active')) : '' ]);
+		}
+		function nodeTableRows() {
+			return nodes.map(row => [ row[0], row[1], row[2].toUpperCase(), row[3], row[4], row[5] === '1' ? _('Enabled') : _('Disabled') ]);
+		}
+		function refreshNodeTable() {
+			const next = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'));
+			nodeTable.replaceWith(next);
+			nodeTable = next;
+		}
+		function refreshProfileTable() {
+			const next = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'));
+			profileTable.replaceWith(next);
+			profileTable = next;
+		}
+		function refreshNodeCard() {
+			enabledNodes = nodes.filter(row => row[5] === '1').length;
+			nodesCard.querySelector('.v2rayb-card-value').textContent = `${enabledNodes} / ${nodes.length}`;
+		}
+		function refreshProfileCard() {
+			enabledProfiles = profiles.filter(row => row[4] === '1').length;
+			activeProfileCard.querySelector('.v2rayb-card-value').textContent = activeProfile || _('Not selected');
+			activeProfileCard.querySelector('.v2rayb-card-help').textContent = `${enabledProfiles} ${_('enabled profile(s)')}`;
+		}
+		function refreshProfileNodeOptions() {
+			while (profileNodeSelect.firstChild)
+				profileNodeSelect.removeChild(profileNodeSelect.firstChild);
+			profileNodeSelect.appendChild(E('option', { value: '' }, _('Select a primary node')));
+			nodes.filter(row => row[5] === '1').forEach(row => profileNodeSelect.appendChild(E('option', { value: row[0] },
+				`${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`)));
+		}
+		function refreshProfileOptions() {
+			while (profileSelect.firstChild)
+				profileSelect.removeChild(profileSelect.firstChild);
+			profileSelect.appendChild(E('option', { value: '' }, _('Select a profile')));
+			profiles.forEach(row => profileSelect.appendChild(E('option', {
+				value: row[0], selected: row[0] === activeProfile
+			}, `${row[1]} (#${row[0]})`)));
+		}
+		function onNodeSaved(result, node) {
+			const id = String(result.node_id);
+			const row = [ id, node.name, node.protocol, node.server, node.port, '1' ];
+			const index = nodes.findIndex(item => item[0] === id || item[1] === node.name);
+			if (index >= 0)
+				nodes[index] = row;
+			else
+				nodes.push(row);
+			refreshNodeTable();
+			refreshNodeCard();
+			refreshProfileNodeOptions();
+			createProfileButton.disabled = !nodes.some(item => item[5] === '1');
+		}
 		const createProfileButton = E('button', {
 			class: 'cbi-button cbi-button-apply',
 			type: 'button',
@@ -409,29 +473,57 @@ return view.extend({
 
 				createProfileButton.disabled = true;
 				return callAddProfile(name, profileNodeSelect.value)
-					.then(result => notify(result, _('Profile created and selected.'), true))
+					.then(result => {
+						if (result && result.success) {
+							const id = String(result.profile_id);
+							const node = nodes.find(row => row[0] === profileNodeSelect.value);
+							profiles.push([ id, name, 'v2ray', node ? node[1] : '', '1' ]);
+							activeProfile = id;
+							newProfileName.value = '';
+							refreshProfileTable();
+							refreshProfileCard();
+							refreshProfileOptions();
+						}
+						notify(result, _('Profile created and selected.'));
+					})
 					.catch(error => showRequestError(error))
 					.finally(() => { createProfileButton.disabled = false; });
 			}
 		}, _('Create profile'));
+		nodeTable = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'));
+		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'));
 		const nodesPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
 				E('p', { class: 'v2rayb-help' }, _('Nodes are stored in the v2rayB database. Use the structured editor to describe the endpoint; v2rayB generates the protocol-specific outbound configuration internally.')),
-				E('div', { class: 'v2rayb-toolbar' }, [ E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => showNodeModal(this) }, _('Add node')) ]),
-				table([ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('State') ], nodeRows, _('No nodes configured.'))
+				E('div', { class: 'v2rayb-toolbar' }, [ E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => showNodeModal(this, onNodeSaved) }, _('Add node')) ]),
+				nodeTable
 			]),
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, _('Profiles')), table([ _('ID'), _('Name'), _('Engine'), _('Primary node'), _('State'), _('Selected') ], profileRows, _('No profiles configured.')),
+				E('h3', {}, _('Profiles')), profileTable,
 				E('h4', {}, _('Create a profile')),
 				E('p', { class: 'v2rayb-help' }, _('Create a profile from a saved node. The new profile will become the active profile.')),
 				field(_('Profile name'), newProfileName),
 				field(_('Primary node'), profileNodeSelect),
 				E('div', { class: 'v2rayb-toolbar' }, [ createProfileButton ]),
 				field(_('Active profile'), profileSelect),
-				E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => profileSelect.value
-					? callSelectProfile(profileSelect.value).then(result => notify(result, _('Profile selected.'), true)).catch(error => showRequestError(error))
-					: ui.addNotification(null, E('p', {}, _('Select a profile first.')), 'warning') }, _('Select profile'))
+				E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
+					if (!profileSelect.value) {
+						ui.addNotification(null, E('p', {}, _('Select a profile first.')), 'warning');
+						return;
+					}
+					return callSelectProfile(profileSelect.value)
+						.then(result => {
+							if (result && result.success) {
+								activeProfile = profileSelect.value;
+								refreshProfileTable();
+								refreshProfileCard();
+								refreshProfileOptions();
+							}
+							notify(result, _('Profile selected.'));
+						})
+						.catch(error => showRequestError(error));
+				} }, _('Select profile'))
 			])
 		];
 
@@ -439,9 +531,9 @@ return view.extend({
 			E('h3', {}, _('DNS and Transparent Proxy')),
 			E('p', { class: 'v2rayb-help' }, _('dnsmasq remains the public DNS service. These values are used by v2rayB when proxy mode is active and are restored on stop.')),
 			field(_('Direct DNS upstream'), dnsInput, _('Used by the MosDNS direct branch, for example 223.5.5.5:53.')),
-			E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('direct_dns', dnsInput.value).then(result => notify(result, _('Direct DNS saved.'), true)) }, _('Save DNS setting')),
+			E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('direct_dns', dnsInput.value).then(result => notify(result, _('Direct DNS saved.'))) }, _('Save DNS setting')),
 			field(_('Transparent TCP ports'), portsInput, _('Comma-separated ports, for example 80,443,8080,8443.')),
-			E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('transparent_proxy_ports', portsInput.value).then(result => notify(result, _('Proxy ports saved.'), true)) }, _('Save port setting'))
+			E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('transparent_proxy_ports', portsInput.value).then(result => notify(result, _('Proxy ports saved.'))) }, _('Save port setting'))
 		]) ];
 
 		const diagnosticsPane = [ E('div', { class: 'cbi-section' }, [
