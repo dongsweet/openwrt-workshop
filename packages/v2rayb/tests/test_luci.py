@@ -39,6 +39,8 @@ def main():
     ):
         assert f"\n\t{method}: {{" in rpc_source
     assert ".test(" not in rpc_source
+    assert ".split(" not in rpc_source
+    assert "split(result.output, '\\t')" in rpc_source
     assert "data_json[0]" not in rpc_source
     assert "substr(data_json, 0, 1)" in rpc_source
     assert "substr(data_json, length(data_json) - 1, 1)" in rpc_source

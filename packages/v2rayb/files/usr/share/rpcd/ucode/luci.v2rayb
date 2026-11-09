@@ -83,7 +83,7 @@ const methods = {
 			let result = ctl([ 'get-node', node_id ]);
 			if (result.code != 0)
 				return failed(result);
-			let columns = result.output.split('\t');
+			let columns = split(result.output, '\t');
 			if (length(columns) != 6)
 				return { success: false, error: 'Node details could not be read' };
 			return {
@@ -194,9 +194,9 @@ const methods = {
 			let profiles = ctl([ 'list-profiles' ]);
 			if (profiles.code != 0)
 				return failed(profiles);
-			let profile_lines = profiles.output.split('\n');
+			let profile_lines = split(profiles.output, '\n');
 			for (let i = 0; i < length(profile_lines); i++) {
-				let columns = profile_lines[i].split('\t');
+				let columns = split(profile_lines[i], '\t');
 				if (columns[1] == name)
 					return { success: false, error: 'A profile with this name already exists' };
 			}
