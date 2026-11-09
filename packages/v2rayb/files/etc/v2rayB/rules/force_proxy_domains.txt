@@ -1,0 +1,1 @@
+# Force-proxy DNS/IP rules remain managed by dnsmasq in /etc/dnsmasq.d.

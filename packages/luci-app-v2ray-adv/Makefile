@@ -13,6 +13,10 @@ LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk
 
+define Package/luci-app-v2ray-adv/conffiles
+/etc/config/v2ray_adv
+endef
+
 # call BuildPackage - OpenWrt buildroot signature
 define Package/luci-app-v2ray-adv/install
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
@@ -30,5 +34,3 @@ define Package/luci-app-v2ray-adv/install
 	$(INSTALL_BIN) ./root/usr/libexec/v2ray-adv-update $(1)/usr/libexec/
 	$(INSTALL_BIN) ./root/usr/libexec/v2ray-adv-check $(1)/usr/libexec/
 endef
-
-$(eval $(call BuildPackage,luci-app-v2ray-adv))

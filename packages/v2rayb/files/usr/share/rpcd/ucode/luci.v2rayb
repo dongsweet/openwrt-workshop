@@ -1,0 +1,175 @@
+#!/usr/bin/env ucode
+
+'use strict';
+
+import { popen } from 'fs';
+
+const ctl_path = '/usr/libexec/v2rayB/v2rayBctl';
+const init_path = '/etc/init.d/v2rayB';
+
+function shell_quote(value) {
+	return "'" + replace('' + value, /'/g, "'\\''") + "'";
+}
+
+function run(path, args) {
+	let command = path;
+	for (let i = 0; i < length(args); i++)
+		command += ' ' + shell_quote(args[i]);
+
+	let pipe = popen(command + ' 2>&1', 'r');
+	if (!pipe)
+		return { code: -1, output: 'Unable to start v2rayB command' };
+
+	let output = pipe.read('all') || '';
+	let code = pipe.close();
+	return {
+		code: code,
+		output: replace(output, /^\s+|\s+$/g, '')
+	};
+}
+
+function ctl(args) {
+	return run(ctl_path, args);
+}
+
+function string_arg(request, key) {
+	let value = request?.args?.[key];
+	return type(value) == 'string' ? value : '';
+}
+
+function failed(result) {
+	return {
+		success: false,
+		error: result.output || 'v2rayB command failed'
+	};
+}
+
+const methods = {
+	status: {
+		call: function() {
+			return ctl([ 'status' ]);
+		}
+	},
+
+	list_nodes: {
+		call: function() {
+			return ctl([ 'list-nodes' ]);
+		}
+	},
+
+	list_profiles: {
+		call: function() {
+			return ctl([ 'list-profiles' ]);
+		}
+	},
+
+	get_setting: {
+		args: { key: '' },
+		call: function(request) {
+			let key = string_arg(request, 'key');
+			if (key != 'direct_dns')
+				return { code: -1, output: 'Unsupported setting' };
+
+			return ctl([ 'get-setting', key ]);
+		}
+	},
+
+	service_action: {
+		args: { action: '' },
+		call: function(request) {
+			let action = string_arg(request, 'action');
+			if (!match(action, /^(start|stop|restart)$/))
+				return { success: false, error: 'Unsupported service action' };
+
+			let result = run(init_path, [ action ]);
+			return result.code == 0 ? { success: true } : failed(result);
+		}
+	},
+
+	set_setting: {
+		args: { key: '', value: '' },
+		call: function(request) {
+			let key = string_arg(request, 'key');
+			let value = string_arg(request, 'value');
+			if (key != 'direct_dns' && key != 'transparent_proxy_ports')
+				return { success: false, error: 'Unsupported setting' };
+
+			let result = ctl([ 'set-setting', key, value ]);
+			return result.code == 0 ? { success: true } : failed(result);
+		}
+	},
+
+	select_profile: {
+		args: { profile_id: '' },
+		call: function(request) {
+			let profile_id = string_arg(request, 'profile_id');
+			if (!match(profile_id, /^[0-9]+$/))
+				return { success: false, error: 'Invalid profile id' };
+
+			let result = ctl([ 'select-profile', profile_id ]);
+			return result.code == 0 ? { success: true } : failed(result);
+		}
+	},
+
+	add_node: {
+		args: {
+			name: '', protocol: '', server: '', port: '', data_json: ''
+		},
+		call: function(request) {
+			let name = string_arg(request, 'name');
+			let protocol = string_arg(request, 'protocol');
+			let server = string_arg(request, 'server');
+			let port = string_arg(request, 'port');
+			let data_json = string_arg(request, 'data_json');
+
+			if (length(name) > 64 || length(server) > 255 || length(data_json) > 16384)
+				return { success: false, error: 'One or more fields are too long' };
+			if (!match(protocol, /^(vless|vmess|trojan|shadowsocks)$/))
+				return { success: false, error: 'Unsupported node protocol' };
+			if (!match(port, /^[0-9]+$/) || +port < 1 || +port > 65535)
+				return { success: false, error: 'Invalid node port' };
+			if (data_json == '' || data_json[0] != '{' || data_json[length(data_json) - 1] != '}')
+				return { success: false, error: 'Outbound data must be a JSON object' };
+
+			let result = ctl([ 'add-node', name, protocol, server, port, data_json ]);
+			if (result.code != 0)
+				return failed(result);
+
+			let node_id = replace(result.output, /^\s+|\s+$/g, '');
+			if (!match(node_id, /^[0-9]+$/))
+				return { success: false, error: 'Node was saved but its id could not be read' };
+
+			return { success: true, node_id: node_id };
+		}
+	},
+
+	add_profile: {
+		args: { name: '', node_id: '' },
+		call: function(request) {
+			let name = string_arg(request, 'name');
+			let node_id = string_arg(request, 'node_id');
+			if (length(name) > 64)
+				return { success: false, error: 'Profile name is too long' };
+			if (!match(node_id, /^[0-9]+$/))
+				return { success: false, error: 'Select a valid primary node' };
+
+			let profiles = ctl([ 'list-profiles' ]);
+			if (profiles.code != 0)
+				return failed(profiles);
+			let profile_lines = profiles.output.split('\n');
+			for (let i = 0; i < length(profile_lines); i++) {
+				let columns = profile_lines[i].split('\t');
+				if (columns[1] == name)
+					return { success: false, error: 'A profile with this name already exists' };
+			}
+
+			let result = ctl([ 'add-profile', name, node_id ]);
+			if (result.code != 0)
+				return failed(result);
+
+			return { success: true, profile_id: replace(result.output, /^\s+|\s+$/g, '') };
+		}
+	}
+};
+
+return { 'luci.v2rayb': methods };

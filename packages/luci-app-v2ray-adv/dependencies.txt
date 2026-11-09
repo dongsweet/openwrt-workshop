@@ -1,0 +1,2 @@
+apk update
+apk add ipset kmod-ipt-ipset iptables-nft kmod-ipt-nat kmod-nf-ipt dnsmasq-full ca-bundle ca-certificates

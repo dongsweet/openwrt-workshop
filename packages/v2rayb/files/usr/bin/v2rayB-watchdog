@@ -1,0 +1,78 @@
+#!/bin/sh
+
+TAG="v2rayB-watchdog"
+CTL="/usr/libexec/v2rayB/v2rayBctl"
+FAIL_LIMIT=3
+COOLDOWN_SECONDS=600
+INITIAL_DELAY=60
+STATE_FILE="/tmp/v2rayB/watchdog.state"
+failures=0
+last_restart="$(sed -n '1p' "$STATE_FILE" 2>/dev/null || printf 0)"
+case "$last_restart" in ''|*[!0-9]*) last_restart=0 ;; esac
+
+log() {
+	logger -t "$TAG" "$*"
+}
+
+random_delay() {
+	awk 'BEGIN { srand(); print 10 + int(rand() * 21) }'
+}
+
+probe_dns() {
+	port="$("$CTL" get-setting mosdns_listen 2>/dev/null | sed 's/.*#//' || printf 5354)"
+	/usr/bin/dig +short +time=3 +tries=1 @127.0.0.1 -p "$port" www.google.com A 2>/dev/null \
+		| /bin/grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+	/usr/bin/dig +short +time=3 +tries=1 @127.0.0.1 www.google.com A 2>/dev/null \
+		| /bin/grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'
+}
+
+log "started; waiting ${INITIAL_DELAY}s before the first DNS probe"
+sleep "$INITIAL_DELAY"
+log "DNS probe interval is randomized from 10 to 30 seconds"
+
+while :; do
+	sleep "$(random_delay)"
+	[ "$(sed -n '1p' /tmp/v2rayB/state 2>/dev/null)" = proxy ] || {
+		failures=0
+		continue
+	}
+	now="$(date +%s)"
+
+	if probe_dns; then
+		if [ "$failures" -gt 0 ]; then
+			log "DNS probe recovered after $failures consecutive failure(s)"
+		fi
+		failures=0
+		continue
+	fi
+
+	if [ "$failures" -lt "$FAIL_LIMIT" ]; then
+		failures=$((failures + 1))
+		log "DNS probe failed ($failures/$FAIL_LIMIT)"
+	fi
+	[ "$failures" -ge "$FAIL_LIMIT" ] || continue
+
+	if [ "$((now - last_restart))" -lt "$COOLDOWN_SECONDS" ]; then
+		continue
+	fi
+
+	last_restart="$now"
+	state_tmp="$STATE_FILE.tmp.$$"
+	printf '%s\n' "$last_restart" > "$state_tmp"
+	mv "$state_tmp" "$STATE_FILE"
+	log "DNS probe failed $failures consecutive times; restarting v2rayB"
+	if /etc/init.d/v2rayB restart; then
+		log "v2rayB restart command completed"
+	else
+		log "v2rayB restart command failed"
+	fi
+
+	sleep 5
+	if probe_dns; then
+		failures=0
+		log "DNS probe recovered after v2rayB restart"
+	else
+		failures="$FAIL_LIMIT"
+		log "DNS probe still failing after v2rayB restart; next restart is limited by the 10-minute cooldown"
+	fi
+done

@@ -1,0 +1,15 @@
+{
+	"luci-app-v2rayb": {
+		"description": "Manage v2rayB through its LuCI page",
+		"read": {
+			"ubus": {
+				"luci.v2rayb": [ "status", "get_setting", "list_nodes", "list_profiles" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"luci.v2rayb": [ "service_action", "set_setting", "add_node", "add_profile", "select_profile" ]
+			}
+		}
+	}
+}

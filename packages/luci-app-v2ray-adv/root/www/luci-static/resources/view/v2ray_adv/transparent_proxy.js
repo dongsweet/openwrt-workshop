@@ -13,6 +13,7 @@ return view.extend({
 
 		// --- Detect dokodemo-door inbounds ---
 		var inbounds = uci.sections('v2ray_adv', 'inbound');
+		var servers = uci.sections('v2ray_adv', 'server');
 		var doko_inbounds = [];
 		for (var i = 0; i < inbounds.length; i++) {
 			if (inbounds[i].protocol === 'dokodemo-door') {
@@ -97,11 +98,39 @@ return view.extend({
 		o.default = '1';
 		o.rmempty = false;
 
+		// --- Block QUIC ---
+		o = s.option(form.Flag, 'block_quic', _('Block QUIC (UDP 443)'),
+			_('Block UDP port 443 to force browsers to fallback from HTTP/3 QUIC to TCP. This prevents proxy bypass and UDP timeouts.'));
+		o.default = '1';
+		o.rmempty = false;
+
 		// --- Proxy Ports ---
 		o = s.option(form.Value, 'proxy_ports', _('Proxy Ports'),
 			_('Only forward traffic destined for these ports to the proxy. Example: <code>22-10000</code> or <code>80,443</code>. Leave empty to forward all ports.'));
 		o.datatype = 'string';
 		o.placeholder = '0-65535';
+
+		// --- Force Proxy List ---
+		o = s.option(form.ListValue, 'force_proxy_server', _('Force Proxy Server'),
+			_('Server used for destinations that must enter the proxy before China bypass rules are evaluated. Leave empty to use the default routing server.'));
+		o.value('', _('Default Routing Server'));
+		for (var j = 0; j < servers.length; j++) {
+			var srv = servers[j];
+			var srvId = srv['.name'];
+			var srvAlias = srv.alias || srvId;
+			var srvStatus = srv.enabled === '1' ? 'on' : 'off';
+			o.value(srvId, srvAlias + ' (' + srvStatus + ')');
+		}
+
+		o = s.option(form.DynamicList, 'force_proxy_domain', _('Force Proxy Domains'),
+			_('Domains whose DNS answers are added to the "force_proxy" ipset and redirected before the China IP bypass. Use this for control-plane domains that must use the proxy; avoid adding Google GGC cache domains such as xn--ngstr-lra8j.com when those domestic cache IPs work directly.'));
+		o.datatype = 'string';
+		o.placeholder = 'googleapis.com';
+
+		o = s.option(form.DynamicList, 'force_proxy_ip', _('Force Proxy IPs'),
+			_('IP addresses or CIDRs that should enter the proxy even when Bypass China is enabled.'));
+		o.datatype = 'or(ipaddr, cidr4)';
+		o.placeholder = '113.108.239.0/24';
 
 		// --- Pass IP List ---
 		o = s.option(form.DynamicList, 'pass_ip', _('Direct Access IPs'),

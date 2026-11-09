@@ -1,0 +1,3 @@
+# MosDNS is a narrow resolver for Google Play GGC answers. dnsmasq keeps its
+# existing domain-specific upstream and nftset rules in /etc/dnsmasq.d.
+regexp:^r\+[0-9]+(---|\.)sn-(2x3|ni5|j5o)[a-z0-9_]{5}\.xn--ngstr-lra8j\.com$

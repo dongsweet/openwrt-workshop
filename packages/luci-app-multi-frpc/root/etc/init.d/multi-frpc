@@ -277,7 +277,14 @@ map_legacy_excludes() {
 
 	for value in $EXCLUDE_VALUES; do
 		key=""
-		eval "key=\${SERVER_KEY_$value}"
+		case "$value" in
+			*[!A-Za-z0-9_]*)
+				key=""
+			;;
+			*)
+				eval "key=\${SERVER_KEY_$value}"
+			;;
+		esac
 
 		if [ -n "$key" ]; then
 			mapped="$key"

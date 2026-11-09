@@ -1,8 +1,3 @@
-ifeq ($(TOPDIR),)
-.PHONY: clean
-clean:
-else
-
 #
 # Copyright (C) 2008-2014 The LuCI Team <luci@lists.subsignal.org>
 #
@@ -27,5 +22,3 @@ endef
 include $(TOPDIR)/feeds/luci/luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature
-
-endif

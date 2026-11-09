@@ -1,0 +1,2 @@
+# Optional IPv4 addresses or CIDRs that should bypass the transparent proxy.
+# China IP ranges use the V2Ray geoip:cn outbound rule instead of a large static nft set.
