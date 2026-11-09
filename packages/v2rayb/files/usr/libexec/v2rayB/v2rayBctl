@@ -213,6 +213,103 @@ cmd_add_profile() {
 	printf '%s\n' "$profile_id"
 }
 
+cmd_update_node() {
+	ensure_db
+	node_id="$1"
+	name="$2"
+	protocol="$3"
+	server="$4"
+	port="$5"
+	data_json="${6:-}"
+	is_uint "$node_id" || die "node id must be numeric"
+	is_name "$name" || die "invalid node name"
+	is_protocol "$protocol" || die "unsupported protocol: $protocol"
+	is_server "$server" || die "invalid server"
+	is_uint "$port" || die "port must be numeric"
+	[ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || die "port out of range"
+	[ -n "$data_json" ] || die "data_json is required"
+	case "$data_json" in
+		\{*\}) ;;
+		*) die "data_json must be a JSON object" ;;
+	esac
+	count="$(db_sql "SELECT COUNT(*) FROM nodes WHERE id=$node_id;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "node not found: $node_id"
+	source_id="$(db_sql "SELECT source_id FROM nodes WHERE id=$node_id;" | sed -n '1p')"
+	count="$(db_sql "SELECT COUNT(*) FROM nodes WHERE source_id=$source_id AND name=$(sql_quote "$name") AND id<>$node_id;" | tr -d '[:space:]')"
+	[ "$count" = 0 ] || die "node name already exists: $name"
+	db_sql "UPDATE nodes SET name=$(sql_quote "$name"), protocol=$(sql_quote "$protocol"), server=$(sql_quote "$server"), port=$port, data_json=$(sql_quote "$data_json"), updated_at=CURRENT_TIMESTAMP WHERE id=$node_id;"
+	printf '%s\n' "$node_id"
+}
+
+cmd_set_node_enabled() {
+	ensure_db
+	node_id="$1"
+	enabled="$2"
+	is_uint "$node_id" || die "node id must be numeric"
+	case "$enabled" in 0|1) ;; *) die "enabled must be 0 or 1" ;; esac
+	count="$(db_sql "SELECT COUNT(*) FROM nodes WHERE id=$node_id;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "node not found: $node_id"
+	if [ "$enabled" = 0 ] && [ "$(db_sql "SELECT COUNT(*) FROM profile_nodes WHERE node_id=$node_id;" | tr -d '[:space:]')" != 0 ]; then
+		die "node is referenced by a profile; remove the profile first"
+	fi
+	db_sql "UPDATE nodes SET enabled=$enabled, updated_at=CURRENT_TIMESTAMP WHERE id=$node_id;"
+}
+
+cmd_delete_node() {
+	ensure_db
+	node_id="$1"
+	is_uint "$node_id" || die "node id must be numeric"
+	count="$(db_sql "SELECT COUNT(*) FROM nodes WHERE id=$node_id;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "node not found: $node_id"
+	count="$(db_sql "SELECT COUNT(*) FROM profile_nodes WHERE node_id=$node_id;" | tr -d '[:space:]')"
+	[ "$count" = 0 ] || die "node is referenced by a profile; remove the profile first"
+	db_sql "DELETE FROM nodes WHERE id=$node_id;"
+}
+
+cmd_update_profile() {
+	ensure_db
+	profile_id="$1"
+	name="$2"
+	node_id="$3"
+	is_uint "$profile_id" || die "profile id must be numeric"
+	is_name "$name" || die "invalid profile name"
+	is_uint "$node_id" || die "node id must be numeric"
+	count="$(db_sql "SELECT COUNT(*) FROM profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "profile not found: $profile_id"
+	count="$(db_sql "SELECT COUNT(*) FROM nodes WHERE id=$node_id AND enabled=1;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "node not found or disabled: $node_id"
+	count="$(db_sql "SELECT COUNT(*) FROM profiles WHERE name=$(sql_quote "$name") AND id<>$profile_id;" | tr -d '[:space:]')"
+	[ "$count" = 0 ] || die "profile already exists: $name"
+	db_sql "UPDATE profiles SET name=$(sql_quote "$name"), updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id; DELETE FROM profile_nodes WHERE profile_id=$profile_id; INSERT INTO profile_nodes(profile_id, node_id, role, priority) VALUES($profile_id, $node_id, 'primary', 0);"
+	printf '%s\n' "$profile_id"
+}
+
+cmd_set_profile_enabled() {
+	ensure_db
+	profile_id="$1"
+	enabled="$2"
+	is_uint "$profile_id" || die "profile id must be numeric"
+	case "$enabled" in 0|1) ;; *) die "enabled must be 0 or 1" ;; esac
+	count="$(db_sql "SELECT COUNT(*) FROM profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "profile not found: $profile_id"
+	active_profile_id="$(setting active_profile)"
+	if [ "$enabled" = 0 ] && [ "$active_profile_id" = "$profile_id" ]; then
+		die "active profile must be switched before it can be disabled"
+	fi
+	db_sql "UPDATE profiles SET enabled=$enabled, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
+}
+
+cmd_delete_profile() {
+	ensure_db
+	profile_id="$1"
+	is_uint "$profile_id" || die "profile id must be numeric"
+	count="$(db_sql "SELECT COUNT(*) FROM profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "profile not found: $profile_id"
+	active_profile_id="$(setting active_profile)"
+	[ "$active_profile_id" != "$profile_id" ] || die "active profile must be switched before it can be deleted"
+	db_sql "DELETE FROM profiles WHERE id=$profile_id;"
+}
+
 cmd_select_profile() {
 	ensure_db
 	profile_id="$1"
@@ -225,6 +322,15 @@ cmd_select_profile() {
 cmd_list_nodes() {
 	ensure_db
 	db_sql "SELECT id || char(9) || name || char(9) || protocol || char(9) || server || char(9) || port || char(9) || enabled FROM nodes ORDER BY id;"
+}
+
+cmd_get_node() {
+	ensure_db
+	node_id="$1"
+	is_uint "$node_id" || die "node id must be numeric"
+	row="$(db_sql "SELECT name || char(9) || protocol || char(9) || server || char(9) || port || char(9) || enabled || char(9) || data_json FROM nodes WHERE id=$node_id;")"
+	[ -n "$row" ] || die "node not found: $node_id"
+	printf '%s\n' "$row"
 }
 
 cmd_list_profiles() {
@@ -519,9 +625,16 @@ Usage:
   v2rayBctl set-state normal|starting|proxy|stopping|degraded
   v2rayBctl add-source manual|subscription|imported NAME [URL] [FORMAT]
   v2rayBctl add-node NAME PROTOCOL SERVER PORT DATA_JSON
+  v2rayBctl update-node NODE_ID NAME PROTOCOL SERVER PORT DATA_JSON
+  v2rayBctl set-node-enabled NODE_ID 0|1
+  v2rayBctl delete-node NODE_ID
   v2rayBctl add-profile NAME NODE_ID
+  v2rayBctl update-profile PROFILE_ID NAME NODE_ID
+  v2rayBctl set-profile-enabled PROFILE_ID 0|1
+  v2rayBctl delete-profile PROFILE_ID
   v2rayBctl select-profile PROFILE_ID
   v2rayBctl list-nodes
+  v2rayBctl get-node NODE_ID
   v2rayBctl list-profiles
   v2rayBctl render-v2ray|render-mosdns|render-nft|render-all
   v2rayBctl apply-nft|delete-nft|test-v2ray|test-dns|test-dnsmasq
@@ -541,9 +654,16 @@ case "$command" in
 	set-state) [ "$#" -eq 1 ] || usage; cmd_set_state "$1" ;;
 	add-source) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage; cmd_add_source "$@" ;;
 	add-node) [ "$#" -eq 5 ] || usage; cmd_add_manual_node "$@" ;;
+	update-node) [ "$#" -eq 6 ] || usage; cmd_update_node "$@" ;;
+	set-node-enabled) [ "$#" -eq 2 ] || usage; cmd_set_node_enabled "$@" ;;
+	delete-node) [ "$#" -eq 1 ] || usage; cmd_delete_node "$1" ;;
 	add-profile) [ "$#" -eq 2 ] || usage; cmd_add_profile "$@" ;;
+	update-profile) [ "$#" -eq 3 ] || usage; cmd_update_profile "$@" ;;
+	set-profile-enabled) [ "$#" -eq 2 ] || usage; cmd_set_profile_enabled "$@" ;;
+	delete-profile) [ "$#" -eq 1 ] || usage; cmd_delete_profile "$1" ;;
 	select-profile) [ "$#" -eq 1 ] || usage; cmd_select_profile "$1" ;;
 	list-nodes) [ "$#" -eq 0 ] || usage; cmd_list_nodes ;;
+	get-node) [ "$#" -eq 1 ] || usage; cmd_get_node "$1" ;;
 	list-profiles) [ "$#" -eq 0 ] || usage; cmd_list_profiles ;;
 	render-v2ray) [ "$#" -eq 0 ] || usage; cmd_render_v2ray ;;
 	render-mosdns) [ "$#" -eq 0 ] || usage; cmd_render_mosdns ;;

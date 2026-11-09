@@ -27,9 +27,31 @@ const callSelectProfile = rpc.declare({
 const callAddProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'add_profile', params: [ 'name', 'node_id' ], expect: { '': {} }, reject: true
 });
+const callUpdateProfile = rpc.declare({
+	object: 'luci.v2rayb', method: 'update_profile', params: [ 'profile_id', 'name', 'node_id' ], expect: { '': {} }, reject: true
+});
+const callSetProfileEnabled = rpc.declare({
+	object: 'luci.v2rayb', method: 'set_profile_enabled', params: [ 'profile_id', 'enabled' ], expect: { '': {} }, reject: true
+});
+const callDeleteProfile = rpc.declare({
+	object: 'luci.v2rayb', method: 'delete_profile', params: [ 'profile_id' ], expect: { '': {} }, reject: true
+});
 const callAddNode = rpc.declare({
 	object: 'luci.v2rayb', method: 'add_node',
 	params: [ 'name', 'protocol', 'server', 'port', 'data_json' ], expect: { '': {} }, reject: true
+});
+const callGetNode = rpc.declare({
+	object: 'luci.v2rayb', method: 'get_node', params: [ 'node_id' ], expect: { '': {} }
+});
+const callUpdateNode = rpc.declare({
+	object: 'luci.v2rayb', method: 'update_node',
+	params: [ 'node_id', 'name', 'protocol', 'server', 'port', 'data_json' ], expect: { '': {} }, reject: true
+});
+const callSetNodeEnabled = rpc.declare({
+	object: 'luci.v2rayb', method: 'set_node_enabled', params: [ 'node_id', 'enabled' ], expect: { '': {} }, reject: true
+});
+const callDeleteNode = rpc.declare({
+	object: 'luci.v2rayb', method: 'delete_node', params: [ 'node_id' ], expect: { '': {} }, reject: true
 });
 
 function outputOf(result) {
@@ -82,6 +104,10 @@ function css() {
 		.v2rayb-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1rem; }
 		.v2rayb-toolbar .cbi-button { margin: 0; }
 		.v2rayb-table .cbi-section-table-cell { text-align: left !important; vertical-align: middle; }
+		.v2rayb-table .v2rayb-actions { text-align: right !important; white-space: nowrap; }
+		.v2rayb-row-actions { display: inline-flex; gap: .35rem; align-items: center; }
+		.v2rayb-row-actions .cbi-button { margin: 0; }
+		.v2rayb-create { display: flex; justify-content: flex-start; margin-top: .75rem; }
 		.v2rayb-help { color: #687587; font-size: .88rem; line-height: 1.5; }
 		.v2rayb-code { display: block; max-height: 20rem; overflow: auto; padding: 1rem; border-radius: 10px;
 			background: #17212b; color: #cfe6e7; white-space: pre-wrap; font: .82rem/1.5 monospace; }
@@ -115,6 +141,22 @@ function table(headers, rows, empty) {
 			headers.map(value => E('th', { class: 'th cbi-section-table-cell' }, value)))),
 		E('tbody', { class: 'tbody cbi-section-tbody' }, body)
 	]);
+}
+
+function confirmDelete(message) {
+	return new Promise(resolve => ui.showModal(_('Confirm deletion'), [
+		E('p', {}, message),
+		E('div', { class: 'right' }, [
+			E('button', { class: 'btn', type: 'button', click: () => { ui.hideModal(); resolve(false); } }, _('Cancel')),
+			' ',
+			E('button', { class: 'btn cbi-button cbi-button-remove', type: 'button', click: () => { ui.hideModal(); resolve(true); } }, _('Delete'))
+		])
+	]));
+}
+
+function actionCell(buttons) {
+	return E('td', { class: 'td cbi-section-table-cell cbi-section-actions v2rayb-actions' },
+		E('div', { class: 'v2rayb-row-actions' }, buttons));
 }
 
 function card(label, value, help) {
@@ -214,7 +256,7 @@ function renderTabs(panes) {
 	return E('div', {}, [ E('div', { class: 'v2rayb-nav', role: 'tablist' }, buttons), E('div', {}, panels) ]);
 }
 
-function showNodeModal(view, onSaved) {
+function showNodeModal(view, onSaved, existing) {
 	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true });
 	const protocol = E('select', { class: 'cbi-input-select' }, [ 'vless', 'vmess', 'trojan', 'shadowsocks' ].map(value => E('option', { value }, value.toUpperCase())));
 	const server = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '255', required: true });
@@ -287,6 +329,50 @@ function showNodeModal(view, onSaved) {
 	function refresh() {
 		conditional.forEach(item => { item[0].style.display = item[1]() ? '' : 'none'; });
 	}
+	function prefill(node) {
+		let data;
+		try {
+			data = JSON.parse(node.data_json || '{}');
+		} catch (e) {
+			ui.addNotification(null, E('p', {}, _('Stored node settings could not be decoded.')), 'error');
+			return;
+		}
+		const settings = data.settings || {};
+		const stream = data.streamSettings || {};
+		const vnext = settings.vnext && settings.vnext[0];
+		const serverConfig = settings.servers && settings.servers[0];
+		const endpoint = vnext || serverConfig || {};
+		const user = vnext && vnext.users && vnext.users[0];
+		name.value = node.name;
+		protocol.value = node.protocol;
+		server.value = node.server;
+		port.value = node.port;
+		uuid.value = (user && user.id) || endpoint.password || '';
+		flow.value = (user && user.flow) || '';
+		ssMethod.value = endpoint.method || 'aes-128-gcm';
+		security.value = stream.security || 'none';
+		transport.value = stream.network || 'tcp';
+		const tls = stream.tlsSettings || {};
+		const reality = stream.realitySettings || {};
+		sni.value = tls.serverName || reality.serverName || '';
+		insecure.checked = !!tls.allowInsecure;
+		fingerprint.value = reality.fingerprint || 'chrome';
+		publicKey.value = reality.publicKey || '';
+		shortId.value = reality.shortId || '';
+		spiderX.value = reality.spiderX || '/';
+		alpn.value = ((tls.alpn || reality.alpn || [])).join(',');
+		const tcp = (stream.tcpSettings && stream.tcpSettings.header) || {};
+		tcpGuise.value = tcp.type === 'http' ? 'http' : 'none';
+		tcpPath.value = (tcp.request && tcp.request.path && tcp.request.path[0]) || '/';
+		tcpHost.value = (tcp.request && tcp.request.headers && tcp.request.headers.Host && tcp.request.headers.Host[0]) || '';
+		wsPath.value = (stream.wsSettings && stream.wsSettings.path) || '/';
+		wsHost.value = (stream.wsSettings && stream.wsSettings.headers && stream.wsSettings.headers.Host) || '';
+		h2Path.value = (stream.httpSettings && stream.httpSettings.path) || '/';
+		h2Host.value = ((stream.httpSettings && stream.httpSettings.host) || []).join(',');
+		grpcService.value = (stream.grpcSettings && stream.grpcSettings.serviceName) || '';
+		muxEnabled.checked = !data.mux || data.mux.enabled !== false;
+		muxConcurrency.value = (data.mux && data.mux.concurrency) || 8;
+	}
 	protocol.addEventListener('change', refresh);
 	security.addEventListener('change', refresh);
 	transport.addEventListener('change', refresh);
@@ -297,22 +383,31 @@ function showNodeModal(view, onSaved) {
 		}
 		save.disabled = true;
 		const outbound = buildOutbound();
-		return callAddNode(name.value, protocol.value, server.value, port.value, outbound)
+		let request;
+		if (existing)
+			request = callUpdateNode(existing.id, name.value, protocol.value, server.value, port.value, outbound);
+		else
+			request = callAddNode(name.value, protocol.value, server.value, port.value, outbound);
+		return request
 			.then(result => {
 				if (result && result.success) {
 					ui.hideModal();
 					if (onSaved)
 						onSaved(result, {
-							name: name.value, protocol: protocol.value, server: server.value, port: port.value
+							id: existing ? existing.id : result.node_id,
+							name: name.value, protocol: protocol.value, server: server.value, port: port.value,
+							data_json: outbound
 						});
 				}
-				notify(result, _('Node saved. Create a profile for it in the Profiles section.'));
+				notify(result, existing ? _('Node changes saved.') : _('Node saved. Create a profile for it in the Profiles section.'));
 			})
 			.catch(error => showRequestError(error))
 			.finally(() => { save.disabled = false; });
-	}, }, _('Save node'));
+	}, }, existing ? _('Save changes') : _('Save node'));
 	const cancel = E('button', { class: 'cbi-button', type: 'button', click: () => ui.hideModal() }, _('Cancel'));
-	ui.showModal(_('Add proxy node'), [
+	if (existing)
+		prefill(existing);
+	ui.showModal(existing ? _('Edit proxy node') : _('Add proxy node'), [
 		E('div', { class: 'cbi-section' }, [ E('h3', {}, _('Basic settings')),
 			add(_('Name'), name), add(_('Protocol'), protocol), add(_('Server'), server), add(_('Port'), port),
 			add(_('UUID / password'), uuid)
@@ -343,6 +438,48 @@ function showNodeModal(view, onSaved) {
 	refresh();
 }
 
+function showProfileModal(onSaved, nodes, existing) {
+	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true, value: existing ? existing.name : '' });
+	const nodeSelect = E('select', { class: 'cbi-input-select' }, [
+		E('option', { value: '' }, _('Select a primary node')),
+		...nodes.filter(row => row[5] === '1').map(row => E('option', {
+			value: row[0], selected: existing && existing.primary === row[1]
+		}, `${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`))
+	]);
+	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
+		const profileName = name.value.trim();
+		if (!profileName || !nodeSelect.value) {
+			ui.addNotification(null, E('p', {}, _('Enter a profile name and select a primary node.')), 'warning');
+			return;
+		}
+		save.disabled = true;
+		const request = existing
+			? callUpdateProfile(existing.id, profileName, nodeSelect.value)
+			: callAddProfile(profileName, nodeSelect.value);
+		return request
+			.then(result => {
+				if (result && result.success) {
+					ui.hideModal();
+					if (onSaved)
+						onSaved(result, profileName, nodeSelect.value);
+				}
+				notify(result, existing ? _('Profile changes saved.') : _('Profile created and selected.'));
+			})
+			.catch(error => showRequestError(error))
+			.finally(() => { save.disabled = false; });
+	} }, existing ? _('Save changes') : _('Create profile'));
+	ui.showModal(existing ? _('Edit profile') : _('Create a profile'), [
+		E('div', { class: 'cbi-section' }, [
+			field(_('Profile name'), name),
+			field(_('Primary node'), nodeSelect)
+		]),
+		E('div', { class: 'cbi-page-actions' }, [
+			E('button', { class: 'cbi-button', type: 'button', click: () => ui.hideModal() }, _('Cancel')),
+			save
+		])
+	]);
+}
+
 return view.extend({
 	load() {
 		return Promise.all([
@@ -352,6 +489,7 @@ return view.extend({
 	},
 
 	render(data) {
+		const pageView = this;
 		const status = parseKeyValues(outputOf(data[0]));
 		const nodes = parseRows(outputOf(data[1]));
 		const profiles = parseRows(outputOf(data[2]));
@@ -361,16 +499,6 @@ return view.extend({
 		let enabledNodes = nodes.filter(row => row[5] === '1').length;
 		let enabledProfiles = profiles.filter(row => row[4] === '1').length;
 
-		const profileOptions = [ E('option', { value: '' }, _('Select a profile')) ];
-		profiles.forEach(row => profileOptions.push(E('option', { value: row[0], selected: row[0] === activeProfile }, `${row[1]} (#${row[0]})`)));
-		const profileSelect = E('select', { class: 'cbi-input-select' }, profileOptions);
-		const newProfileName = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64' });
-		const profileNodeOptions = [
-			E('option', { value: '' }, _('Select a primary node')),
-			...nodes.filter(row => row[5] === '1').map(row => E('option', { value: row[0] },
-				`${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`))
-		];
-		const profileNodeSelect = E('select', { class: 'cbi-input-select' }, profileNodeOptions);
 		const dnsInput = E('input', { class: 'cbi-input-text', type: 'text', value: directDns });
 		const portsInput = E('input', { class: 'cbi-input-text', type: 'text', value: status.transparent_proxy_ports || '80,443,8080,8443' });
 		const activeProfileCard = card(_('Active profile'), activeProfile || _('Not selected'), `${enabledProfiles} ${_('enabled profile(s)')}`);
@@ -399,15 +527,109 @@ return view.extend({
 		];
 
 		let profileTable, nodeTable;
-		const profileTableHeaders = [ _('ID'), _('Name'), _('Engine'), _('Primary node'), _('State'), _('Selected') ];
-		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('State') ];
+		const profileTableHeaders = [ _('ID'), _('Name'), _('Engine'), _('Primary node'), _('Enabled'), _('Active'), _('Actions') ];
+		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Enabled'), _('Actions') ];
 
+		function enabledToggle(enabled, change) {
+			const input = E('input', { type: 'checkbox', class: 'cbi-input-checkbox', checked: enabled === '1' });
+			input.addEventListener('change', () => {
+				input.disabled = true;
+				change(input.checked ? '1' : '0').finally(() => { input.disabled = false; });
+			});
+			return input;
+		}
+		function editButton(handler) {
+			return E('button', { class: 'btn cbi-button cbi-button-edit', type: 'button', click: handler }, _('Edit'));
+		}
+		function removeButton(handler) {
+			return E('button', { class: 'btn cbi-button cbi-button-remove', type: 'button', click: handler }, _('Delete'));
+		}
 		function profileTableRows() {
-			return profiles.map(row => [ row[0], row[1], row[2], row[3] || E('span', { class: 'v2rayb-muted' }, _('No node')),
-				row[4] === '1' ? _('Enabled') : _('Disabled'), row[0] === activeProfile ? E('strong', {}, _('Active')) : '' ]);
+			return profiles.map(row => [
+				row[0], row[1], row[2], row[3] || E('span', { class: 'v2rayb-muted' }, _('No node')),
+				enabledToggle(row[4], async enabled => {
+					const result = await callSetProfileEnabled(row[0], enabled).catch(error => { showRequestError(error); return null; });
+					if (result && result.success) {
+						row[4] = enabled;
+						refreshProfileTable();
+						refreshProfileCard();
+					} else {
+						refreshProfileTable();
+						if (result) notify(result, '');
+					}
+				}),
+				row[0] === activeProfile ? E('strong', {}, _('Active')) : '',
+				actionCell([
+					row[0] !== activeProfile && row[4] === '1'
+						? E('button', { class: 'btn cbi-button cbi-button-apply', type: 'button', click: () => {
+							return callSelectProfile(row[0]).then(result => {
+								if (result && result.success) {
+									activeProfile = row[0];
+									refreshProfileTable();
+									refreshProfileCard();
+								}
+								notify(result, _('Profile selected.'));
+							}).catch(showRequestError);
+						} }, _('Use')) : '',
+					editButton(() => showProfileModal((result, name, nodeId) => {
+						const node = nodes.find(item => item[0] === nodeId);
+						const index = profiles.findIndex(item => item[0] === row[0]);
+						if (index >= 0)
+							profiles[index] = [ row[0], name, row[2], node ? node[1] : '', row[4] ];
+						refreshProfileTable();
+						refreshProfileCard();
+					}, nodes, { id: row[0], name: row[1], primary: row[3] })),
+					removeButton(async () => {
+						if (!await confirmDelete(_('Delete profile "%s"?').format(row[1])))
+							return;
+						const result = await callDeleteProfile(row[0]).catch(error => { showRequestError(error); return null; });
+						if (result && result.success) {
+							const index = profiles.findIndex(item => item[0] === row[0]);
+							if (index >= 0) profiles.splice(index, 1);
+							refreshProfileTable();
+							refreshProfileCard();
+						} else if (result) notify(result, '');
+					})
+				].filter(Boolean))
+			]);
 		}
 		function nodeTableRows() {
-			return nodes.map(row => [ row[0], row[1], row[2].toUpperCase(), row[3], row[4], row[5] === '1' ? _('Enabled') : _('Disabled') ]);
+			return nodes.map(row => [
+				row[0], row[1], row[2].toUpperCase(), row[3], row[4],
+				enabledToggle(row[5], async enabled => {
+					const result = await callSetNodeEnabled(row[0], enabled).catch(error => { showRequestError(error); return null; });
+					if (result && result.success) {
+						row[5] = enabled;
+						refreshNodeTable();
+						refreshNodeCard();
+					} else {
+						refreshNodeTable();
+						if (result) notify(result, '');
+					}
+				}),
+				actionCell([
+					editButton(async () => {
+						const details = await callGetNode(row[0]).catch(error => { showRequestError(error); return null; });
+						if (!details || !details.success) {
+							if (details) notify(details, '');
+							return;
+						}
+						showNodeModal(pageView, onNodeSaved, details.node);
+					}),
+					removeButton(async () => {
+						if (!await confirmDelete(_('Delete node "%s"?').format(row[1])))
+							return;
+						const result = await callDeleteNode(row[0]).catch(error => { showRequestError(error); return null; });
+						if (result && result.success) {
+							const index = nodes.findIndex(item => item[0] === row[0]);
+							if (index >= 0) nodes.splice(index, 1);
+							refreshNodeTable();
+							refreshNodeCard();
+							refreshProfileTable();
+						} else if (result) notify(result, '');
+					})
+				])
+			]);
 		}
 		function refreshNodeTable() {
 			const next = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'));
@@ -428,102 +650,53 @@ return view.extend({
 			activeProfileCard.querySelector('.v2rayb-card-value').textContent = activeProfile || _('Not selected');
 			activeProfileCard.querySelector('.v2rayb-card-help').textContent = `${enabledProfiles} ${_('enabled profile(s)')}`;
 		}
-		function refreshProfileNodeOptions() {
-			while (profileNodeSelect.firstChild)
-				profileNodeSelect.removeChild(profileNodeSelect.firstChild);
-			profileNodeSelect.appendChild(E('option', { value: '' }, _('Select a primary node')));
-			nodes.filter(row => row[5] === '1').forEach(row => profileNodeSelect.appendChild(E('option', { value: row[0] },
-				`${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`)));
-		}
-		function refreshProfileOptions() {
-			while (profileSelect.firstChild)
-				profileSelect.removeChild(profileSelect.firstChild);
-			profileSelect.appendChild(E('option', { value: '' }, _('Select a profile')));
-			profiles.forEach(row => profileSelect.appendChild(E('option', {
-				value: row[0], selected: row[0] === activeProfile
-			}, `${row[1]} (#${row[0]})`)));
-		}
 		function onNodeSaved(result, node) {
-			const id = String(result.node_id);
-			const row = [ id, node.name, node.protocol, node.server, node.port, '1' ];
-			const index = nodes.findIndex(item => item[0] === id || item[1] === node.name);
+			const id = String(node.id || result.node_id);
+			const index = nodes.findIndex(item => item[0] === id);
 			if (index >= 0)
-				nodes[index] = row;
+				nodes[index] = [ id, node.name, node.protocol, node.server, node.port, nodes[index][5] ];
 			else
-				nodes.push(row);
+				nodes.push([ id, node.name, node.protocol, node.server, node.port, '1' ]);
 			refreshNodeTable();
 			refreshNodeCard();
-			refreshProfileNodeOptions();
-			createProfileButton.disabled = !nodes.some(item => item[5] === '1');
+			refreshProfileTable();
 		}
-		const createProfileButton = E('button', {
-			class: 'cbi-button cbi-button-apply',
-			type: 'button',
-			disabled: !nodes.some(row => row[5] === '1'),
-			click: () => {
-				const name = newProfileName.value.trim();
-				if (!name || !profileNodeSelect.value) {
-					ui.addNotification(null, E('p', {}, _('Enter a profile name and select a primary node.')), 'warning');
-					return;
-				}
-				if (profiles.some(row => row[1] === name)) {
-					ui.addNotification(null, E('p', {}, _('A profile with this name already exists.')), 'warning');
-					return;
-				}
-
-				createProfileButton.disabled = true;
-				return callAddProfile(name, profileNodeSelect.value)
-					.then(result => {
-						if (result && result.success) {
-							const id = String(result.profile_id);
-							const node = nodes.find(row => row[0] === profileNodeSelect.value);
-							profiles.push([ id, name, 'v2ray', node ? node[1] : '', '1' ]);
-							activeProfile = id;
-							newProfileName.value = '';
-							refreshProfileTable();
-							refreshProfileCard();
-							refreshProfileOptions();
-						}
-						notify(result, _('Profile created and selected.'));
-					})
-					.catch(error => showRequestError(error))
-					.finally(() => { createProfileButton.disabled = false; });
+		function onProfileSaved(result, name, nodeId) {
+			const id = String(result.profile_id);
+			const node = nodes.find(item => item[0] === nodeId);
+			const index = profiles.findIndex(item => item[0] === id);
+			const row = [ id, name, 'v2ray', node ? node[1] : '', '1' ];
+			if (index >= 0)
+				profiles[index] = row;
+			else {
+				profiles.push(row);
+				activeProfile = id;
 			}
-		}, _('Create profile'));
+			refreshProfileTable();
+			refreshProfileCard();
+		}
 		nodeTable = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'));
 		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'));
 		const nodesPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
 				E('p', { class: 'v2rayb-help' }, _('Nodes are stored in the v2rayB database. Use the structured editor to describe the endpoint; v2rayB generates the protocol-specific outbound configuration internally.')),
-				E('div', { class: 'v2rayb-toolbar' }, [ E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => showNodeModal(this, onNodeSaved) }, _('Add node')) ]),
-				nodeTable
+				E('p', { class: 'v2rayb-help' }, _('Changes here update saved configuration only. Use Restart on the Overview tab to apply them to the running service.')),
+				nodeTable,
+				E('div', { class: 'v2rayb-create' }, [
+					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showNodeModal(pageView, onNodeSaved) }, _('Add'))
+				])
 			]),
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, _('Profiles')), profileTable,
-				E('h4', {}, _('Create a profile')),
-				E('p', { class: 'v2rayb-help' }, _('Create a profile from a saved node. The new profile will become the active profile.')),
-				field(_('Profile name'), newProfileName),
-				field(_('Primary node'), profileNodeSelect),
-				E('div', { class: 'v2rayb-toolbar' }, [ createProfileButton ]),
-				field(_('Active profile'), profileSelect),
-				E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
-					if (!profileSelect.value) {
-						ui.addNotification(null, E('p', {}, _('Select a profile first.')), 'warning');
-						return;
-					}
-					return callSelectProfile(profileSelect.value)
-						.then(result => {
-							if (result && result.success) {
-								activeProfile = profileSelect.value;
-								refreshProfileTable();
-								refreshProfileCard();
-								refreshProfileOptions();
-							}
-							notify(result, _('Profile selected.'));
-						})
-						.catch(error => showRequestError(error));
-				} }, _('Select profile'))
+				E('h3', {}, _('Profiles')),
+				profileTable,
+				E('div', { class: 'v2rayb-create' }, [
+					E('button', {
+						class: 'cbi-button cbi-button-add', type: 'button',
+						disabled: !nodes.some(row => row[5] === '1'),
+						click: () => showProfileModal(onProfileSaved, nodes)
+					}, _('Add'))
+				])
 			])
 		];
 

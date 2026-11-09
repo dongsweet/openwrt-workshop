@@ -37,4 +37,20 @@ if "$ctl" set-setting transparent_proxy_ports '80,,443' >/dev/null 2>&1; then
 	echo "invalid port list unexpectedly accepted" >&2
 	exit 1
 fi
+
+"$ctl" update-node 1 hk-updated vless hk3.example.com 8443 '{"settings":{"vnext":[{"address":"hk3.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"ws"}}' >/dev/null
+"$ctl" list-nodes | grep -q 'hk-updated.*hk3.example.com.*8443'
+if "$ctl" set-node-enabled 1 0 >/dev/null 2>&1; then
+	echo "referenced node unexpectedly disabled" >&2
+	exit 1
+fi
+if "$ctl" delete-profile 1 >/dev/null 2>&1; then
+	echo "active profile unexpectedly deleted" >&2
+	exit 1
+fi
+"$ctl" set-setting active_profile ''
+"$ctl" delete-profile 1
+"$ctl" set-node-enabled 1 0
+"$ctl" delete-node 1
+! "$ctl" list-nodes | grep -q 'hk-updated'
 echo "render tests: ok"

@@ -32,6 +32,12 @@ def main():
     assert "rpc.getStatusText(error[0])" in view_source
     assert "expect: { '': {} }, reject: true" in view_source
     assert "args: {\n\t\t\tname: '', protocol: '', server: '', port: '', data_json: ''\n\t\t}" in rpc_source
+    assert "function valid_node_fields" in rpc_source
+    for method in (
+        "get_node", "update_node", "set_node_enabled", "delete_node",
+        "update_profile", "set_profile_enabled", "delete_profile",
+    ):
+        assert f"\n\t{method}: {{" in rpc_source
     assert ".test(" not in rpc_source
     assert "data_json[0]" not in rpc_source
     assert "substr(data_json, 0, 1)" in rpc_source
@@ -40,13 +46,18 @@ def main():
     assert "history.replaceState(null, '', '#' + active.dataset.tab)" in view_source
     assert "window.location.hash.replace(/^#/, '')" in view_source
     assert "v2rayb-table .cbi-section-table-cell { text-align: left !important;" in view_source
-    assert "showNodeModal(this, onNodeSaved)" in view_source
+    assert "showNodeModal(pageView, onNodeSaved)" in view_source
+    assert "callGetNode(row[0])" in view_source
+    assert "callSetNodeEnabled(row[0], enabled)" in view_source
+    assert "callDeleteNode(row[0])" in view_source
+    assert "callSetProfileEnabled(row[0], enabled)" in view_source
+    assert "callDeleteProfile(row[0])" in view_source
+    assert "class: 'cbi-button cbi-button-add'" in view_source
     assert "refreshNodeTable();" in view_source
     assert "refreshProfileTable();" in view_source
     assert "notify(result, _('Direct DNS saved.'))" in view_source
     assert "notify(result, _('Proxy ports saved.'))" in view_source
-    assert "notify(result, _('Node saved. Create a profile for it in the Profiles section.'));" in view_source
-    assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('return view.extend')]
+    assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('function showProfileModal')]
     for method in methods:
         assert f"\n\t{method}: {{" in rpc_source
     assert "luci-compat" not in (ROOT / "Makefile").read_text(encoding="utf-8")

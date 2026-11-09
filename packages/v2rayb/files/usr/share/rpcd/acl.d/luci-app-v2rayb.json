@@ -3,12 +3,12 @@
 		"description": "Manage v2rayB through its LuCI page",
 		"read": {
 			"ubus": {
-				"luci.v2rayb": [ "status", "get_setting", "list_nodes", "list_profiles" ]
+				"luci.v2rayb": [ "status", "get_setting", "list_nodes", "get_node", "list_profiles" ]
 			}
 		},
 		"write": {
 			"ubus": {
-				"luci.v2rayb": [ "service_action", "set_setting", "add_node", "add_profile", "select_profile" ]
+				"luci.v2rayb": [ "service_action", "set_setting", "add_node", "update_node", "set_node_enabled", "delete_node", "add_profile", "update_profile", "set_profile_enabled", "delete_profile", "select_profile" ]
 			}
 		}
 	}

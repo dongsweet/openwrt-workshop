@@ -44,6 +44,23 @@ function failed(result) {
 	};
 }
 
+function valid_id(value) {
+	return match(value, /^[0-9]+$/);
+}
+
+function valid_node_fields(name, protocol, server, port, data_json) {
+	if (length(name) > 64 || length(server) > 255 || length(data_json) > 16384)
+		return 'One or more fields are too long';
+	if (!match(protocol, /^(vless|vmess|trojan|shadowsocks)$/))
+		return 'Unsupported node protocol';
+	if (!match(port, /^[0-9]+$/) || +port < 1 || +port > 65535)
+		return 'Invalid node port';
+	if (data_json == '' || substr(data_json, 0, 1) != '{' ||
+	    substr(data_json, length(data_json) - 1, 1) != '}')
+		return 'Outbound data must be a JSON object';
+	return null;
+}
+
 const methods = {
 	status: {
 		call: function() {
@@ -54,6 +71,33 @@ const methods = {
 	list_nodes: {
 		call: function() {
 			return ctl([ 'list-nodes' ]);
+		}
+	},
+
+	get_node: {
+		args: { node_id: '' },
+		call: function(request) {
+			let node_id = string_arg(request, 'node_id');
+			if (!valid_id(node_id))
+				return { success: false, error: 'Invalid node id' };
+			let result = ctl([ 'get-node', node_id ]);
+			if (result.code != 0)
+				return failed(result);
+			let columns = result.output.split('\t');
+			if (length(columns) != 6)
+				return { success: false, error: 'Node details could not be read' };
+			return {
+				success: true,
+				node: {
+					id: node_id,
+					name: columns[0],
+					protocol: columns[1],
+					server: columns[2],
+					port: columns[3],
+					enabled: columns[4],
+					data_json: columns[5]
+				}
+			};
 		}
 	},
 
@@ -121,16 +165,9 @@ const methods = {
 			let server = string_arg(request, 'server');
 			let port = string_arg(request, 'port');
 			let data_json = string_arg(request, 'data_json');
-
-			if (length(name) > 64 || length(server) > 255 || length(data_json) > 16384)
-				return { success: false, error: 'One or more fields are too long' };
-			if (!match(protocol, /^(vless|vmess|trojan|shadowsocks)$/))
-				return { success: false, error: 'Unsupported node protocol' };
-			if (!match(port, /^[0-9]+$/) || +port < 1 || +port > 65535)
-				return { success: false, error: 'Invalid node port' };
-			if (data_json == '' || substr(data_json, 0, 1) != '{' ||
-			    substr(data_json, length(data_json) - 1, 1) != '}')
-				return { success: false, error: 'Outbound data must be a JSON object' };
+			let error = valid_node_fields(name, protocol, server, port, data_json);
+			if (error != null)
+				return { success: false, error: error };
 
 			let result = ctl([ 'add-node', name, protocol, server, port, data_json ]);
 			if (result.code != 0)
@@ -169,6 +206,86 @@ const methods = {
 				return failed(result);
 
 			return { success: true, profile_id: replace(result.output, /^\s+|\s+$/g, '') };
+		}
+	},
+
+	update_node: {
+		args: { node_id: '', name: '', protocol: '', server: '', port: '', data_json: '' },
+		call: function(request) {
+			let node_id = string_arg(request, 'node_id');
+			let name = string_arg(request, 'name');
+			let protocol = string_arg(request, 'protocol');
+			let server = string_arg(request, 'server');
+			let port = string_arg(request, 'port');
+			let data_json = string_arg(request, 'data_json');
+			if (!valid_id(node_id))
+				return { success: false, error: 'Invalid node id' };
+			let error = valid_node_fields(name, protocol, server, port, data_json);
+			if (error != null)
+				return { success: false, error: error };
+			let result = ctl([ 'update-node', node_id, name, protocol, server, port, data_json ]);
+			return result.code == 0 ? { success: true, node_id: node_id } : failed(result);
+		}
+	},
+
+	set_node_enabled: {
+		args: { node_id: '', enabled: '' },
+		call: function(request) {
+			let node_id = string_arg(request, 'node_id');
+			let enabled = string_arg(request, 'enabled');
+			if (!valid_id(node_id) || !match(enabled, /^[01]$/))
+				return { success: false, error: 'Invalid node state' };
+			let result = ctl([ 'set-node-enabled', node_id, enabled ]);
+			return result.code == 0 ? { success: true } : failed(result);
+		}
+	},
+
+	delete_node: {
+		args: { node_id: '' },
+		call: function(request) {
+			let node_id = string_arg(request, 'node_id');
+			if (!valid_id(node_id))
+				return { success: false, error: 'Invalid node id' };
+			let result = ctl([ 'delete-node', node_id ]);
+			return result.code == 0 ? { success: true } : failed(result);
+		}
+	},
+
+	update_profile: {
+		args: { profile_id: '', name: '', node_id: '' },
+		call: function(request) {
+			let profile_id = string_arg(request, 'profile_id');
+			let name = string_arg(request, 'name');
+			let node_id = string_arg(request, 'node_id');
+			if (!valid_id(profile_id) || !valid_id(node_id))
+				return { success: false, error: 'Invalid profile or node id' };
+			if (name == '' || length(name) > 64)
+				return { success: false, error: 'Invalid profile name' };
+			let result = ctl([ 'update-profile', profile_id, name, node_id ]);
+			return result.code == 0 ? { success: true, profile_id: profile_id } : failed(result);
+		}
+	},
+
+	set_profile_enabled: {
+		args: { profile_id: '', enabled: '' },
+		call: function(request) {
+			let profile_id = string_arg(request, 'profile_id');
+			let enabled = string_arg(request, 'enabled');
+			if (!valid_id(profile_id) || !match(enabled, /^[01]$/))
+				return { success: false, error: 'Invalid profile state' };
+			let result = ctl([ 'set-profile-enabled', profile_id, enabled ]);
+			return result.code == 0 ? { success: true } : failed(result);
+		}
+	},
+
+	delete_profile: {
+		args: { profile_id: '' },
+		call: function(request) {
+			let profile_id = string_arg(request, 'profile_id');
+			if (!valid_id(profile_id))
+				return { success: false, error: 'Invalid profile id' };
+			let result = ctl([ 'delete-profile', profile_id ]);
+			return result.code == 0 ? { success: true } : failed(result);
 		}
 	}
 };
