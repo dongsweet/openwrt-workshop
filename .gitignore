@@ -1,0 +1,38 @@
+# Local-only router snapshots, private configs, and build artifacts.
+/local/
+/dist/
+*.apk
+*.ipk
+*.db
+*.sqlite
+*.sqlite3
+*.pyc
+__pycache__/
+
+# Never publish proxy credentials or device-specific private material.
+private_configs/
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.*
+secrets/
+credentials/
+id_rsa
+id_ed25519
+known_hosts
+
+# Editor and operating-system files.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+
+# Local logs and test output.
+*.log
+/tmp/
+/test-output/
