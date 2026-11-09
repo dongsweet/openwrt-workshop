@@ -661,7 +661,7 @@ cmd_test_v2ray() {
 	[ -f "$ACTIVE_DIR/v2ray.json" ] || cmd_render_v2ray
 	[ -x "$V2RAY_BIN" ] || die "missing executable: $V2RAY_BIN"
 	env 'v2ray.local.asset=/usr/share/v2ray' V2RAY_CONF_GEOLOADER=memconservative \
-		"$V2RAY_BIN" run -test -c "$ACTIVE_DIR/v2ray.json"
+		"$V2RAY_BIN" test -c "$ACTIVE_DIR/v2ray.json"
 }
 
 cmd_test_dns() {

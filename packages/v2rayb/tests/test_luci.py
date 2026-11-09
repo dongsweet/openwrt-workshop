@@ -40,6 +40,7 @@ def main():
     assert "args: {\n\t\t\tname: '', protocol: '', server: '', port: '', data_json: ''\n\t\t}" in rpc_source
     assert "function valid_node_fields" in rpc_source
     assert "function valid_profile_policy" in rpc_source
+    assert "get-profile" in (FILES / "usr/libexec/v2rayB/v2rayBctl").read_text(encoding="utf-8")
     for method in (
         "get_node", "get_profile", "update_node", "set_node_enabled", "delete_node",
         "update_profile", "set_profile_enabled", "delete_profile",
