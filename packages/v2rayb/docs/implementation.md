@@ -23,6 +23,23 @@ legacy JSON at runtime.
 
 See the package README for current device state and cutover guidance.
 
+## Deployment Workflow
+
+Use the package build and install path for every router update:
+
+1. Change and test the source in this repository.
+2. Commit and push the change.
+3. Increment `PKG_RELEASE` in `Makefile`.
+4. Build `package/v2rayb/compile` in the matching SDK.
+5. Back up the router database and managed files.
+6. Install the generated `.apk` files with `apk`.
+7. Verify the installed package version, file checksums, RPC methods, and
+   database counts on the router.
+
+Do not deploy by copying individual files into `/www` or `/usr/share/rpcd`.
+Direct file replacement bypasses package metadata and can leave browser or
+service caches serving a mixture of versions.
+
 ## Local Tests
 
 Run from the package root:
