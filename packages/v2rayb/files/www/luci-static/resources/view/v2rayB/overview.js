@@ -104,9 +104,6 @@ function css() {
 		.v2rayb-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1rem; }
 		.v2rayb-toolbar .cbi-button { margin: 0; }
 		.v2rayb-table .cbi-section-table-cell { text-align: left !important; vertical-align: middle; }
-		.v2rayb-table .v2rayb-actions { width: 1%; padding-left: .5rem; text-align: right !important; vertical-align: middle; white-space: nowrap; }
-		.v2rayb-row-actions { display: inline-flex; flex: none; gap: .35rem; align-items: center; justify-content: flex-end; }
-		.v2rayb-row-actions .cbi-button { flex: none; margin: 0; }
 		.v2rayb-create { display: flex; justify-content: flex-start; margin-top: .75rem; }
 		.v2rayb-help { color: #687587; font-size: .88rem; line-height: 1.5; }
 		.v2rayb-code { display: block; max-height: 20rem; overflow: auto; padding: 1rem; border-radius: 10px;
@@ -129,16 +126,21 @@ function statusBadge(state) {
 	return E('span', { class: 'v2rayb-status ' + cls }, labels[state] || state || _('Unknown'));
 }
 
-function table(headers, rows, empty) {
+function table(headers, rows, empty, actionColumn) {
 	const body = rows.length ? rows.map((row, index) => E('tr', {
 		class: 'tr cbi-section-table-row cbi-rowstyle-' + (index % 2 ? '2' : '1')
-	}, row.map(value => E('td', { class: 'td cbi-section-table-cell' }, value || '')))) :
+	}, row.map(value => value && value.nodeName === 'TD'
+		? value
+		: E('td', { class: 'td cbi-section-table-cell' }, value || '')))) :
 		[ E('tr', { class: 'tr cbi-section-table-row' }, [
 			E('td', { class: 'td cbi-section-table-cell', colspan: headers.length }, E('em', {}, empty))
 		]) ];
 	return E('table', { class: 'table cbi-section-table v2rayb-table' }, [
 		E('thead', { class: 'thead cbi-section-thead' }, E('tr', { class: 'tr cbi-section-table-titles' },
-			headers.map(value => E('th', { class: 'th cbi-section-table-cell' }, value)))),
+			headers.map((value, index) => E('th', {
+				class: 'th cbi-section-table-cell' +
+					(actionColumn && index === headers.length - 1 ? ' nowrap cbi-section-actions' : '')
+			}, value)))),
 		E('tbody', { class: 'tbody cbi-section-tbody' }, body)
 	]);
 }
@@ -155,8 +157,8 @@ function confirmDelete(message) {
 }
 
 function actionCell(buttons) {
-	return E('td', { class: 'td cbi-section-table-cell v2rayb-actions' },
-		E('div', { class: 'v2rayb-row-actions' }, buttons));
+	return E('td', { class: 'td cbi-section-table-cell nowrap cbi-section-actions' },
+		E('div', buttons));
 }
 
 function card(label, value, help) {
@@ -638,12 +640,12 @@ return view.extend({
 			]);
 		}
 		function refreshNodeTable() {
-			const next = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'));
+			const next = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'), true);
 			nodeTable.replaceWith(next);
 			nodeTable = next;
 		}
 		function refreshProfileTable() {
-			const next = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'));
+			const next = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true);
 			profileTable.replaceWith(next);
 			profileTable = next;
 		}
@@ -686,8 +688,8 @@ return view.extend({
 			refreshProfileTable();
 			refreshProfileCard();
 		}
-		nodeTable = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'));
-		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'));
+		nodeTable = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'), true);
+		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true);
 		profileAddButton = E('button', {
 			class: 'cbi-button cbi-button-add', type: 'button',
 			disabled: !nodes.some(row => row[5] === '1'),

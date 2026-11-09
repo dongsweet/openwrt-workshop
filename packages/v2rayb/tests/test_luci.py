@@ -48,8 +48,9 @@ def main():
     assert "history.replaceState(null, '', '#' + active.dataset.tab)" in view_source
     assert "window.location.hash.replace(/^#/, '')" in view_source
     assert "v2rayb-table .cbi-section-table-cell { text-align: left !important;" in view_source
-    assert "cbi-section-actions v2rayb-actions" not in view_source
-    assert "class: 'td cbi-section-table-cell v2rayb-actions'" in view_source
+    assert "value && value.nodeName === 'TD'" in view_source
+    assert "class: 'td cbi-section-table-cell nowrap cbi-section-actions'" in view_source
+    assert "nowrap cbi-section-actions" in view_source
     assert "showNodeModal(pageView, onNodeSaved)" in view_source
     assert "callGetNode(row[0])" in view_source
     assert "callSetNodeEnabled(row[0], enabled)" in view_source
