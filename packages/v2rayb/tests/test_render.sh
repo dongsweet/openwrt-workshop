@@ -67,6 +67,8 @@ fi
 "$ctl" set-profile-enabled 1 0
 "$ctl" set-profile-enabled 1 1
 "$ctl" delete-profile 1
+policy_count="$("$V2RAYB_SQLITE3" -batch -bail "$V2RAYB_DB" 'SELECT COUNT(*) FROM policies;')"
+[ "$policy_count" = 0 ]
 "$ctl" set-node-enabled 1 0
 "$ctl" delete-node 1
 ! "$ctl" list-nodes | grep -q 'hk-updated'

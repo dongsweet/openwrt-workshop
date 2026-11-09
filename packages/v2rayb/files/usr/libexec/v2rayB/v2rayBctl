@@ -356,7 +356,11 @@ cmd_delete_profile() {
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
 	active_profile_id="$(setting active_profile)"
 	[ "$active_profile_id" != "$profile_id" ] || die "active profile must be switched before it can be deleted"
+	policy_id="$(db_sql "SELECT COALESCE(policy_id, 0) FROM profiles WHERE id=$profile_id;" | sed -n '1p')"
 	db_sql "DELETE FROM profiles WHERE id=$profile_id;"
+	if is_uint "$policy_id" && [ "$policy_id" -gt 0 ] 2>/dev/null; then
+		db_sql "DELETE FROM policies WHERE id=$policy_id AND NOT EXISTS (SELECT 1 FROM profiles WHERE policy_id=$policy_id);"
+	fi
 }
 
 cmd_select_profile() {

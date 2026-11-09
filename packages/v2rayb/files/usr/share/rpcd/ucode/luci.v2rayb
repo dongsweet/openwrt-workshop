@@ -49,9 +49,9 @@ function valid_id(value) {
 }
 
 function valid_profile_policy(direct_dns, ports, bypass_china) {
-	if (!match(direct_dns, /^[A-Za-z0-9.:\[\]-]+$/))
+	if (direct_dns == '' || length(direct_dns) > 255)
 		return 'Invalid direct DNS endpoint';
-	if (!match(ports, /^[0-9]+(,[0-9]+)*$/))
+	if (ports == '' || length(ports) > 255)
 		return 'Invalid transparent proxy port list';
 	if (!match(bypass_china, /^[01]$/))
 		return 'Invalid bypass China setting';
