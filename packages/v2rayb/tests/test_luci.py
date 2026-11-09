@@ -33,6 +33,9 @@ def main():
     assert "expect: { '': {} }, reject: true" in view_source
     assert "args: {\n\t\t\tname: '', protocol: '', server: '', port: '', data_json: ''\n\t\t}" in rpc_source
     assert ".test(" not in rpc_source
+    assert "data_json[0]" not in rpc_source
+    assert "substr(data_json, 0, 1)" in rpc_source
+    assert "substr(data_json, length(data_json) - 1, 1)" in rpc_source
     assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('return view.extend')]
     for method in methods:
         assert f"\n\t{method}: {{" in rpc_source

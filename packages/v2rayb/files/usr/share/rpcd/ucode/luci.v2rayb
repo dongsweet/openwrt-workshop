@@ -128,7 +128,8 @@ const methods = {
 				return { success: false, error: 'Unsupported node protocol' };
 			if (!match(port, /^[0-9]+$/) || +port < 1 || +port > 65535)
 				return { success: false, error: 'Invalid node port' };
-			if (data_json == '' || data_json[0] != '{' || data_json[length(data_json) - 1] != '}')
+			if (data_json == '' || substr(data_json, 0, 1) != '{' ||
+			    substr(data_json, length(data_json) - 1, 1) != '}')
 				return { success: false, error: 'Outbound data must be a JSON object' };
 
 			let result = ctl([ 'add-node', name, protocol, server, port, data_json ]);
