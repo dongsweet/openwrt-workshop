@@ -443,7 +443,7 @@ function showProfileModal(onSaved, nodes, existing) {
 	const nodeSelect = E('select', { class: 'cbi-input-select' }, [
 		E('option', { value: '' }, _('Select a primary node')),
 		...nodes.filter(row => row[5] === '1').map(row => E('option', {
-			value: row[0], selected: existing && existing.primary === row[1]
+			value: row[0], selected: existing && existing.node_id === row[0]
 		}, `${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`))
 	]);
 	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
@@ -526,7 +526,7 @@ return view.extend({
 			], _('No status data available.'))
 		];
 
-		let profileTable, nodeTable;
+		let profileTable, nodeTable, profileAddButton;
 		const profileTableHeaders = [ _('ID'), _('Name'), _('Engine'), _('Primary node'), _('Enabled'), _('Active'), _('Actions') ];
 		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Enabled'), _('Actions') ];
 
@@ -545,8 +545,11 @@ return view.extend({
 			return E('button', { class: 'btn cbi-button cbi-button-remove', type: 'button', click: handler }, _('Delete'));
 		}
 		function profileTableRows() {
-			return profiles.map(row => [
-				row[0], row[1], row[2], row[3] || E('span', { class: 'v2rayb-muted' }, _('No node')),
+			return profiles.map(row => {
+				const primary = nodes.find(node => node[0] === row[5]);
+				const primaryName = primary ? primary[1] : row[3];
+				return [
+				row[0], row[1], row[2], primaryName || E('span', { class: 'v2rayb-muted' }, _('No node')),
 				enabledToggle(row[4], async enabled => {
 					const result = await callSetProfileEnabled(row[0], enabled).catch(error => { showRequestError(error); return null; });
 					if (result && result.success) {
@@ -575,10 +578,10 @@ return view.extend({
 						const node = nodes.find(item => item[0] === nodeId);
 						const index = profiles.findIndex(item => item[0] === row[0]);
 						if (index >= 0)
-							profiles[index] = [ row[0], name, row[2], node ? node[1] : '', row[4] ];
+							profiles[index] = [ row[0], name, row[2], node ? node[1] : '', row[4], nodeId ];
 						refreshProfileTable();
 						refreshProfileCard();
-					}, nodes, { id: row[0], name: row[1], primary: row[3] })),
+					}, nodes, { id: row[0], name: row[1], node_id: row[5] })),
 					removeButton(async () => {
 						if (!await confirmDelete(_('Delete profile "%s"?').format(row[1])))
 							return;
@@ -591,7 +594,8 @@ return view.extend({
 						} else if (result) notify(result, '');
 					})
 				].filter(Boolean))
-			]);
+			];
+			});
 		}
 		function nodeTableRows() {
 			return nodes.map(row => [
@@ -602,6 +606,7 @@ return view.extend({
 						row[5] = enabled;
 						refreshNodeTable();
 						refreshNodeCard();
+						refreshProfileAddButton();
 					} else {
 						refreshNodeTable();
 						if (result) notify(result, '');
@@ -626,6 +631,7 @@ return view.extend({
 							refreshNodeTable();
 							refreshNodeCard();
 							refreshProfileTable();
+							refreshProfileAddButton();
 						} else if (result) notify(result, '');
 					})
 				])
@@ -660,12 +666,17 @@ return view.extend({
 			refreshNodeTable();
 			refreshNodeCard();
 			refreshProfileTable();
+			refreshProfileAddButton();
+		}
+		function refreshProfileAddButton() {
+			if (profileAddButton)
+				profileAddButton.disabled = !nodes.some(row => row[5] === '1');
 		}
 		function onProfileSaved(result, name, nodeId) {
 			const id = String(result.profile_id);
 			const node = nodes.find(item => item[0] === nodeId);
 			const index = profiles.findIndex(item => item[0] === id);
-			const row = [ id, name, 'v2ray', node ? node[1] : '', '1' ];
+			const row = [ id, name, 'v2ray', node ? node[1] : '', '1', nodeId ];
 			if (index >= 0)
 				profiles[index] = row;
 			else {
@@ -677,6 +688,11 @@ return view.extend({
 		}
 		nodeTable = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'));
 		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'));
+		profileAddButton = E('button', {
+			class: 'cbi-button cbi-button-add', type: 'button',
+			disabled: !nodes.some(row => row[5] === '1'),
+			click: () => showProfileModal(onProfileSaved, nodes)
+		}, _('Add'));
 		const nodesPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
@@ -690,13 +706,7 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Profiles')),
 				profileTable,
-				E('div', { class: 'v2rayb-create' }, [
-					E('button', {
-						class: 'cbi-button cbi-button-add', type: 'button',
-						disabled: !nodes.some(row => row[5] === '1'),
-						click: () => showProfileModal(onProfileSaved, nodes)
-					}, _('Add'))
-				])
+				E('div', { class: 'v2rayb-create' }, [ profileAddButton ])
 			])
 		];
 

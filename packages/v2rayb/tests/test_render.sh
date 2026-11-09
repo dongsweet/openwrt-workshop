@@ -44,11 +44,19 @@ if "$ctl" set-node-enabled 1 0 >/dev/null 2>&1; then
 	echo "referenced node unexpectedly disabled" >&2
 	exit 1
 fi
+"$ctl" update-profile 1 hk-profile-updated 1 >/dev/null
+"$ctl" list-profiles | grep -q 'hk-profile-updated.*hk-updated.*1.*1'
+if "$ctl" set-profile-enabled 1 0 >/dev/null 2>&1; then
+	echo "active profile unexpectedly disabled" >&2
+	exit 1
+fi
 if "$ctl" delete-profile 1 >/dev/null 2>&1; then
 	echo "active profile unexpectedly deleted" >&2
 	exit 1
 fi
 "$ctl" set-setting active_profile ''
+"$ctl" set-profile-enabled 1 0
+"$ctl" set-profile-enabled 1 1
 "$ctl" delete-profile 1
 "$ctl" set-node-enabled 1 0
 "$ctl" delete-node 1

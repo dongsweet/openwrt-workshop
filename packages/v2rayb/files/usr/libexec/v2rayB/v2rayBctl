@@ -335,7 +335,7 @@ cmd_get_node() {
 
 cmd_list_profiles() {
 	ensure_db
-	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id ORDER BY p.id;"
+	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id ORDER BY p.id;"
 }
 
 active_node() {
