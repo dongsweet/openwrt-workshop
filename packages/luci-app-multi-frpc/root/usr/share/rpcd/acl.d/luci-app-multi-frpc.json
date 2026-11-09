@@ -1,0 +1,20 @@
+{
+	"luci-app-multi-frpc": {
+		"description": "Grant UCI access for luci-app-multi-frpc",
+		"read": {
+			"file": {
+				"/var/etc/multi-frpc/*": [ "read" ]
+			},
+			"ubus": {
+				"service": [ "list" ]
+			},
+			"uci": [ "multi-frpc" ]
+		},
+		"write": {
+			"ubus": {
+				"rc": [ "init" ]
+			},
+			"uci": [ "multi-frpc" ]
+		}
+	}
+}
