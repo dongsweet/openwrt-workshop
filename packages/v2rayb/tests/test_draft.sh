@@ -21,7 +21,7 @@ sqlite="$ROOT/tests/sqlite3-wrapper.py"
 "$ctl" add-profile original-profile 1 >/dev/null
 "$ctl" apply-draft
 "$ctl" status | grep -q '^draft_pending=0$'
-applied_version="$("$ctl" status | sed -n 's/^applied_config_version=//p')"
+applied_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='applied_config_version';")"
 
 # A saved edit must remain a draft and not affect applied runtime data.
 "$ctl" update-node 1 draft-name vless draft.example.com 8443 \
@@ -29,7 +29,7 @@ applied_version="$("$ctl" status | sed -n 's/^applied_config_version=//p')"
 "$ctl" update-profile 1 draft-profile 1 1.1.1.1:53 '443,8443' 0 0 0 'example.com' \
 	'regexp:^draft\\.example\\.com$' >/dev/null
 "$ctl" status | grep -q '^draft_pending=1$'
-draft_version="$("$ctl" status | sed -n 's/^draft_config_version=//p')"
+draft_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_config_version';")"
 [ "$draft_version" -gt "$applied_version" ]
 "$ctl" list-nodes | grep -q 'draft-name.*draft.example.com.*8443'
 "$ctl" get-profile 1 | grep -q '^name=draft-profile$'
@@ -51,6 +51,10 @@ grep -q 'original.example.com' "$TEST_DIR/state/active/v2ray.json"
 # Revert restores the applied view.
 "$ctl" revert-draft
 "$ctl" status | grep -q '^draft_pending=0$'
+applied_version_after_revert="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='applied_config_version';")"
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_config_version';")" = "$applied_version_after_revert" ]
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_active_profile';")" = "$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='active_profile';")" ]
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_service_enabled';")" = "$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='service_enabled';")" ]
 "$ctl" list-nodes | grep -q 'original.*original.example.com.*443'
 if "$ctl" list-nodes | grep -q 'draft-name'; then
 	echo "draft node survived revert" >&2
@@ -60,19 +64,19 @@ fi
 # Apply makes the draft authoritative.
 "$ctl" update-node 1 applied-name vless applied.example.com 9443 \
 	'{"settings":{"vnext":[{"address":"applied.example.com","port":9443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
-next_applied_version="$("$ctl" status | sed -n 's/^draft_config_version=//p')"
+next_applied_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_config_version';")"
 "$ctl" apply-draft
 "$ctl" status | grep -q '^draft_pending=0$'
-"$ctl" status | grep -q "^applied_config_version=$next_applied_version$"
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='applied_config_version';")" = "$next_applied_version" ]
 "$ctl" render-all
 grep -q 'applied.example.com' "$TEST_DIR/state/active/v2ray.json"
 
 # The global service switch is a draft value, not an immediate action.
-applied_version="$("$ctl" status | sed -n 's/^applied_config_version=//p')"
+applied_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='applied_config_version';")"
 "$ctl" set-setting service_enabled 0
 "$ctl" status | grep -q '^service_enabled=1$'
-"$ctl" status | grep -q '^draft_service_enabled=0$'
-service_version="$("$ctl" status | sed -n 's/^draft_config_version=//p')"
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_service_enabled';")" = 0 ]
+service_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_config_version';")"
 [ "$service_version" -eq $((applied_version + 1)) ]
 "$ctl" apply-draft
 "$ctl" status | grep -q '^service_enabled=0$'

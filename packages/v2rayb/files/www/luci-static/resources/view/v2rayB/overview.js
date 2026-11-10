@@ -623,10 +623,7 @@ return view.extend({
 		const pageView = this;
 		const status = parseKeyValues(outputOf(data[0]));
 		const draftPending = status.draft_pending === '1';
-		const appliedVersion = status.applied_config_version || '1';
-		const draftVersion = status.draft_config_version || appliedVersion;
 		pageView.draftPending = draftPending;
-		pageView.draftVersion = draftVersion;
 		const nodes = parseRows(outputOf(data[1]));
 		const profiles = parseRows(outputOf(data[2]));
 		const dnsState = parseKeyValues(outputOf(data[3]));

@@ -218,6 +218,9 @@ discard_drafts() {
 		DELETE FROM draft_profiles;
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='active_profile'),''),updated_at=CURRENT_TIMESTAMP WHERE key='draft_active_profile';
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='service_enabled'),'0'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_service_enabled';
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='applied_config_version'),'1'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_config_version';
 		INSERT INTO settings(key,value,updated_at) VALUES('draft_pending','0',CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value='0',updated_at=CURRENT_TIMESTAMP;
 		COMMIT;"
 }
@@ -252,6 +255,9 @@ ensure_db() {
 	fi
 	[ "$version" = 4 ] || die "unsupported database schema version: $version"
 	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '1'), ('draft_service_enabled', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
+	if [ "$(setting draft_pending)" != 1 ]; then
+		discard_drafts
+	fi
 }
 
 set_state() {
@@ -576,7 +582,6 @@ cmd_apply_draft() {
 
 cmd_revert_draft() {
 	ensure_db
-	draft_pending || return 0
 	discard_drafts
 }
 
@@ -1008,11 +1013,7 @@ cmd_status() {
 	printf 'active_profile=%s\n' "$(setting active_profile)"
 	printf 'service_enabled=%s\n' "$(setting service_enabled)"
 	if draft_pending; then draft_state=1; else draft_state=0; fi
-	printf 'draft_service_enabled=%s\n' "$(setting draft_service_enabled)"
-	printf 'applied_config_version=%s\n' "$(setting applied_config_version)"
-	printf 'draft_config_version=%s\n' "$(setting draft_config_version)"
 	printf 'draft_pending=%s\n' "$draft_state"
-	printf 'draft_active_profile=%s\n' "$(setting draft_active_profile)"
 	printf 'proxy_mode=%s\n' "$(setting proxy_mode)"
 	printf 'watchdog_enabled=%s\n' "$(setting watchdog_enabled)"
 	printf 'fallback_on_failure=%s\n' "$(setting fallback_on_failure)"

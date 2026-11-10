@@ -85,9 +85,12 @@ def main():
     assert "addFooter() {" not in view_source
     assert "draft_pending === '1'" in view_source
     assert "status.draft_active_profile || appliedProfile" in view_source
+    assert "applied_config_version" not in view_source
+    assert "draft_config_version" not in view_source
     assert "Applied version" not in view_source
     assert "Pending draft version" not in view_source
     assert "Draft version %s" not in view_source
+    assert "applied_config_version=" not in ctl_source.split("cmd_status()", 1)[1]
     assert "Pending changes: Save & Apply to activate" in view_source
     assert "Pending changes: Save & Apply to activate, or Reset to discard." in view_source
     assert "running configuration is unchanged" not in view_source
