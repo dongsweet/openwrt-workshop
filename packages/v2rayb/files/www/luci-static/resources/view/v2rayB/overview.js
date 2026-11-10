@@ -794,15 +794,16 @@ return view.extend({
 			[ '1', _('LAN client'), 'dnsmasq :53', _('Primary DNS entry point') ],
 			[ '2', _('dnsmasq main resolver'), dnsmasqDefault, _('Default upstream while in %s mode').format(state || 'normal') ],
 			[ '3', _('China acceleration'), `${dnsState.dnsmasq_confdir || '/etc/dnsmasq.d'} (${accelFiles} ${_('matching files')})`, _('Existing dnsmasq China domain rules stay in control') ],
-			[ '4', _('MosDNS narrow branch'), `${mosDns} ← *.${dnsSuffix}`, _('Only the configured suffix is sent here') ],
-			[ '5', _('Direct match + nftset'), effectiveDns, _('Matching regexp answers go domestic and populate nft direct sets') ],
-			[ '6', _('Fallback'), v2rayDns, _('Other names use V2Ray DNS') ]
+			[ '4', _('MosDNS narrow branch'), `${mosDns} ← *.${dnsSuffix}`, _('Proxy mode only: only the configured suffix is sent here') ],
+			[ '5', _('Direct match + nftset'), effectiveDns, _('Proxy mode only: matching regexp answers go domestic and populate nft direct sets') ],
+			[ '6', _('Fallback'), v2rayDns, _('Proxy mode only: other names use V2Ray DNS') ]
 		], _('No DNS state data available.'));
 
 		const runtimePane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('DNS Resolution Chain')),
 				E('p', { class: 'v2rayb-help' }, _('dnsmasq is the public resolver. Its existing China acceleration files remain in /etc/dnsmasq.d; v2rayB only owns the temporary default upstream and the narrow MosDNS suffix route.')),
+				E('p', { class: 'v2rayb-help' }, _('In normal mode, dnsmasq uses its WAN baseline and the proxy-only MosDNS/V2Ray route is inactive.')),
 				dnsPipeline
 			]),
 			E('div', { class: 'cbi-section' }, [

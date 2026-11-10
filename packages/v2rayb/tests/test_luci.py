@@ -39,6 +39,8 @@ def main():
     assert "DNS Resolution Chain" in view_source
     assert "MosDNS Narrow Route" in view_source
     assert "nftables Direct Sets" in view_source
+    assert "Proxy mode only:" in view_source
+    assert "proxy-only MosDNS/V2Ray route is inactive" in view_source
     assert "dns_state" in rpc_source
     assert "Array.isArray(error)" in view_source
     assert "rpc.getStatusText(error[0])" in view_source
