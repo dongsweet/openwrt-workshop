@@ -181,10 +181,10 @@ begin_draft() {
 		DELETE FROM draft_profiles;
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
-		INSERT INTO draft_policies SELECT * FROM policies;
-		INSERT INTO draft_nodes SELECT * FROM nodes;
-		INSERT INTO draft_profiles SELECT * FROM profiles;
-		INSERT INTO draft_profile_nodes SELECT * FROM profile_nodes;
+		INSERT INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,created_at,updated_at FROM policies;
+		INSERT INTO draft_nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM nodes;
+		INSERT INTO draft_profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM profiles;
+		INSERT INTO draft_profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM profile_nodes;
 		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_direct_dns','draft_transparent_proxy_ports');
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_active_profile',value,CURRENT_TIMESTAMP FROM settings WHERE key='active_profile';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_direct_dns',value,CURRENT_TIMESTAMP FROM settings WHERE key='direct_dns';
@@ -388,7 +388,7 @@ cmd_set_profile_policy() {
 	if is_uint "$policy_id" && [ "$policy_id" -gt 0 ] 2>/dev/null; then
 		count="$(db_sql "SELECT COUNT(*) FROM draft_policies WHERE id=$policy_id;" | tr -d '[:space:]')"
 		if [ "$count" = 0 ]; then
-			db_sql "INSERT OR IGNORE INTO draft_policies SELECT * FROM policies WHERE id=$policy_id;"
+			db_sql "INSERT OR IGNORE INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,created_at,updated_at FROM policies WHERE id=$policy_id;"
 			count="$(db_sql "SELECT COUNT(*) FROM draft_policies WHERE id=$policy_id;" | tr -d '[:space:]')"
 		fi
 		[ "$count" = 1 ] || die "profile policy is missing from both draft and applied configuration"
@@ -579,10 +579,10 @@ cmd_apply_draft() {
 		DELETE FROM profiles;
 		DELETE FROM nodes;
 		DELETE FROM policies;
-		INSERT INTO policies SELECT * FROM draft_policies;
-		INSERT INTO nodes SELECT * FROM draft_nodes;
-		INSERT INTO profiles SELECT * FROM draft_profiles;
-		INSERT INTO profile_nodes SELECT * FROM draft_profile_nodes;
+		INSERT INTO policies(id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules) SELECT id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules FROM draft_policies;
+		INSERT INTO nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM draft_nodes;
+		INSERT INTO profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM draft_profiles;
+		INSERT INTO profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM draft_profile_nodes;
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_active_profile'),value),updated_at=CURRENT_TIMESTAMP WHERE key='active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_direct_dns'),value),updated_at=CURRENT_TIMESTAMP WHERE key='direct_dns';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_transparent_proxy_ports'),value),updated_at=CURRENT_TIMESTAMP WHERE key='transparent_proxy_ports';
