@@ -32,6 +32,8 @@ def main():
     assert "input.checked = checked === true" in view_source
     assert "checked: configuredServiceEnabled" not in view_source
     assert "checked: isEnabled(enabled)" not in view_source
+    assert "selected: existing && existing.node_id" not in view_source
+    assert "option.selected = !!existing && option.value === existing.node_id" in view_source
     assert "set_service_enabled" not in view_source
     assert "callSetSetting('service_enabled'" in view_source
     assert "pageView.serviceEnabledDirty" in view_source

@@ -471,12 +471,15 @@ function showNodeModal(view, onSaved, existing) {
 
 function showProfileModal(onSaved, nodes, defaults, existing) {
 	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true, value: existing ? existing.name : '' });
-	const nodeSelect = E('select', { class: 'cbi-input-select' }, [
+	const nodeOptions = [
 		E('option', { value: '' }, _('Select a primary node')),
 		...nodes.filter(row => isEnabled(row[5])).map(row => E('option', {
-			value: row[0], selected: existing && existing.node_id === row[0]
+			value: row[0]
 		}, `${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`))
-	]);
+	];
+	for (const option of nodeOptions)
+		option.selected = !!existing && option.value === existing.node_id;
+	const nodeSelect = E('select', { class: 'cbi-input-select' }, nodeOptions);
 	const profileDns = E('input', {
 		class: 'cbi-input-text', type: 'text',
 		value: (existing && existing.direct_dns) || defaults.direct_dns
