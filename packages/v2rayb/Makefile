@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2rayb
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=66
+PKG_RELEASE:=67
 PKG_MAINTAINER:=local
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -49,6 +49,7 @@ define Package/v2rayb/postinst
 	/usr/libexec/v2rayB/v2rayBctl init-db >/dev/null 2>&1 || exit 1
 	if [ "$$(/usr/libexec/v2rayB/v2rayBctl get-setting service_enabled 2>/dev/null)" = 1 ]; then
 		/etc/init.d/v2rayB enable >/dev/null 2>&1 || exit 1
+		/etc/init.d/v2rayB start >/dev/null 2>&1 || exit 1
 	else
 		/etc/init.d/v2rayB disable >/dev/null 2>&1 || true
 	fi
