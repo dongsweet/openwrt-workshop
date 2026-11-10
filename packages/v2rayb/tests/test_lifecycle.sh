@@ -44,21 +44,21 @@ ${2#*=}"
 		*) return 2 ;;
 	esac
 }
-service_registered() { [ "$PROCD_STALE" = 1 ] || [ "$INSTANCES_RUNNING" = 1 ]; }
-json_init() { :; }
-json_add_string() { :; }
-_procd_ubus_call() { :; }
-jsonfilter() { :; }
-procd_running() { [ "${INSTANCES_RUNNING:-0}" = 1 ]; }
-procd_kill() {
-	touch "$RUNTIME/killed"
-	INSTANCES_RUNNING=0
-	PROCD_STALE=0
+cleanup_legacy_procd() {
+	touch "$RUNTIME/legacy-cleaned"
+	[ "${FAIL_LEGACY:-0}" = 0 ]
 }
 dnsmasq_reload() { [ "${DNS_RELOAD_FAIL:-0}" = 0 ]; }
 
+spawn_managed() {
+	mkdir -p "$PID_DIR"
+	sleep 60 &
+	printf '%s\n' "$!" > "$PID_DIR/$1.pid"
+}
+
 setup_case() {
 	RUNTIME="$TEST_DIR/$1"
+	PID_DIR="$RUNTIME/pids"
 	DNS_BACKUP="$RUNTIME/dnsmasq-before"
 	LOCK_DIR="$RUNTIME/lock"
 	DNSMASQ_DIR="$RUNTIME/dnsmasq.d"
@@ -70,16 +70,13 @@ setup_case() {
 	TEST_DNSMASQ_DEFAULT='127.0.0.1#5353'
 	TEST_MOSDNS_ENABLED=1
 	TEST_MOSDNS_DOMAINS='xn--ngstr-lra8j.com'
-	export RUNTIME FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
-		MOCK_SERVER MOCK_NORESOLV TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS \
-		PROCD_STALE
-	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR"
+	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
+		MOCK_SERVER MOCK_NORESOLV TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
+	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
 	printf '0\n' > "$DNS_BACKUP/stale"
 	printf 'proxy\n' > "$RUNTIME/state"
-	INSTANCES_RUNNING=1
-	PROCD_STALE=0
 }
 
 cat > "$TEST_DIR/ctl" <<'EOF'
@@ -104,37 +101,49 @@ chmod +x "$TEST_DIR/ctl"
 setup_case dns-reload
 DNS_RELOAD_FAIL=1
 FAIL_NFT=0
+spawn_managed v2ray
+v2ray_pid="$(cat "$PID_DIR/v2ray.pid")"
 export DNS_RELOAD_FAIL
 if stop_service; then
 	echo "stop unexpectedly succeeded after dnsmasq reload failure" >&2
 	exit 1
 fi
-[ ! -e "$RUNTIME/killed" ]
+kill -0 "$v2ray_pid"
 [ -f "$DNS_BACKUP/server" ]
 [ "$(sed -n '1p' "$RUNTIME/state")" = degraded ]
+kill "$v2ray_pid"
 
 setup_case nft-delete
 DNS_RELOAD_FAIL=0
 FAIL_NFT=1
+spawn_managed v2ray
+v2ray_pid="$(cat "$PID_DIR/v2ray.pid")"
 export FAIL_NFT
 if stop_service; then
 	echo "stop unexpectedly succeeded after nft cleanup failure" >&2
 	exit 1
 fi
-[ ! -e "$RUNTIME/killed" ]
+kill -0 "$v2ray_pid"
 [ -f "$DNS_BACKUP/server" ]
 [ "$(sed -n '1p' "$RUNTIME/state")" = degraded ]
+kill "$v2ray_pid"
 
 setup_case clean-stop
 DNS_RELOAD_FAIL=0
 FAIL_NFT=0
 export FAIL_NFT
+spawn_managed v2ray
+spawn_managed mosdns
+spawn_managed watchdog
 printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 	'server=/xn--ngstr-lra8j.com/127.0.0.1#5354' > "$MOSDNS_FORWARD_EXPECTED"
 cp "$MOSDNS_FORWARD_EXPECTED" "$MOSDNS_FORWARD_FILE"
 printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
 stop_service
-[ -e "$RUNTIME/killed" ]
+[ -e "$RUNTIME/legacy-cleaned" ]
+[ ! -e "$PID_DIR/v2ray.pid" ]
+[ ! -e "$PID_DIR/mosdns.pid" ]
+[ ! -e "$PID_DIR/watchdog.pid" ]
 [ ! -e "$DNS_BACKUP" ]
 [ "$(sed -n '1p' "$RUNTIME/state")" = normal ]
 
@@ -174,11 +183,8 @@ restore_dnsmasq
 [ -z "$MOCK_SERVER" ]
 [ -z "$MOCK_NORESOLV" ]
 
-setup_case stale-procd
-INSTANCES_RUNNING=0
-PROCD_STALE=1
+setup_case legacy-procd
 stop_instances
-[ -e "$RUNTIME/killed" ]
-[ "$PROCD_STALE" = 0 ]
+[ -e "$RUNTIME/legacy-cleaned" ]
 
 echo "lifecycle tests: ok"

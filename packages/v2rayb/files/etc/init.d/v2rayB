@@ -2,10 +2,10 @@
 
 START=99
 STOP=10
-USE_PROCD=1
 
 CTL="/usr/libexec/v2rayB/v2rayBctl"
 RUNTIME="/tmp/v2rayB"
+PID_DIR="$RUNTIME/pids"
 DNS_BACKUP="$RUNTIME/dnsmasq-before"
 LOCK_DIR="$RUNTIME/lock"
 DNSMASQ_SECTION='dhcp.@dnsmasq[0]'
@@ -15,6 +15,13 @@ MOSDNS_FORWARD_EXPECTED="$RUNTIME/dnsmasq-mosdns-expected"
 
 log() {
 	logger -t v2rayB "$*"
+}
+
+is_pid() {
+	case "$1" in
+		''|*[!0-9]*|0) return 1 ;;
+		*) return 0 ;;
+	esac
 }
 
 acquire_lock() {
@@ -180,23 +187,49 @@ restore_dnsmasq() {
 	cmp -s "$RUNTIME/restore-noresolv" "$RUNTIME/restore-noresolv.expected" || return 1
 }
 
-service_registered() {
-	output="$(ubus call service list '{"name":"v2rayB"}' 2>/dev/null)" || return 1
-	printf '%s\n' "$output" | grep -q '"v2rayB"'
+cleanup_legacy_procd() {
+	output="$(ubus call service list '{"name":"v2rayB"}' 2>/dev/null)" || return 0
+	printf '%s\n' "$output" | grep -q '"v2rayB"' || return 0
+	ubus call service delete '{"name":"v2rayB"}' >/dev/null 2>&1 || return 1
+}
+
+process_alive() {
+	pid="$(sed -n '1p' "$PID_DIR/$1.pid" 2>/dev/null || true)"
+	is_pid "$pid" && kill -0 "$pid" 2>/dev/null
+}
+
+managed_processes_alive() {
+	process_alive v2ray || return 1
+	if [ -f "$PID_DIR/mosdns.pid" ]; then
+		process_alive mosdns || return 1
+	fi
+}
+
+stop_pid() {
+	name="$1"
+	pidfile="$PID_DIR/$name.pid"
+	[ -f "$pidfile" ] || return 0
+	pid="$(sed -n '1p' "$pidfile" 2>/dev/null || true)"
+	if is_pid "$pid" && kill -0 "$pid" 2>/dev/null; then
+		kill "$pid" 2>/dev/null || return 1
+		n=0
+		while kill -0 "$pid" 2>/dev/null; do
+			[ "$n" -lt 10 ] || {
+				kill -9 "$pid" 2>/dev/null || return 1
+				break
+			}
+			n=$((n + 1))
+			sleep 1
+		done
+	fi
+	rm -f "$pidfile"
 }
 
 stop_instances() {
-	# Delete a registered service so stopped crash-loop definitions do not
-	# shadow a subsequent clean start.
-	if service_registered; then
-		procd_kill v2rayB >/dev/null 2>&1 || return 1
-	fi
-	n=0
-	while procd_running v2rayB; do
-		[ "$n" -lt 10 ] || return 1
-		n=$((n + 1))
-		sleep 1
-	done
+	cleanup_legacy_procd || return 1
+	stop_pid watchdog || return 1
+	stop_pid mosdns || return 1
+	stop_pid v2ray || return 1
 }
 
 port_ready() {
@@ -213,34 +246,25 @@ port_ready() {
 }
 
 start_engine() {
-	procd_open_instance v2ray
-	procd_set_param command /usr/bin/v2ray run -c "$RUNTIME/active/v2ray.json"
-	procd_set_param env v2ray.local.asset=/usr/share/v2ray V2RAY_CONF_GEOLOADER=memconservative
-	procd_set_param respawn 3600 5 5
-	procd_set_param file "$RUNTIME/active/v2ray.json"
-	procd_set_param stdout 1
-	procd_set_param stderr 1
-	procd_close_instance
+	mkdir -p "$PID_DIR" || return 1
+	env 'v2ray.local.asset=/usr/share/v2ray' V2RAY_CONF_GEOLOADER=memconservative \
+		/usr/bin/v2ray run -c "$RUNTIME/active/v2ray.json" \
+		>>"$RUNTIME/v2ray.log" 2>&1 &
+	printf '%s\n' "$!" > "$PID_DIR/v2ray.pid"
 }
 
 start_mosdns() {
-	procd_open_instance mosdns
-	procd_set_param command /usr/bin/mosdns start -c "$RUNTIME/active/mosdns.yaml"
-	procd_set_param respawn 3600 5 5
-	procd_set_param file "$RUNTIME/active/mosdns.yaml" "$RUNTIME/active/mosdns-direct-domains.txt" /etc/v2rayB/rules/force_proxy_domains.txt
-	procd_set_param stdout 1
-	procd_set_param stderr 1
-	procd_close_instance
+	mkdir -p "$PID_DIR" || return 1
+	/usr/bin/mosdns start -c "$RUNTIME/active/mosdns.yaml" \
+		>>"$RUNTIME/mosdns.log" 2>&1 &
+	printf '%s\n' "$!" > "$PID_DIR/mosdns.pid"
 }
 
 start_watchdog() {
 	[ "$("$CTL" get-setting watchdog_enabled 2>/dev/null || printf 0)" = 1 ] || return 0
-	procd_open_instance watchdog
-	procd_set_param command /usr/bin/v2rayB-watchdog
-	procd_set_param respawn 3600 5 5
-	procd_set_param stdout 1
-	procd_set_param stderr 1
-	procd_close_instance
+	mkdir -p "$PID_DIR" || return 1
+	/usr/bin/v2rayB-watchdog >>"$RUNTIME/watchdog.log" 2>&1 &
+	printf '%s\n' "$!" > "$PID_DIR/watchdog.pid"
 }
 
 rollback_start() {
@@ -283,11 +307,11 @@ start_service() {
 	acquire_lock || return 1
 	"$CTL" init-db >/dev/null 2>&1 || { release_lock; return 1; }
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
-	if [ "$current_state" = proxy ] && procd_running v2rayB; then
+	if [ "$current_state" = proxy ] && managed_processes_alive; then
 		release_lock
 		return 0
 	fi
-	if [ "$current_state" != normal ] || procd_running v2rayB || [ -d "$DNS_BACKUP" ] || [ -f "$RUNTIME/nft-managed" ]; then
+	if [ "$current_state" != normal ] || managed_processes_alive || [ -d "$DNS_BACKUP" ] || [ -f "$RUNTIME/nft-managed" ]; then
 		release_lock
 		stop_service || return 1
 		start_service
@@ -365,4 +389,30 @@ stop_service() {
 reload_service() {
 	stop_service || return 1
 	start_service
+}
+
+status_service() {
+	"$CTL" status 2>/dev/null | sed -n 's/^state=//p' | sed -n '1p'
+	managed_processes_alive && echo running || echo inactive
+}
+
+start() {
+	start_service "$@"
+}
+
+stop() {
+	stop_service "$@"
+}
+
+reload() {
+	reload_service "$@"
+}
+
+if command -v extra_command >/dev/null 2>&1; then
+	extra_command "status" "Show service status"
+	extra_command "running" "Check whether managed processes are running"
+fi
+
+running() {
+	managed_processes_alive
 }
