@@ -412,29 +412,15 @@ function showNodeModal(view, onSaved, existing) {
 		if (!name.value || !server.value || !port.value || !uuid.value) {
 			ui.addNotification(null, E('p', {}, _('Name, server, port and UUID/password are required.')), 'warning'); return;
 		}
-		save.disabled = true;
 		const outbound = buildOutbound();
-		let request;
-		if (existing)
-			request = callUpdateNode(existing.id, name.value, protocol.value, server.value, port.value, outbound);
-		else
-			request = callAddNode(name.value, protocol.value, server.value, port.value, outbound);
-		return request
-			.then(result => {
-				if (result && result.success) {
-					ui.hideModal();
-					if (onSaved)
-						onSaved(result, {
-							id: existing ? existing.id : result.node_id,
-							name: name.value, protocol: protocol.value, server: server.value, port: port.value,
-							data_json: outbound
-						});
-				}
-				notify(result, existing ? _('Node changes saved.') : _('Node saved. Create a profile for it in the Profiles section.'));
-			})
-			.catch(error => showRequestError(error))
-			.finally(() => { save.disabled = false; });
-	}, }, existing ? _('Save changes') : _('Save node'));
+		ui.hideModal();
+		if (onSaved)
+			onSaved({
+				id: existing ? existing.id : null,
+				name: name.value, protocol: protocol.value, server: server.value, port: port.value,
+				data_json: outbound
+			});
+	}, }, existing ? _('Update pending changes') : _('Add to pending changes'));
 	const cancel = E('button', { class: 'cbi-button', type: 'button', click: () => ui.hideModal() }, _('Cancel'));
 	if (existing)
 		prefill(existing);
@@ -536,28 +522,21 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			ui.addNotification(null, E('p', {}, _('Enter at least one domain when MosDNS is enabled.')), 'warning');
 			return;
 		}
-		save.disabled = true;
-		const request = existing
-			? callUpdateProfile(existing.id, profileName, nodeSelect.value,
-				profileDns.value, profilePorts.value, bypass, v2rayDns,
-				mosdns, domains, mosdnsRules.value.trim())
-			: callAddProfile(profileName, nodeSelect.value,
-				profileDns.value, profilePorts.value, bypass, v2rayDns,
-				mosdns, domains, mosdnsRules.value.trim());
-		return request
-			.then(result => {
-				if (result && result.success) {
-					ui.hideModal();
-					if (onSaved)
-						onSaved(result, profileName, nodeSelect.value,
-							profileDns.value, profilePorts.value, bypass, v2rayDns,
-							mosdns, domains, mosdnsRules.value.trim());
-				}
-				notify(result, existing ? _('Profile changes saved.') : _('Profile created and selected.'));
-			})
-			.catch(error => showRequestError(error))
-			.finally(() => { save.disabled = false; });
-	} }, existing ? _('Save changes') : _('Create profile'));
+		ui.hideModal();
+		if (onSaved)
+			onSaved({
+				id: existing ? existing.id : null,
+				name: profileName,
+				node_id: nodeSelect.value,
+				direct_dns: profileDns.value,
+				transparent_proxy_ports: profilePorts.value,
+				bypass_china: bypass,
+				use_v2ray_dns: v2rayDns,
+				mosdns_enabled: mosdns,
+				mosdns_domains: domains,
+				mosdns_match_rules: mosdnsRules.value.trim()
+			});
+	} }, existing ? _('Update pending changes') : _('Add to pending changes'));
 	ui.showModal(existing ? _('Edit profile') : _('Create a profile'), [
 		E('div', { class: 'cbi-section' }, [
 			field(_('Profile name'), name),
@@ -653,7 +632,9 @@ return view.extend({
 		const profiles = parseRows(outputOf(data[2]));
 		const directDns = outputOf(data[3]) || '223.5.5.5:53';
 		const dnsState = parseKeyValues(outputOf(data[4]));
-		let activeProfile = status.active_profile || '';
+		let activeProfile = draftPending
+			? (status.draft_active_profile || status.active_profile || '')
+			: (status.active_profile || '');
 		const state = status.state || 'normal';
 		let enabledNodes = nodes.filter(row => isEnabled(row[5])).length;
 		let enabledProfiles = profiles.filter(row => isEnabled(row[4])).length;
@@ -681,6 +662,21 @@ return view.extend({
 		pageView.serviceEnabledDesired = configuredServiceEnabled;
 		pageView.serviceEnabledDirty = false;
 		pageView.pendingOperations = [];
+		pageView.tempSequence = 0;
+		pageView.nodeIdMap = {};
+		pageView.profileIdMap = {};
+		pageView.localNodeDetails = {};
+		pageView.localProfileDetails = {};
+		pageView.nextTempId = function(kind) {
+			this.tempSequence += 1;
+			return '__new_' + kind + '_' + this.tempSequence;
+		};
+		pageView.resolveNodeId = function(id) {
+			return this.nodeIdMap[id] || id;
+		};
+		pageView.resolveProfileId = function(id) {
+			return this.profileIdMap[id] || id;
+		};
 		pageView.hasLocalChanges = function() {
 			return this.serviceEnabledDirty || this.pendingOperations.length > 0;
 		};
@@ -689,8 +685,16 @@ return view.extend({
 			if (this.serviceEnabledDirty)
 				chain = chain.then(() => callSetSetting('service_enabled', this.serviceEnabledDesired ? '1' : '0'));
 			for (const operation of this.pendingOperations)
-				chain = chain.then(() => operation());
+				chain = chain.then(result => {
+					if (result && result.success === false)
+						return result;
+					const next = operation();
+					return Promise.resolve(next).then(opResult =>
+						opResult && opResult.success === false ? { failed: true, result: opResult } : opResult);
+				});
 			return chain.then(result => {
+				if (result && result.failed)
+					return result.result;
 				if (result && result.success) {
 					this.serviceEnabledDirty = false;
 					this.pendingOperations = [];
@@ -698,19 +702,43 @@ return view.extend({
 				return result;
 			});
 		};
-		function queuePendingOperation(operation) {
+		function queuePendingOperation(operation, pendingKey) {
+			if (pendingKey) {
+				operation.pendingKey = pendingKey;
+				pageView.pendingOperations = pageView.pendingOperations.filter(
+					item => item.pendingKey !== pendingKey);
+			}
 			pageView.pendingOperations.push(operation);
+			return operation;
+		}
+		function discardPendingOperation(pendingKey) {
+			pageView.pendingOperations = pageView.pendingOperations.filter(
+				operation => operation.pendingKey !== pendingKey);
+		}
+		function isTempId(id) {
+			return String(id).startsWith('__new_');
+		}
+		function displayId(id) {
+			return isTempId(id) ? E('em', {}, _('New')) : id;
+		}
+		const unappliedNotice = E('div', {
+			class: 'cbi-section',
+			style: pageView.hasLocalChanges() || draftPending ? '' : 'display:none'
+		}, [
+			E('h3', {}, _('Unapplied changes')),
+			E('p', { class: 'v2rayb-help' }, _('Use Save & Apply to activate the pending changes, Save to keep them as a draft, or Reset to discard them.'))
+		]);
+		function updateLocalChangesNotice() {
+			unappliedNotice.style.display = pageView.hasLocalChanges() || draftPending ? '' : 'none';
 		}
 		serviceEnabled.addEventListener('change', () => {
 			pageView.serviceEnabledDesired = serviceEnabled.checked;
 			pageView.serviceEnabledDirty = serviceEnabled.checked !== configuredServiceEnabled;
+			updateLocalChangesNotice();
 		});
 
 		const overview = [
-			draftPending ? E('div', { class: 'cbi-section' }, [
-				E('h3', {}, _('Unapplied changes')),
-				E('p', { class: 'v2rayb-help' }, _('Use Save & Apply to activate the saved draft, or Reset to discard it.'))
-			]) : E([]),
+			unappliedNotice,
 			E('div', { class: 'v2rayb-cards' }, [
 				card(_('Service'), statusBadge(state), _('Unified V2Ray, MosDNS, dnsmasq and nftables lifecycle')),
 				activeProfileCard,
@@ -752,7 +780,7 @@ return view.extend({
 				const primary = nodes.find(node => node[0] === row[5]);
 				const primaryName = primary ? primary[1] : row[3];
 				return [
-				row[0], row[1], primaryName || E('span', { class: 'v2rayb-muted' }, _('No node')),
+				displayId(row[0]), row[1], primaryName || E('span', { class: 'v2rayb-muted' }, _('No node')),
 				profilePolicySummary(row),
 				enabledToggle(row[4], enabled => {
 					if (enabled === '0' && row[0] === activeProfile) {
@@ -761,7 +789,10 @@ return view.extend({
 						return;
 					}
 					row[4] = enabled;
-					queuePendingOperation(() => callSetProfileEnabled(row[0], enabled));
+					if (pageView.localProfileDetails[row[0]])
+						pageView.localProfileDetails[row[0]].enabled = enabled;
+					if (!isTempId(row[0]))
+						queuePendingOperation(() => callSetProfileEnabled(pageView.resolveProfileId(row[0]), enabled), 'profile-enabled:' + row[0]);
 					refreshProfileTable();
 					refreshProfileCard();
 				}),
@@ -770,22 +801,33 @@ return view.extend({
 					row[0] !== activeProfile && isEnabled(row[4])
 						? E('button', { class: 'btn cbi-button cbi-button-apply', type: 'button', click: () => {
 							activeProfile = row[0];
-							queuePendingOperation(() => callSelectProfile(row[0]));
+							if (!isTempId(row[0]))
+								queuePendingOperation(() => callSelectProfile(pageView.resolveProfileId(row[0])), 'profile-select');
 							refreshProfileTable();
 							refreshProfileCard();
 						} }, _('Use')) : '',
 					editButton(async () => {
-						const details = await callGetProfile(row[0]).catch(error => { showRequestError(error); return null; });
+						let details;
+						if (pageView.localProfileDetails[row[0]])
+							details = { success: true, profile: pageView.localProfileDetails[row[0]] };
+						else
+							details = await callGetProfile(row[0]).catch(error => { showRequestError(error); return null; });
 						if (!details || !details.success) {
 							if (details) notify(details, '');
 							return;
 						}
-						showProfileModal((result, profileName, nodeId, dns, ports, bypass, v2rayDns,
-							mosdns, domains, rules) => {
-							const node = nodes.find(item => item[0] === nodeId);
+						showProfileModal(profile => {
+							const node = nodes.find(item => item[0] === profile.node_id);
 							const index = profiles.findIndex(item => item[0] === row[0]);
 							if (index >= 0)
-								profiles[index] = [ row[0], profileName, 'v2ray', node ? node[1] : '', row[4], nodeId, dns, ports, bypass, v2rayDns, mosdns, domains, rules ];
+								profiles[index] = [ row[0], profile.name, 'v2ray', node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules ];
+							pageView.localProfileDetails[row[0]] = Object.assign({ id: row[0], enabled: row[4] }, profile);
+							if (!isTempId(row[0]))
+								queuePendingOperation(() => callUpdateProfile(
+									pageView.resolveProfileId(row[0]), profile.name, pageView.resolveNodeId(profile.node_id),
+									profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china,
+									profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains,
+									profile.mosdns_match_rules), 'profile-update:' + row[0]);
 							refreshProfileTable();
 							refreshProfileCard();
 						}, nodes, {
@@ -804,7 +846,11 @@ return view.extend({
 							return;
 						const index = profiles.findIndex(item => item[0] === row[0]);
 						if (index >= 0) profiles.splice(index, 1);
-						queuePendingOperation(() => callDeleteProfile(row[0]));
+						if (isTempId(row[0])) {
+							discardPendingOperation('profile-create:' + row[0]);
+							discardPendingOperation('profile-update:' + row[0]);
+						} else
+							queuePendingOperation(() => callDeleteProfile(row[0]), 'profile-delete:' + row[0]);
 						refreshProfileTable();
 						refreshProfileCard();
 					})
@@ -814,7 +860,7 @@ return view.extend({
 		}
 		function nodeTableRows() {
 			return nodes.map(row => [
-				row[0], row[1], row[2].toUpperCase(), row[3], row[4],
+				displayId(row[0]), row[1], row[2].toUpperCase(), row[3], row[4],
 				enabledToggle(row[5], enabled => {
 					if (enabled === '0' && profiles.some(profile => profile[5] === row[0])) {
 						ui.addNotification(null, E('p', {}, _('Node is referenced by a profile; delete or move that profile before disabling the node.')), 'warning');
@@ -822,14 +868,21 @@ return view.extend({
 						return;
 					}
 					row[5] = enabled;
-					queuePendingOperation(() => callSetNodeEnabled(row[0], enabled));
+					if (pageView.localNodeDetails[row[0]])
+						pageView.localNodeDetails[row[0]].enabled = enabled;
+					if (!isTempId(row[0]))
+						queuePendingOperation(() => callSetNodeEnabled(row[0], enabled), 'node-enabled:' + row[0]);
 					refreshNodeTable();
 					refreshNodeCard();
 					refreshProfileAddButton();
 				}),
 				actionCell([
 					editButton(async () => {
-						const details = await callGetNode(row[0]).catch(error => { showRequestError(error); return null; });
+						let details;
+						if (pageView.localNodeDetails[row[0]])
+							details = { success: true, node: pageView.localNodeDetails[row[0]] };
+						else
+							details = await callGetNode(row[0]).catch(error => { showRequestError(error); return null; });
 						if (!details || !details.success) {
 							if (details) notify(details, '');
 							return;
@@ -845,7 +898,11 @@ return view.extend({
 							return;
 						const index = nodes.findIndex(item => item[0] === row[0]);
 						if (index >= 0) nodes.splice(index, 1);
-						queuePendingOperation(() => callDeleteNode(row[0]));
+						if (isTempId(row[0])) {
+							discardPendingOperation('node-create:' + row[0]);
+							discardPendingOperation('node-update:' + row[0]);
+						} else
+							queuePendingOperation(() => callDeleteNode(row[0]), 'node-delete:' + row[0]);
 						refreshNodeTable();
 						refreshNodeCard();
 						refreshProfileTable();
@@ -858,11 +915,13 @@ return view.extend({
 			const next = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'), true);
 			nodeTable.replaceWith(next);
 			nodeTable = next;
+			updateLocalChangesNotice();
 		}
 		function refreshProfileTable() {
 			const next = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true);
 			profileTable.replaceWith(next);
 			profileTable = next;
+			updateLocalChangesNotice();
 		}
 		function refreshNodeCard() {
 			enabledNodes = nodes.filter(row => isEnabled(row[5])).length;
@@ -875,13 +934,43 @@ return view.extend({
 				row ? row[1] : (activeProfile || _('Not selected'));
 			activeProfileCard.querySelector('.v2rayb-card-help').textContent = profilePolicyText(row);
 		}
-		function onNodeSaved(result, node) {
-			const id = String(node.id || result.node_id);
-			const index = nodes.findIndex(item => item[0] === id);
-			if (index >= 0)
-				nodes[index] = [ id, node.name, node.protocol, node.server, node.port, nodes[index][5] ];
-			else
-				nodes.push([ id, node.name, node.protocol, node.server, node.port, '1' ]);
+		function onNodeSaved(node) {
+			if (node.id) {
+				const id = String(node.id);
+				const index = nodes.findIndex(item => item[0] === id);
+				if (index >= 0)
+					nodes[index] = [ id, node.name, node.protocol, node.server, node.port, nodes[index][5] ];
+				pageView.localNodeDetails[id] = {
+					id: id, name: node.name, protocol: node.protocol,
+					server: node.server, port: node.port,
+					enabled: nodes[index] ? nodes[index][5] : '1', data_json: node.data_json
+				};
+				if (!isTempId(id))
+					queuePendingOperation(() => callUpdateNode(
+						id, node.name, node.protocol, node.server, node.port, node.data_json
+					), 'node-update:' + id);
+				refreshNodeTable();
+				refreshNodeCard();
+				refreshProfileTable();
+				refreshProfileAddButton();
+				return;
+			}
+
+			const tempId = pageView.nextTempId('node');
+			const row = [ tempId, node.name, node.protocol, node.server, node.port, '1' ];
+			nodes.push(row);
+			pageView.localNodeDetails[tempId] = {
+				id: tempId, name: node.name, protocol: node.protocol,
+				server: node.server, port: node.port, enabled: '1', data_json: node.data_json
+			};
+			queuePendingOperation(() => callAddNode(
+				node.name, node.protocol, node.server, node.port, node.data_json
+			).then(result => {
+				if (!result || !result.success)
+					return result;
+				pageView.nodeIdMap[tempId] = String(result.node_id);
+				return result;
+			}), 'node-create:' + tempId);
 			refreshNodeTable();
 			refreshNodeCard();
 			refreshProfileTable();
@@ -894,18 +983,36 @@ return view.extend({
 			profileAddButton.disabled = !enabled;
 			profileAddButton.classList.toggle('disabled', !enabled);
 		}
-		function onProfileSaved(result, name, nodeId, dns, ports, bypass, v2rayDns,
-			mosdns, domains, rules) {
-			const id = String(result.profile_id);
-			const node = nodes.find(item => item[0] === nodeId);
+		function onProfileSaved(profile) {
+			const node = nodes.find(item => item[0] === profile.node_id);
+			const row = [
+				profile.id || pageView.nextTempId('profile'), profile.name, 'v2ray',
+				node ? node[1] : '', '1', profile.node_id, profile.direct_dns,
+				profile.transparent_proxy_ports, profile.bypass_china,
+				profile.use_v2ray_dns, profile.mosdns_enabled,
+				profile.mosdns_domains, profile.mosdns_match_rules
+			];
+			const id = row[0];
 			const index = profiles.findIndex(item => item[0] === id);
-			const row = [ id, name, 'v2ray', node ? node[1] : '', '1', nodeId, dns, ports, bypass, v2rayDns, mosdns, domains, rules ];
 			if (index >= 0)
 				profiles[index] = row;
 			else {
 				profiles.push(row);
 				activeProfile = id;
 			}
+			pageView.localProfileDetails[id] = Object.assign({ id: id, enabled: '1' }, profile);
+			queuePendingOperation(() => callAddProfile(
+				profile.name, pageView.resolveNodeId(profile.node_id),
+				profile.direct_dns, profile.transparent_proxy_ports,
+				profile.bypass_china, profile.use_v2ray_dns,
+				profile.mosdns_enabled, profile.mosdns_domains,
+				profile.mosdns_match_rules
+			).then(result => {
+				if (!result || !result.success)
+					return result;
+				pageView.profileIdMap[id] = String(result.profile_id);
+				return callSelectProfile(result.profile_id);
+			}), 'profile-create:' + id);
 			refreshProfileTable();
 			refreshProfileCard();
 		}
@@ -920,12 +1027,27 @@ return view.extend({
 				mosdns_match_rules: dnsState.direct_rule || ''
 			})
 		}, _('Add'));
+		pageView.resolveActiveProfile = function() {
+			return this.resolveProfileId(activeProfile);
+		};
+		const originalPersistLocalChanges = pageView.persistLocalChanges;
+		pageView.persistLocalChanges = function() {
+			const initialActiveProfile = status.active_profile || '';
+			return originalPersistLocalChanges.call(this).then(result => {
+				if (!result || !result.success)
+					return result;
+				const resolvedActive = this.resolveProfileId(activeProfile);
+				if (!activeProfile || String(resolvedActive) === String(initialActiveProfile))
+					return result;
+				return callSelectProfile(resolvedActive);
+			});
+		};
 		refreshProfileAddButton();
 		const nodesPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
 				E('p', { class: 'v2rayb-help' }, _('Nodes are stored in the v2rayB database. Use the structured editor to describe the endpoint; v2rayB generates the protocol-specific outbound configuration internally.')),
-				E('p', { class: 'v2rayb-help' }, _('Editor Save writes the object to the configuration draft. Checkbox, Use and Delete changes are staged in the page until the standard Save action. Nothing becomes active until Save & Apply.')),
+				E('p', { class: 'v2rayb-help' }, _('Editor, checkbox, Use and Delete changes are staged in the page. The standard Save action writes them to the configuration draft; nothing becomes active until Save & Apply.')),
 				nodeTable,
 				E('div', { class: 'v2rayb-create' }, [
 					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showNodeModal(pageView, onNodeSaved) }, _('Add'))

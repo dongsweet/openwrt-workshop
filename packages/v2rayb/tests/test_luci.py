@@ -64,11 +64,12 @@ def main():
     assert "Revert changes" not in view_source
     assert "addFooter() {" not in view_source
     assert "draft_pending === '1'" in view_source
+    assert "status.draft_active_profile || status.active_profile" in view_source
     assert "Applied version" not in view_source
     assert "Pending draft version" not in view_source
     assert "Draft version %s" not in view_source
     assert "Unapplied changes" in view_source
-    assert "Use Save & Apply to activate the saved draft, or Reset to discard it." in view_source
+    assert "Use Save & Apply to activate the pending changes, Save to keep them as a draft, or Reset to discard them." in view_source
     assert "running configuration is unchanged" not in view_source
     assert "running configuration is up to date" not in view_source
     assert ".v2rayb-hero .v2rayb-chip" in view_source
@@ -144,14 +145,34 @@ def main():
     assert "value && value.nodeName === 'TD'" in view_source
     assert "class: 'td cbi-section-table-cell nowrap cbi-section-actions'" in view_source
     assert "nowrap cbi-section-actions" in view_source
-    assert "Editor Save writes the object to the configuration draft." in view_source
-    assert "Checkbox, Use and Delete changes are staged in the page" in view_source
-    assert "Nothing becomes active until Save & Apply." in view_source
+    assert "Editor, checkbox, Use and Delete changes are staged in the page." in view_source
+    assert "The standard Save action writes them to the configuration draft" in view_source
+    node_modal = view_source[
+        view_source.index("function showNodeModal"):
+        view_source.index("function showProfileModal")
+    ]
+    profile_modal = view_source[
+        view_source.index("function showProfileModal"):
+        view_source.index("return view.extend")
+    ]
+    assert "callAddNode(" not in node_modal
+    assert "callUpdateNode(" not in node_modal
+    assert "callAddProfile(" not in profile_modal
+    assert "callUpdateProfile(" not in profile_modal
+    assert "_('Add to pending changes')" in node_modal
+    assert "_('Update pending changes')" in node_modal
+    assert "pageView.nextTempId('node')" in view_source
+    assert "pageView.nextTempId('profile')" in view_source
+    assert "pageView.nodeIdMap[tempId]" in view_source
+    assert "pageView.profileIdMap[id]" in view_source
+    assert "pageView.resolveNodeId(profile.node_id)" in view_source
+    assert "pageView.localNodeDetails[row[0]].enabled = enabled" in view_source
+    assert "pageView.localProfileDetails[row[0]].enabled = enabled" in view_source
     assert "showNodeModal(pageView, onNodeSaved)" in view_source
     assert "callGetNode(row[0])" in view_source
     assert "callSetNodeEnabled(row[0], enabled)" in view_source
     assert "callDeleteNode(row[0])" in view_source
-    assert "callSetProfileEnabled(row[0], enabled)" in view_source
+    assert "callSetProfileEnabled(pageView.resolveProfileId(row[0]), enabled)" in view_source
     assert "callDeleteProfile(row[0])" in view_source
     assert "class: 'cbi-button cbi-button-add'" in view_source
     assert "refreshNodeTable();" in view_source
