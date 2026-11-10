@@ -181,9 +181,8 @@ restore_dnsmasq() {
 }
 
 service_registered() {
-	json_init
-	json_add_string name v2rayB
-	_procd_ubus_call list | jsonfilter -l 1 -e "@.v2rayB" >/dev/null 2>&1
+	output="$(ubus call service list '{"name":"v2rayB"}' 2>/dev/null)" || return 1
+	printf '%s\n' "$output" | grep -q '"v2rayB"'
 }
 
 stop_instances() {

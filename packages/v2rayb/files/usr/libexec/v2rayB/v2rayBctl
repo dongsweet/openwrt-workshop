@@ -693,10 +693,14 @@ nft_elements() {
 	file="$1"
 	[ -s "$file" ] || return 0
 	awk '
-		BEGIN { n = 0; printf "    elements = { " }
+		BEGIN { n = 0 }
 		/^[[:space:]]*#/ { next }
 		/^[[:space:]]*$/ { next }
-		{ if (n++) printf ",\n"; printf "      %s", $1 }
+		{
+			if (n == 0) print "    elements = {"
+			else print ","
+			if (n++) printf "      %s", $1
+		}
 		END { if (n) print "\n    };" }
 	' "$file"
 }
