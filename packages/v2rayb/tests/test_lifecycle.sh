@@ -187,4 +187,13 @@ setup_case legacy-procd
 stop_instances
 [ -e "$RUNTIME/legacy-cleaned" ]
 
+if grep -q '"$CTL" test-dns' "$ROOT/files/etc/init.d/v2rayB"; then
+	echo "external DNS probe must not gate service startup" >&2
+	exit 1
+fi
+if grep -q '"$CTL" test-dnsmasq' "$ROOT/files/etc/init.d/v2rayB"; then
+	echo "external dnsmasq probe must not gate service startup" >&2
+	exit 1
+fi
+
 echo "lifecycle tests: ok"

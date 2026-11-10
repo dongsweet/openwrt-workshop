@@ -330,10 +330,6 @@ start_service() {
 		port_ready 5354 || { rollback_start; return 1; }
 	fi
 	set_proxy_dns || { rollback_start; return 1; }
-	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
-		"$CTL" test-dns || { rollback_start; return 1; }
-	fi
-	"$CTL" test-dnsmasq || { rollback_start; return 1; }
 	start_watchdog || { rollback_start; return 1; }
 	"$CTL" set-setting proxy_mode proxy >/dev/null 2>&1 || { rollback_start; return 1; }
 	"$CTL" set-state proxy >/dev/null 2>&1 || { rollback_start; return 1; }
