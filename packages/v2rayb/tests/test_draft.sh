@@ -55,4 +55,9 @@ if "$ctl" apply-draft >/dev/null 2>&1; then
 fi
 "$ctl" revert-draft
 
+# A stale draft_pending flag without draft rows is not a pending draft.
+"$ctl" revert-draft
+"$sqlite" "$V2RAYB_DB" "INSERT INTO settings(key,value) VALUES('draft_pending','1') ON CONFLICT(key) DO UPDATE SET value='1';"
+"$ctl" status | grep -q '^draft_pending=0$'
+
 echo "draft tests: ok"

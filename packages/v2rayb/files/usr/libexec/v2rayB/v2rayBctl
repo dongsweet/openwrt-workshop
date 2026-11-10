@@ -161,7 +161,9 @@ setting() {
 }
 
 draft_pending() {
-	[ "$(setting draft_pending)" = 1 ]
+	[ "$(setting draft_pending)" = 1 ] || return 1
+	count="$(db_sql "SELECT (SELECT COUNT(*) FROM draft_nodes) + (SELECT COUNT(*) FROM draft_profiles) + (SELECT COUNT(*) FROM draft_policies);" | tr -d '[:space:]')"
+	[ "$count" -gt 0 ] || return 1
 }
 
 current_setting() {
@@ -969,7 +971,8 @@ cmd_status() {
 	printf 'state=%s\n' "$(get_state)"
 	printf 'active_engine=%s\n' "$(setting active_engine)"
 	printf 'active_profile=%s\n' "$(setting active_profile)"
-	printf 'draft_pending=%s\n' "$(setting draft_pending)"
+	if draft_pending; then draft_state=1; else draft_state=0; fi
+	printf 'draft_pending=%s\n' "$draft_state"
 	printf 'draft_active_profile=%s\n' "$(setting draft_active_profile)"
 	printf 'draft_direct_dns=%s\n' "$(setting draft_direct_dns)"
 	printf 'draft_transparent_proxy_ports=%s\n' "$(setting draft_transparent_proxy_ports)"
