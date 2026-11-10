@@ -8,7 +8,7 @@
 		},
 		"write": {
 			"ubus": {
-				"luci.v2rayb": [ "service_action", "set_setting", "apply_draft", "revert_draft", "add_node", "update_node", "set_node_enabled", "delete_node", "add_profile", "update_profile", "set_profile_enabled", "delete_profile", "select_profile" ]
+				"luci.v2rayb": [ "service_action", "set_service_enabled", "set_setting", "apply_draft", "revert_draft", "add_node", "update_node", "set_node_enabled", "delete_node", "add_profile", "update_profile", "set_profile_enabled", "delete_profile", "select_profile" ]
 			}
 		}
 	}

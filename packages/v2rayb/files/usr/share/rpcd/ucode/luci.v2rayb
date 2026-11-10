@@ -202,6 +202,35 @@ const methods = {
 		}
 	},
 
+	set_service_enabled: {
+		args: { enabled: '' },
+		call: function(request) {
+			let enabled = string_arg(request, 'enabled');
+			if (!match(enabled, /^[01]$/))
+				return { success: false, error: 'Invalid service enabled state' };
+
+			if (enabled == '1') {
+				let setting = ctl([ 'set-setting', 'service_enabled', '1' ]);
+				if (setting.code != 0)
+					return failed(setting);
+				let boot = run(init_path, [ 'enable' ]);
+				if (boot.code != 0)
+					return failed(boot);
+				let start = run(init_path, [ 'start' ]);
+				return start.code == 0 ? { success: true } : failed(start);
+			}
+
+			let stop = run(init_path, [ 'stop' ]);
+			if (stop.code != 0)
+				return failed(stop);
+			let setting = ctl([ 'set-setting', 'service_enabled', '0' ]);
+			if (setting.code != 0)
+				return failed(setting);
+			let boot = run(init_path, [ 'disable' ]);
+			return boot.code == 0 ? { success: true } : failed(boot);
+		}
+	},
+
 	set_setting: {
 		args: { key: '', value: '' },
 		call: function(request) {

@@ -306,6 +306,10 @@ rollback_start() {
 start_service() {
 	acquire_lock || return 1
 	"$CTL" init-db >/dev/null 2>&1 || { release_lock; return 1; }
+	if [ "$("$CTL" get-setting service_enabled 2>/dev/null)" != 1 ]; then
+		release_lock
+		return 0
+	fi
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
 	if [ "$current_state" = proxy ] && managed_processes_alive; then
 		release_lock

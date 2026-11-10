@@ -21,8 +21,8 @@ const callProfiles = rpc.declare({
 const callGetSetting = rpc.declare({
 	object: 'luci.v2rayb', method: 'get_setting', params: [ 'key' ], expect: { '': {} }
 });
-const callService = rpc.declare({
-	object: 'luci.v2rayb', method: 'service_action', params: [ 'action' ], expect: { '': {} }, reject: true
+const callSetServiceEnabled = rpc.declare({
+	object: 'luci.v2rayb', method: 'set_service_enabled', params: [ 'enabled' ], expect: { '': {} }, reject: true
 });
 const callSetSetting = rpc.declare({
 	object: 'luci.v2rayb', method: 'set_setting', params: [ 'key', 'value' ], expect: { '': {} }, reject: true
@@ -239,15 +239,6 @@ function notify(result, successText, reload) {
 	} else {
 		showRequestError(result);
 	}
-}
-
-function actionButton(view, title, action, style) {
-	return E('button', {
-		class: 'cbi-button ' + style, type: 'button',
-		click: ui.createHandlerFn(view, function() {
-			return callService(action).then(result => notify(result, _('Service action completed.'), true));
-		})
-	}, title);
 }
 
 function renderTabs(panes) {
@@ -666,6 +657,25 @@ return view.extend({
 			activeProfileRow ? activeProfileRow[1] : (activeProfile || _('Not selected')),
 			profilePolicyText(activeProfileRow));
 		const nodesCard = card(_('Nodes'), `${enabledNodes} / ${nodes.length}`, _('Enabled nodes / total nodes'));
+		const serviceEnabled = E('input', {
+			type: 'checkbox',
+			class: 'cbi-input-checkbox',
+			checked: status.service_enabled !== '0'
+		});
+		serviceEnabled.addEventListener('change', () => {
+			const enabled = serviceEnabled.checked ? '1' : '0';
+			serviceEnabled.disabled = true;
+			callSetServiceEnabled(enabled).then(result => {
+				if (result && result.success) {
+					notify(result, enabled === '1' ? _('v2rayB enabled and started.') : _('v2rayB stopped and disabled.'), true);
+					return;
+				}
+				notify(result, '');
+			}).catch(error => {
+				serviceEnabled.checked = !serviceEnabled.checked;
+				showRequestError(error);
+			}).finally(() => { serviceEnabled.disabled = false; });
+		});
 
 		const draftToolbar = E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('Configuration draft')),
@@ -687,11 +697,8 @@ return view.extend({
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Service Control')),
-				E('p', { class: 'v2rayb-help' }, _('Start and stop the complete v2rayB solution. The service owns its temporary DNS and firewall state and rolls it back on stop.')),
-				E('div', { class: 'v2rayb-toolbar' }, [
-					actionButton(this, _('Start'), 'start', 'cbi-button-apply'), actionButton(this, _('Restart'), 'restart', 'cbi-button-action'),
-					actionButton(this, _('Stop'), 'stop', 'cbi-button-negative')
-				])
+				field(_('Enable v2rayB'), E('div', {}, [ serviceEnabled, ' ', statusBadge(state) ]),
+					_('Enabled starts the complete service and enables it at boot. Disabled stops it safely and disables boot startup. Pending configuration drafts are not applied by this switch.'))
 			]),
 			table([ _('Property'), _('Current value') ], [
 				[ _('Engine'), status.active_engine || '-' ], [ _('Proxy mode'), status.proxy_mode || '-' ],
@@ -899,7 +906,7 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
 				E('p', { class: 'v2rayb-help' }, _('Nodes are stored in the v2rayB database. Use the structured editor to describe the endpoint; v2rayB generates the protocol-specific outbound configuration internally.')),
-				E('p', { class: 'v2rayb-help' }, _('Changes here update saved configuration only. Use Restart on the Overview tab to apply them to the running service.')),
+				E('p', { class: 'v2rayb-help' }, _('Changes here update saved configuration only. Use Save & Apply to make pending changes active.')),
 				nodeTable,
 				E('div', { class: 'v2rayb-create' }, [
 					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showNodeModal(pageView, onNodeSaved) }, _('Add'))

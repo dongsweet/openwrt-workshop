@@ -195,5 +195,7 @@ if grep -q '"$CTL" test-dnsmasq' "$ROOT/files/etc/init.d/v2rayB"; then
 	echo "external dnsmasq probe must not gate service startup" >&2
 	exit 1
 fi
+grep -q '"$CTL" get-setting service_enabled' "$ROOT/files/etc/init.d/v2rayB"
+grep -q 'service_enabled' "$ROOT/files/etc/v2rayB/schema.sql"
 
 echo "lifecycle tests: ok"

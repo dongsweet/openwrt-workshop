@@ -89,6 +89,9 @@ def main():
             "SELECT value FROM settings WHERE key = 'force_proxy_port'"
         ).fetchone()[0] == "12346"
         assert conn.execute(
+            "SELECT value FROM settings WHERE key = 'service_enabled'"
+        ).fetchone()[0] == "1"
+        assert conn.execute(
             "SELECT data_json FROM nodes WHERE id = ?", (node_id,)
         ).fetchone()[0] == json.dumps(node_data)
         assert conn.execute(
