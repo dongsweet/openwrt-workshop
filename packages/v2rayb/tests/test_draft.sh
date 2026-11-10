@@ -30,6 +30,13 @@ applied_version="$("$ctl" status | sed -n 's/^applied_config_version=//p')"
 draft_version="$("$ctl" status | sed -n 's/^draft_config_version=//p')"
 [ "$draft_version" -eq $((applied_version + 1)) ]
 "$ctl" list-nodes | grep -q 'draft-name.*draft.example.com.*8443'
+
+# A missing draft policy is restored before a profile policy update.
+"$sqlite" "$V2RAYB_DB" 'DELETE FROM draft_policies;'
+"$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 0 'example.com' 'regexp:^cdn\.example\.com$'
+policy_count="$("$sqlite" -batch -bail "$V2RAYB_DB" 'SELECT COUNT(*) FROM draft_policies;')"
+[ "$policy_count" = 1 ]
+
 "$ctl" render-all
 ! grep -q 'draft.example.com' "$TEST_DIR/state/active/v2ray.json"
 grep -q 'original.example.com' "$TEST_DIR/state/active/v2ray.json"

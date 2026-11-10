@@ -598,7 +598,31 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 
 return view.extend({
 	addFooter() {
-		return E([]);
+		const pending = this.draftPending === true;
+		function action(label, style, method) {
+			const button = E('button', {
+				class: 'cbi-button ' + style,
+				type: 'button',
+				disabled: !pending,
+				click: () => {
+					button.disabled = true;
+					method().then(result => {
+						if (result && result.success)
+							window.location.reload();
+						else
+							notify(result, '');
+					}).catch(showRequestError).finally(() => { button.disabled = !pending; });
+				}
+			}, label);
+			return button;
+		}
+		return E('div', { class: 'cbi-page-actions' }, [
+			E('span', { class: 'v2rayb-help' }, pending
+				? _('Pending draft version %s').format(this.draftVersion || '')
+				: _('No pending draft changes')),
+			action(_('Apply changes'), 'cbi-button-apply', callApplyDraft),
+			action(_('Revert changes'), 'cbi-button-negative', callRevertDraft)
+		]);
 	},
 
 	load() {
@@ -615,6 +639,8 @@ return view.extend({
 		const draftPending = status.draft_pending === '1';
 		const appliedVersion = status.applied_config_version || '1';
 		const draftVersion = status.draft_config_version || appliedVersion;
+		pageView.draftPending = draftPending;
+		pageView.draftVersion = draftVersion;
 		const nodes = parseRows(outputOf(data[1]));
 		const profiles = parseRows(outputOf(data[2]));
 		const directDns = outputOf(data[3]) || '223.5.5.5:53';
@@ -642,19 +668,6 @@ return view.extend({
 			profilePolicyText(activeProfileRow));
 		const nodesCard = card(_('Nodes'), `${enabledNodes} / ${nodes.length}`, _('Enabled nodes / total nodes'));
 
-		function draftActionButton(label, style, request) {
-			const button = E('button', { class: 'cbi-button ' + style, type: 'button' }, label);
-			button.addEventListener('click', () => {
-				button.disabled = true;
-				request().then(result => {
-					if (result && result.success)
-						window.location.reload();
-					else
-						notify(result, '');
-				}).catch(showRequestError).finally(() => { button.disabled = false; });
-			});
-			return button;
-		}
 		const draftToolbar = E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('Configuration draft')),
 			E('div', { class: 'v2rayb-hero-meta' }, [
@@ -662,12 +675,8 @@ return view.extend({
 				draftPending ? E('span', { class: 'v2rayb-chip' }, `${_('Pending draft version')}: ${draftVersion}`) : ''
 			]),
 			E('p', { class: 'v2rayb-help' }, draftPending
-				? _('Draft version %s contains saved changes that are not yet applied. It is stored in the database and will remain after a page reload.').format(draftVersion)
-				: _('There are no pending changes. Editing and saving nodes or profiles creates a draft before it is applied.')),
-			E('div', { class: 'v2rayb-toolbar' }, draftPending ? [
-				draftActionButton(_('Apply changes'), 'cbi-button-apply', callApplyDraft),
-				draftActionButton(_('Revert changes'), 'cbi-button-negative', callRevertDraft)
-			] : [])
+				? _('Draft version %s contains saved changes that are not yet applied. Use Apply changes or Revert changes in the footer.').format(draftVersion)
+				: _('There are no pending changes. Editing and saving nodes or profiles creates a draft before it is applied.'))
 		]);
 		const overview = [
 			draftToolbar,

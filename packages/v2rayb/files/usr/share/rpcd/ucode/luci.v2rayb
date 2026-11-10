@@ -54,9 +54,12 @@ function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mo
 	if (ports == '' || length(ports) > 255 ||
 	    !match(ports, /^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$/))
 		return 'Invalid transparent proxy port list';
-	if (!match(bypass_china, /^[01]$/) || !match(use_v2ray_dns, /^[01]$/) ||
-	    !match(mosdns_enabled, /^[01]$/))
-		return 'Invalid DNS or bypass setting';
+	if (!match(bypass_china, /^[01]$/))
+		return 'Invalid Bypass China IP value; expected 0 or 1';
+	if (!match(use_v2ray_dns, /^[01]$/))
+		return 'Invalid Use V2Ray DNS value; expected 0 or 1';
+	if (!match(mosdns_enabled, /^[01]$/))
+		return 'Invalid Enable MosDNS value; expected 0 or 1';
 	if ((mosdns_enabled == '1' && mosdns_domains == '') || length(mosdns_domains) > 1024)
 		return 'Invalid MosDNS domain list';
 	if (mosdns_match_rules != '' && length(mosdns_match_rules) > 16384)

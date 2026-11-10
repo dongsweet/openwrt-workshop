@@ -386,6 +386,12 @@ cmd_set_profile_policy() {
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
 	policy_id="$(db_sql "SELECT COALESCE(policy_id, 0) FROM draft_profiles WHERE id=$profile_id;" | sed -n '1p')"
 	if is_uint "$policy_id" && [ "$policy_id" -gt 0 ] 2>/dev/null; then
+		count="$(db_sql "SELECT COUNT(*) FROM draft_policies WHERE id=$policy_id;" | tr -d '[:space:]')"
+		if [ "$count" = 0 ]; then
+			db_sql "INSERT OR IGNORE INTO draft_policies SELECT * FROM policies WHERE id=$policy_id;"
+			count="$(db_sql "SELECT COUNT(*) FROM draft_policies WHERE id=$policy_id;" | tr -d '[:space:]')"
+		fi
+		[ "$count" = 1 ] || die "profile policy is missing from both draft and applied configuration"
 		db_sql "UPDATE draft_policies SET direct_dns=$(sql_quote "$direct_dns"), transparent_proxy_ports=$(sql_quote "$transparent_proxy_ports"), bypass_china=$bypass_china, use_v2ray_dns=$use_v2ray_dns, mosdns_enabled=$mosdns_enabled, mosdns_domains=$(sql_quote "$mosdns_domains"), mosdns_match_rules=$(sql_quote "$mosdns_match_rules"), updated_at=CURRENT_TIMESTAMP WHERE id=$policy_id; UPDATE draft_profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
 	else
 		policy_name="profile-$profile_id"

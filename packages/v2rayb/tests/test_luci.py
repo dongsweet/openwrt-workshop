@@ -24,6 +24,9 @@ def main():
     view_source = (
         FILES / "www/luci-static/resources/view/v2rayB/overview.js"
     ).read_text(encoding="utf-8")
+    ctl_source = (FILES / "usr/libexec/v2rayB/v2rayBctl").read_text(
+        encoding="utf-8"
+    )
     assert "function isEnabled(value)" in view_source
     assert "method: 'apply_draft'" in view_source
     assert "method: 'revert_draft'" in view_source
@@ -34,6 +37,9 @@ def main():
     assert "status.draft_config_version" in view_source
     assert "Pending draft version" in view_source
     assert "addFooter()" in view_source
+    assert "disabled: !pending" in view_source
+    assert "Use Apply changes or Revert changes in the footer." in view_source
+    assert "profile policy is missing from both draft and applied configuration" in ctl_source
     assert "profileAddButton.disabled = !enabled;" in view_source
     assert "disabled: !nodes.some" not in view_source
     assert "function buildOutbound" in view_source
@@ -82,6 +88,9 @@ def main():
     assert "args: {\n\t\t\tname: '', protocol: '', server: '', port: '', data_json: ''\n\t\t}" in rpc_source
     assert "function valid_node_fields" in rpc_source
     assert "function valid_profile_policy" in rpc_source
+    assert "Invalid Bypass China IP value; expected 0 or 1" in rpc_source
+    assert "Invalid Use V2Ray DNS value; expected 0 or 1" in rpc_source
+    assert "Invalid Enable MosDNS value; expected 0 or 1" in rpc_source
     assert "get-profile" in (FILES / "usr/libexec/v2rayB/v2rayBctl").read_text(encoding="utf-8")
     for method in (
         "get_node", "get_profile", "update_node", "set_node_enabled", "delete_node",
