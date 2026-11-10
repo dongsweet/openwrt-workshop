@@ -61,10 +61,12 @@ def main():
     assert "Applied version" not in view_source
     assert "Pending draft version" not in view_source
     assert "Draft version %s" not in view_source
-    assert "The running configuration is unchanged." in view_source
+    assert "Unapplied changes" in view_source
+    assert "Use Save & Apply to activate the saved draft, or Reset to discard it." in view_source
+    assert "running configuration is unchanged" not in view_source
+    assert "running configuration is up to date" not in view_source
     assert ".v2rayb-hero .v2rayb-chip" in view_source
     assert "background: #f6f8fa; color: #29384d;" in view_source
-    assert "use the standard Save & Apply or Reset footer actions." in view_source
     assert "profile policy is missing from both draft and applied configuration" in ctl_source
     assert "profileAddButton.disabled = !enabled;" in view_source
     assert "disabled: !nodes.some" not in view_source

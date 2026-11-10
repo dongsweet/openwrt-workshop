@@ -718,14 +718,11 @@ return view.extend({
 			pageView.serviceEnabledDirty = serviceEnabled.checked !== configuredServiceEnabled;
 		});
 
-		const draftToolbar = E('div', { class: 'cbi-section' }, [
-			E('h3', {}, _('Configuration state')),
-			E('p', { class: 'v2rayb-help' }, draftPending
-				? _('The running configuration is unchanged. The saved draft contains unapplied changes; use the standard Save & Apply or Reset footer actions.')
-				: _('The running configuration is up to date. There are no unapplied changes.'))
-		]);
 		const overview = [
-			draftToolbar,
+			draftPending ? E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('Unapplied changes')),
+				E('p', { class: 'v2rayb-help' }, _('Use Save & Apply to activate the saved draft, or Reset to discard it.'))
+			]) : E([]),
 			E('div', { class: 'v2rayb-cards' }, [
 				card(_('Service'), statusBadge(state), _('Unified V2Ray, MosDNS, dnsmasq and nftables lifecycle')),
 				activeProfileCard,
