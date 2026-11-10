@@ -21,9 +21,6 @@ const callProfiles = rpc.declare({
 const callGetSetting = rpc.declare({
 	object: 'luci.v2rayb', method: 'get_setting', params: [ 'key' ], expect: { '': {} }
 });
-const callSetServiceEnabled = rpc.declare({
-	object: 'luci.v2rayb', method: 'set_service_enabled', params: [ 'enabled' ], expect: { '': {} }, reject: true
-});
 const callSetSetting = rpc.declare({
 	object: 'luci.v2rayb', method: 'set_setting', params: [ 'key', 'value' ], expect: { '': {} }, reject: true
 });
@@ -588,20 +585,42 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 }
 
 return view.extend({
+	saveServiceEnabled() {
+		if (!this.serviceEnabledDirty)
+			return Promise.resolve({ success: true });
+		return callSetSetting('service_enabled', this.serviceEnabledDesired ? '1' : '0');
+	},
+
 	handleSave() {
-		ui.addNotification(null, E('p', {}, this.draftPending
-			? _('Draft version %s is saved. Use Save & Apply to make it active.').format(this.draftVersion || '')
-			: _('There are no pending draft changes.')), 'info');
-		return Promise.resolve();
+		return this.saveServiceEnabled().then(result => {
+			if (!result || !result.success) {
+				notify(result, '');
+				return;
+			}
+			if (this.serviceEnabledDirty) {
+				window.location.reload();
+				return;
+			}
+			ui.addNotification(null, E('p', {}, this.draftPending
+				? _('Draft version %s is saved. Use Save & Apply to make it active.').format(this.draftVersion || '')
+				: _('There are no pending draft changes.')), 'info');
+		}).catch(showRequestError);
 	},
 
 	handleSaveApply() {
-		return callApplyDraft().then(result => {
+		return this.saveServiceEnabled().then(result => {
+			if (!result || !result.success) {
+				notify(result, '');
+				return;
+			}
+			return callApplyDraft();
+		}).then(result => {
 			if (result && result.success) {
 				window.location.reload();
 				return;
 			}
-			notify(result, '');
+			if (result)
+				notify(result, '');
 		}).catch(showRequestError);
 	},
 
@@ -657,24 +676,20 @@ return view.extend({
 			activeProfileRow ? activeProfileRow[1] : (activeProfile || _('Not selected')),
 			profilePolicyText(activeProfileRow));
 		const nodesCard = card(_('Nodes'), `${enabledNodes} / ${nodes.length}`, _('Enabled nodes / total nodes'));
+		const appliedServiceEnabled = status.service_enabled !== '0';
+		const configuredServiceEnabled = draftPending
+			? status.draft_service_enabled !== '0'
+			: appliedServiceEnabled;
 		const serviceEnabled = E('input', {
 			type: 'checkbox',
 			class: 'cbi-input-checkbox',
-			checked: status.service_enabled !== '0'
+			checked: configuredServiceEnabled
 		});
+		pageView.serviceEnabledDesired = configuredServiceEnabled;
+		pageView.serviceEnabledDirty = false;
 		serviceEnabled.addEventListener('change', () => {
-			const enabled = serviceEnabled.checked ? '1' : '0';
-			serviceEnabled.disabled = true;
-			callSetServiceEnabled(enabled).then(result => {
-				if (result && result.success) {
-					notify(result, enabled === '1' ? _('v2rayB enabled and started.') : _('v2rayB stopped and disabled.'), true);
-					return;
-				}
-				notify(result, '');
-			}).catch(error => {
-				serviceEnabled.checked = !serviceEnabled.checked;
-				showRequestError(error);
-			}).finally(() => { serviceEnabled.disabled = false; });
+			pageView.serviceEnabledDesired = serviceEnabled.checked;
+			pageView.serviceEnabledDirty = serviceEnabled.checked !== configuredServiceEnabled;
 		});
 
 		const draftToolbar = E('div', { class: 'cbi-section' }, [
@@ -698,7 +713,7 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Service Control')),
 				field(_('Enable v2rayB'), E('div', {}, [ serviceEnabled, ' ', statusBadge(state) ]),
-					_('Enabled starts the complete service and enables it at boot. Disabled stops it safely and disables boot startup. Pending configuration drafts are not applied by this switch.'))
+					_('This setting participates in the standard Save, Save & Apply and Reset workflow. Applying enabled starts the service and enables boot startup; applying disabled stops it safely and disables boot startup.'))
 			]),
 			table([ _('Property'), _('Current value') ], [
 				[ _('Engine'), status.active_engine || '-' ], [ _('Proxy mode'), status.proxy_mode || '-' ],

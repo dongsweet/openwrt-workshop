@@ -92,6 +92,9 @@ def main():
             "SELECT value FROM settings WHERE key = 'service_enabled'"
         ).fetchone()[0] == "1"
         assert conn.execute(
+            "SELECT value FROM settings WHERE key = 'draft_service_enabled'"
+        ).fetchone()[0] == "1"
+        assert conn.execute(
             "SELECT data_json FROM nodes WHERE id = ?", (node_id,)
         ).fetchone()[0] == json.dumps(node_data)
         assert conn.execute(

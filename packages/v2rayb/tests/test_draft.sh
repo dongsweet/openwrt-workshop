@@ -61,6 +61,20 @@ fi
 "$ctl" render-all
 grep -q 'applied.example.com' "$TEST_DIR/state/active/v2ray.json"
 
+# The global service switch is a draft value, not an immediate action.
+applied_version="$("$ctl" status | sed -n 's/^applied_config_version=//p')"
+"$ctl" set-setting service_enabled 0
+"$ctl" status | grep -q '^service_enabled=1$'
+"$ctl" status | grep -q '^draft_service_enabled=0$'
+service_version="$("$ctl" status | sed -n 's/^draft_config_version=//p')"
+[ "$service_version" -eq $((applied_version + 1)) ]
+"$ctl" apply-draft
+"$ctl" status | grep -q '^service_enabled=0$'
+"$ctl" status | grep -q '^draft_pending=0$'
+"$ctl" revert-draft
+"$ctl" set-setting service_enabled 1
+"$ctl" apply-draft
+
 # A draft without an enabled active node is rejected.
 "$ctl" set-setting active_profile ''
 if "$ctl" apply-draft >/dev/null 2>&1; then

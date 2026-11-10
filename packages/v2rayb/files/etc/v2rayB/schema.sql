@@ -152,6 +152,7 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
     ('active_engine', 'v2ray'),
     ('active_profile', ''),
     ('service_enabled', '1'),
+    ('draft_service_enabled', '1'),
     ('applied_config_version', '1'),
     ('draft_config_version', '1'),
     ('draft_pending', '0'),

@@ -28,11 +28,18 @@ def main():
         encoding="utf-8"
     )
     assert "function isEnabled(value)" in view_source
-    assert "method: 'set_service_enabled'" in view_source
+    assert "set_service_enabled" not in view_source
+    assert "callSetSetting('service_enabled'" in view_source
+    assert "pageView.serviceEnabledDirty" in view_source
     assert "Enable v2rayB" in view_source
+    assert "standard Save, Save & Apply and Reset workflow" in view_source
     assert "function actionButton(" not in view_source
     assert "actionButton(this, _('Start')" not in view_source
-    assert "set_service_enabled" in rpc_source
+    assert "set_service_enabled" not in rpc_source
+    assert "key != 'service_enabled'" in rpc_source
+    assert "enabled ? 'enable' : 'disable'" in rpc_source
+    assert "was_proxy ? 'restart' : 'start'" in rpc_source
+    assert "run(init_path, [ 'stop' ])" in rpc_source
     assert "method: 'apply_draft'" in view_source
     assert "method: 'revert_draft'" in view_source
     assert "handleSave()" in view_source

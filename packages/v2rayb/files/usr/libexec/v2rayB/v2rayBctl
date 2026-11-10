@@ -185,10 +185,11 @@ begin_draft() {
 		INSERT INTO draft_nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM nodes;
 		INSERT INTO draft_profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM profiles;
 		INSERT INTO draft_profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM profile_nodes;
-		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_direct_dns','draft_transparent_proxy_ports');
+		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_direct_dns','draft_transparent_proxy_ports','draft_service_enabled');
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_active_profile',value,CURRENT_TIMESTAMP FROM settings WHERE key='active_profile';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_direct_dns',value,CURRENT_TIMESTAMP FROM settings WHERE key='direct_dns';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_transparent_proxy_ports',value,CURRENT_TIMESTAMP FROM settings WHERE key='transparent_proxy_ports';
+		INSERT INTO settings(key,value,updated_at) SELECT 'draft_service_enabled',value,CURRENT_TIMESTAMP FROM settings WHERE key='service_enabled';
 		INSERT INTO settings(key,value,updated_at) VALUES('draft_pending','1',CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value='1',updated_at=CURRENT_TIMESTAMP;
 		COMMIT;"
 }
@@ -260,7 +261,7 @@ ensure_db() {
 		version=4
 	fi
 	[ "$version" = 4 ] || die "unsupported database schema version: $version"
-	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('direct_dns', '223.5.5.5:53'), ('force_proxy_port', '12346'), ('transparent_proxy_ports', '80,443,8080,8443'), ('service_enabled', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('draft_direct_dns', '223.5.5.5:53'), ('draft_transparent_proxy_ports', '80,443,8080,8443');"
+	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('direct_dns', '223.5.5.5:53'), ('force_proxy_port', '12346'), ('transparent_proxy_ports', '80,443,8080,8443'), ('service_enabled', '1'), ('draft_service_enabled', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('draft_direct_dns', '223.5.5.5:53'), ('draft_transparent_proxy_ports', '80,443,8080,8443');"
 }
 
 set_state() {
@@ -312,9 +313,12 @@ cmd_set_setting() {
 		transparent_proxy_ports)
 			format_ports "$value" >/dev/null || die "invalid transparent proxy port list"
 			;;
+		service_enabled)
+			case "$value" in 0|1) ;; *) die "service_enabled must be 0 or 1" ;; esac
+			;;
 	esac
 	case "$key" in
-		direct_dns|transparent_proxy_ports|active_profile)
+		direct_dns|transparent_proxy_ports|active_profile|service_enabled)
 			draft_change_begin
 			set_draft_setting "$key" "$value"
 			draft_change_commit
@@ -586,6 +590,7 @@ cmd_apply_draft() {
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_active_profile'),value),updated_at=CURRENT_TIMESTAMP WHERE key='active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_direct_dns'),value),updated_at=CURRENT_TIMESTAMP WHERE key='direct_dns';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_transparent_proxy_ports'),value),updated_at=CURRENT_TIMESTAMP WHERE key='transparent_proxy_ports';
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_service_enabled'),value),updated_at=CURRENT_TIMESTAMP WHERE key='service_enabled';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_config_version'),value),updated_at=CURRENT_TIMESTAMP WHERE key='applied_config_version';
 		DELETE FROM draft_profile_nodes;
 		DELETE FROM draft_profiles;
@@ -1024,6 +1029,7 @@ cmd_status() {
 	printf 'active_profile=%s\n' "$(setting active_profile)"
 	printf 'service_enabled=%s\n' "$(setting service_enabled)"
 	if draft_pending; then draft_state=1; else draft_state=0; fi
+	printf 'draft_service_enabled=%s\n' "$(setting draft_service_enabled)"
 	printf 'applied_config_version=%s\n' "$(setting applied_config_version)"
 	printf 'draft_config_version=%s\n' "$(setting draft_config_version)"
 	printf 'draft_pending=%s\n' "$draft_state"

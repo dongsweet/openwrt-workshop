@@ -202,41 +202,12 @@ const methods = {
 		}
 	},
 
-	set_service_enabled: {
-		args: { enabled: '' },
-		call: function(request) {
-			let enabled = string_arg(request, 'enabled');
-			if (!match(enabled, /^[01]$/))
-				return { success: false, error: 'Invalid service enabled state' };
-
-			if (enabled == '1') {
-				let setting = ctl([ 'set-setting', 'service_enabled', '1' ]);
-				if (setting.code != 0)
-					return failed(setting);
-				let boot = run(init_path, [ 'enable' ]);
-				if (boot.code != 0)
-					return failed(boot);
-				let start = run(init_path, [ 'start' ]);
-				return start.code == 0 ? { success: true } : failed(start);
-			}
-
-			let stop = run(init_path, [ 'stop' ]);
-			if (stop.code != 0)
-				return failed(stop);
-			let setting = ctl([ 'set-setting', 'service_enabled', '0' ]);
-			if (setting.code != 0)
-				return failed(setting);
-			let boot = run(init_path, [ 'disable' ]);
-			return boot.code == 0 ? { success: true } : failed(boot);
-		}
-	},
-
 	set_setting: {
 		args: { key: '', value: '' },
 		call: function(request) {
 			let key = string_arg(request, 'key');
 			let value = string_arg(request, 'value');
-			if (key != 'direct_dns' && key != 'transparent_proxy_ports')
+			if (key != 'direct_dns' && key != 'transparent_proxy_ports' && key != 'service_enabled')
 				return { success: false, error: 'Unsupported setting' };
 
 			let result = ctl([ 'set-setting', key, value ]);
@@ -246,6 +217,10 @@ const methods = {
 
 	apply_draft: {
 		call: function() {
+			let before = ctl([ 'status' ]);
+			if (before.code != 0)
+				return failed(before);
+
 			let apply = ctl([ 'apply-draft' ]);
 			if (apply.code != 0)
 				return { success: false, error: apply.output || 'Draft could not be applied' };
@@ -255,10 +230,25 @@ const methods = {
 				return { success: false, error: render.output || 'Applied configuration could not be rendered' };
 
 			let status = ctl([ 'status' ]);
-			if (status.code == 0 && match(status.output, /(^|\n)state=proxy(\n|$)/)) {
-				let restart = run(init_path, [ 'restart' ]);
-				if (restart.code != 0)
-					return { success: false, error: restart.output || 'Applied, but service restart failed' };
+			if (status.code != 0)
+				return failed(status);
+
+			let enabled = match(status.output, /(^|\n)service_enabled=1(\n|$)/);
+			let boot = run(init_path, [ enabled ? 'enable' : 'disable' ]);
+			if (boot.code != 0)
+				return { success: false, error: boot.output || 'Applied, but boot state update failed' };
+
+			if (enabled) {
+				let was_proxy = match(before.output, /(^|\n)state=proxy(\n|$)/);
+				let action = was_proxy ? 'restart' : 'start';
+				let current = run(init_path, [ action ]);
+				if (current.code != 0)
+					return { success: false, error: current.output || 'Applied, but service start failed' };
+			}
+			else {
+				let stop = run(init_path, [ 'stop' ]);
+				if (stop.code != 0)
+					return { success: false, error: stop.output || 'Applied, but service stop failed' };
 			}
 			return { success: true };
 		}
