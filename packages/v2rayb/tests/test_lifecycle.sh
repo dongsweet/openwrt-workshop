@@ -58,7 +58,11 @@ setup_case() {
 	CTL="$TEST_DIR/ctl"
 	MOCK_SERVER=""
 	MOCK_NORESOLV=""
-	export RUNTIME FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED MOCK_SERVER MOCK_NORESOLV
+	TEST_DNSMASQ_DEFAULT='127.0.0.1#5353'
+	TEST_MOSDNS_ENABLED=1
+	TEST_MOSDNS_DOMAINS='xn--ngstr-lra8j.com'
+	export RUNTIME FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
+		MOCK_SERVER MOCK_NORESOLV TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
@@ -74,10 +78,12 @@ case "$1" in
 	set-setting) exit 0 ;;
 	delete-nft) [ "${FAIL_NFT:-0}" = 0 ] ;;
 	dns-settings)
-		printf '%s\n' 'runtime_state=starting' 'dnsmasq_default=127.0.0.1#5353' \
-			'direct_dns=223.5.5.5:53' 'use_v2ray_dns=1' 'mosdns_enabled=1' \
-			'mosdns_domains=xn--ngstr-lra8j.com' 'mosdns_listen=127.0.0.1#5354' \
-			'v2ray_dns_listen=127.0.0.1#5353'
+		printf '%s\n' 'runtime_state=starting' \
+			"dnsmasq_default=$TEST_DNSMASQ_DEFAULT" \
+			'direct_dns=223.5.5.5:53' 'use_v2ray_dns=1' \
+			"mosdns_enabled=$TEST_MOSDNS_ENABLED" \
+			"mosdns_domains=$TEST_MOSDNS_DOMAINS" \
+			'mosdns_listen=127.0.0.1#5354' 'v2ray_dns_listen=127.0.0.1#5353'
 		;;
 	*) exit 2 ;;
 esac
@@ -138,6 +144,23 @@ cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
 restore_dnsmasq
 [ ! -e "$MOSDNS_FORWARD_FILE" ]
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
+[ -z "$MOCK_NORESOLV" ]
+
+setup_case direct-dns-no-mosdns
+DNS_RELOAD_FAIL=0
+FAIL_NFT=0
+TEST_DNSMASQ_DEFAULT='223.5.5.5#53'
+TEST_MOSDNS_ENABLED=0
+TEST_MOSDNS_DOMAINS='example.com,xn--ngstr-lra8j.com'
+export FAIL_NFT TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
+MOCK_SERVER=""
+MOCK_NORESOLV=""
+set_proxy_dns
+[ "$MOCK_SERVER" = '223.5.5.5#53' ]
+[ "$MOCK_NORESOLV" = 1 ]
+[ ! -e "$MOSDNS_FORWARD_FILE" ]
+restore_dnsmasq
+[ -z "$MOCK_SERVER" ]
 [ -z "$MOCK_NORESOLV" ]
 
 echo "lifecycle tests: ok"

@@ -61,7 +61,11 @@ if "$ctl" set-profile-policy 1 223.5.5.5:53 '80,,443' 1 >/dev/null 2>&1; then
 	exit 1
 fi
 "$ctl" update-profile 1 hk-profile-updated 1 1.1.1.1:53 '80,443,8080-8443' 0 0 1 'example.com,xn--ngstr-lra8j.com' 'regexp:^cdn\.example\.com$' >/dev/null
-"$ctl" get-profile 1 | grep -q 'hk-profile-updated.*1.*1.*1.1.1.1:53.*80,443,8080-8443.*0.*0.*1.*example.com,xn--ngstr-lra8j.com.*regexp:'
+"$ctl" get-profile 1 | grep -q '^name=hk-profile-updated$'
+"$ctl" get-profile 1 | grep -q '^node_id=1$'
+"$ctl" get-profile 1 | grep -q '^use_v2ray_dns=0$'
+"$ctl" get-profile 1 | grep -q '^mosdns_domains=example.com,xn--ngstr-lra8j.com$'
+"$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
 "$ctl" dns-settings | grep -q '^dnsmasq_default=1.1.1.1#53$'
 "$ctl" dns-settings | grep -q '^use_v2ray_dns=0$'
 "$ctl" dns-settings | grep -q '^mosdns_enabled=1$'

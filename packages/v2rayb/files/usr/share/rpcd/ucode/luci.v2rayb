@@ -138,23 +138,32 @@ const methods = {
 			let result = ctl([ 'get-profile', profile_id ]);
 			if (result.code != 0)
 				return failed(result);
-			let columns = split(result.output, '\t');
-			if (length(columns) != 10)
+			let rules = ctl([ 'get-profile-rules', profile_id ]);
+			if (rules.code != 0)
+				return failed(rules);
+			let fields = {};
+			let lines = split(result.output, '\n');
+			for (let i = 0; i < length(lines); i++) {
+				let line = lines[i], sep = index(line, '=');
+				if (sep > 0)
+					fields[substr(line, 0, sep)] = substr(line, sep + 1);
+			}
+			if (!fields.name || !fields.node_id)
 				return { success: false, error: 'Profile details could not be read' };
 			return {
 				success: true,
 				profile: {
 					id: profile_id,
-					name: columns[0],
-					node_id: columns[1],
-					enabled: columns[2],
-					direct_dns: columns[3],
-					transparent_proxy_ports: columns[4],
-					bypass_china: columns[5],
-					use_v2ray_dns: columns[6],
-					mosdns_enabled: columns[7],
-					mosdns_domains: columns[8],
-					mosdns_match_rules: columns[9]
+					name: fields.name,
+					node_id: fields.node_id,
+					enabled: fields.enabled || '1',
+					direct_dns: fields.direct_dns || '',
+					transparent_proxy_ports: fields.transparent_proxy_ports || '',
+					bypass_china: fields.bypass_china || '1',
+					use_v2ray_dns: fields.use_v2ray_dns || '1',
+					mosdns_enabled: fields.mosdns_enabled || '1',
+					mosdns_domains: fields.mosdns_domains || '',
+					mosdns_match_rules: rules.output
 				}
 			};
 		}

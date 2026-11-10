@@ -474,9 +474,18 @@ cmd_get_profile() {
 	ensure_db
 	profile_id="$1"
 	is_uint "$profile_id" || die "profile id must be numeric"
-	row="$(db_sql "SELECT p.name || char(9) || COALESCE(pn.node_id, '') || char(9) || p.enabled || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') || char(9) || COALESCE(pol.mosdns_match_rules, '') FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
+	row="$(db_sql "SELECT 'name=' || p.name || char(10) || 'node_id=' || COALESCE(pn.node_id, '') || char(10) || 'enabled=' || p.enabled || char(10) || 'direct_dns=' || COALESCE(pol.direct_dns, '') || char(10) || 'transparent_proxy_ports=' || COALESCE(pol.transparent_proxy_ports, '') || char(10) || 'bypass_china=' || COALESCE(pol.bypass_china, 1) || char(10) || 'use_v2ray_dns=' || COALESCE(pol.use_v2ray_dns, 1) || char(10) || 'mosdns_enabled=' || COALESCE(pol.mosdns_enabled, 1) || char(10) || 'mosdns_domains=' || COALESCE(pol.mosdns_domains, '') FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
 	[ -n "$row" ] || die "profile not found: $profile_id"
 	printf '%s\n' "$row"
+}
+
+cmd_get_profile_rules() {
+	ensure_db
+	profile_id="$1"
+	is_uint "$profile_id" || die "profile id must be numeric"
+	count="$(db_sql "SELECT COUNT(*) FROM profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
+	[ "$count" = 1 ] || die "profile not found: $profile_id"
+	db_sql "SELECT COALESCE(pol.mosdns_match_rules, '') FROM profiles p LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;"
 }
 
 active_profile() {
@@ -883,6 +892,7 @@ Usage:
   v2rayBctl get-node NODE_ID
   v2rayBctl list-profiles
   v2rayBctl get-profile PROFILE_ID
+  v2rayBctl get-profile-rules PROFILE_ID
   v2rayBctl dns-state
   v2rayBctl dns-settings
   v2rayBctl render-v2ray|render-mosdns|render-nft|render-all
@@ -918,6 +928,7 @@ case "$command" in
 	get-node) [ "$#" -eq 1 ] || usage; cmd_get_node "$1" ;;
 	list-profiles) [ "$#" -eq 0 ] || usage; cmd_list_profiles ;;
 	get-profile) [ "$#" -eq 1 ] || usage; cmd_get_profile "$1" ;;
+	get-profile-rules) [ "$#" -eq 1 ] || usage; cmd_get_profile_rules "$1" ;;
 	render-v2ray) [ "$#" -eq 0 ] || usage; cmd_render_v2ray ;;
 	render-mosdns) [ "$#" -eq 0 ] || usage; cmd_render_mosdns ;;
 	render-nft) [ "$#" -eq 0 ] || usage; cmd_render_nft ;;

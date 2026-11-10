@@ -466,11 +466,11 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	]);
 	const profileDns = E('input', {
 		class: 'cbi-input-text', type: 'text',
-		value: existing ? existing.direct_dns : defaults.direct_dns
+		value: (existing && existing.direct_dns) || defaults.direct_dns
 	});
 	const profilePorts = E('input', {
 		class: 'cbi-input-text', type: 'text',
-		value: existing ? existing.transparent_proxy_ports : defaults.transparent_proxy_ports
+		value: (existing && existing.transparent_proxy_ports) || defaults.transparent_proxy_ports
 	});
 	const bypassChina = E('input', {
 		type: 'checkbox',
@@ -486,13 +486,13 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	});
 	const mosdnsDomains = E('input', {
 		class: 'cbi-input-text', type: 'text', maxlength: '1024',
-		value: existing ? existing.mosdns_domains : (defaults.mosdns_domains || 'xn--ngstr-lra8j.com')
+		value: (existing && existing.mosdns_domains) || defaults.mosdns_domains || 'xn--ngstr-lra8j.com'
 	});
 	const mosdnsRules = E('textarea', {
 		class: 'cbi-input-text', rows: '5', spellcheck: 'false',
 		placeholder: 'regexp:^r\\+...$'
 	});
-	mosdnsRules.value = existing ? existing.mosdns_match_rules : (defaults.mosdns_match_rules || '');
+	mosdnsRules.value = (existing && existing.mosdns_match_rules) || defaults.mosdns_match_rules || '';
 	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
 		const profileName = name.value.trim();
 		if (!profileName || !nodeSelect.value || !profileDns.value || !profilePorts.value) {
@@ -589,7 +589,9 @@ return view.extend({
 			const dns = row[6] || directDns;
 			const ports = row[7] || status.transparent_proxy_ports || '80,443,8080,8443';
 			const china = isEnabled(row[8]) ? _('China IP direct') : _('All through proxy');
-			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${china}`;
+			const v2rayDns = isEnabled(row[9]) ? _('V2Ray DNS default') : _('Direct DNS default');
+			const mosdns = isEnabled(row[10]) ? _('MosDNS on') : _('MosDNS off');
+			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${china} · ${v2rayDns} · ${mosdns}`;
 		}
 		const activeProfileRow = profiles.find(row => row[0] === activeProfile);
 		const activeProfileCard = card(_('Active profile'),
