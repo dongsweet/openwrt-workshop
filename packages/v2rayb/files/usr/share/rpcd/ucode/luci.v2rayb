@@ -139,6 +139,12 @@ const methods = {
 		}
 	},
 
+	get_applied_profile: {
+		call: function() {
+			return ctl([ 'get-applied-profile' ]);
+		}
+	},
+
 	get_profile: {
 		args: { profile_id: '' },
 		call: function(request) {

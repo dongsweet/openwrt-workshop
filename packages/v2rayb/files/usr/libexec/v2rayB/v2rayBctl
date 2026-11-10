@@ -639,6 +639,13 @@ cmd_list_profiles() {
 	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $nodes_table n ON n.id=pn.node_id LEFT JOIN $policies_table pol ON pol.id=p.policy_id ORDER BY p.id;"
 }
 
+cmd_get_applied_profile() {
+	ensure_db
+	profile_id="$(setting active_profile)"
+	is_uint "$profile_id" || return 0
+	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;"
+}
+
 cmd_get_profile() {
 	ensure_db
 	profile_id="$1"
@@ -1069,6 +1076,7 @@ Usage:
   v2rayBctl list-nodes
   v2rayBctl get-node NODE_ID
   v2rayBctl list-profiles
+  v2rayBctl get-applied-profile
   v2rayBctl get-profile PROFILE_ID
   v2rayBctl get-profile-rules PROFILE_ID
   v2rayBctl dns-state
@@ -1108,6 +1116,7 @@ case "$command" in
 	list-nodes) [ "$#" -eq 0 ] || usage; cmd_list_nodes ;;
 	get-node) [ "$#" -eq 1 ] || usage; cmd_get_node "$1" ;;
 	list-profiles) [ "$#" -eq 0 ] || usage; cmd_list_profiles ;;
+	get-applied-profile) [ "$#" -eq 0 ] || usage; cmd_get_applied_profile ;;
 	get-profile) [ "$#" -eq 1 ] || usage; cmd_get_profile "$1" ;;
 	get-profile-rules) [ "$#" -eq 1 ] || usage; cmd_get_profile_rules "$1" ;;
 	render-v2ray) [ "$#" -eq 0 ] || usage; cmd_render_v2ray ;;

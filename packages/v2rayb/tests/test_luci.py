@@ -43,17 +43,30 @@ def main():
     assert "queuePendingOperation(() => callSelectProfile" not in view_source
     assert "queuePendingOperation(() => callDeleteNode" in view_source
     assert "queuePendingOperation(() => callDeleteProfile" in view_source
-    assert "field(_('Active profile'), activeProfileSelect" in view_source
+    assert "field(_('Profile to activate'), activeProfileSelect" in view_source
+    assert "card(_('Applied profile')" in view_source
+    assert "activeProfileRows = parseRows(outputOf(data[6]))" not in view_source
+    assert "appliedProfileRows = parseRows(outputOf(data[6]))" in view_source
+    assert "const activeProfileRow = appliedProfileRows[0] || null" in view_source
+    assert "method: 'get_applied_profile'" in view_source
+    assert "get_applied_profile" in rpc_source
+    assert "get-applied-profile" in ctl_source
     assert "profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ]" in view_source
     assert "'Use')) : ''" not in view_source
     assert "_('Active')) : ''" not in view_source
     assert "pageView.activeProfileDirty" in view_source
     assert "profileOptionsFromProfiles(rows)" in view_source
+    profile_change = view_source[
+        view_source.index("activeProfileSelect.addEventListener('change'"):
+        view_source.index("const overview = [")
+    ]
+    assert "refreshProfileCard();" not in profile_change
+    assert "pageView.activeProfileDirty = activeProfile !== appliedProfile;" in profile_change
     assert "Save DNS setting" not in view_source
     assert "Save port setting" not in view_source
     assert "Enable v2rayB" in view_source
     assert "Also controls boot startup." in view_source
-    assert "Used after Save & Apply." in view_source
+    assert "Applied after Save & Apply." in view_source
     assert "function actionButton(" not in view_source
     assert "actionButton(this, _('Start')" not in view_source
     assert "set_service_enabled" not in rpc_source
@@ -71,7 +84,7 @@ def main():
     assert "Revert changes" not in view_source
     assert "addFooter() {" not in view_source
     assert "draft_pending === '1'" in view_source
-    assert "status.draft_active_profile || status.active_profile" in view_source
+    assert "status.draft_active_profile || appliedProfile" in view_source
     assert "Applied version" not in view_source
     assert "Pending draft version" not in view_source
     assert "Draft version %s" not in view_source

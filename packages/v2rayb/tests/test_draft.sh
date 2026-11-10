@@ -26,10 +26,15 @@ applied_version="$("$ctl" status | sed -n 's/^applied_config_version=//p')"
 # A saved edit must remain a draft and not affect applied runtime data.
 "$ctl" update-node 1 draft-name vless draft.example.com 8443 \
 	'{"settings":{"vnext":[{"address":"draft.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
+"$ctl" update-profile 1 draft-profile 1 1.1.1.1:53 '443,8443' 0 0 0 'example.com' \
+	'regexp:^draft\\.example\\.com$' >/dev/null
 "$ctl" status | grep -q '^draft_pending=1$'
 draft_version="$("$ctl" status | sed -n 's/^draft_config_version=//p')"
-[ "$draft_version" -eq $((applied_version + 1)) ]
+[ "$draft_version" -gt "$applied_version" ]
 "$ctl" list-nodes | grep -q 'draft-name.*draft.example.com.*8443'
+"$ctl" get-profile 1 | grep -q '^name=draft-profile$'
+"$ctl" get-applied-profile | grep -q '^1	original-profile	'
+! "$ctl" get-applied-profile | grep -q 'draft-profile'
 
 # A missing draft policy is restored before a profile policy update.
 "$sqlite" "$V2RAYB_DB" 'DELETE FROM draft_policies;'
@@ -55,9 +60,10 @@ fi
 # Apply makes the draft authoritative.
 "$ctl" update-node 1 applied-name vless applied.example.com 9443 \
 	'{"settings":{"vnext":[{"address":"applied.example.com","port":9443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
+next_applied_version="$("$ctl" status | sed -n 's/^draft_config_version=//p')"
 "$ctl" apply-draft
 "$ctl" status | grep -q '^draft_pending=0$'
-"$ctl" status | grep -q "^applied_config_version=$draft_version$"
+"$ctl" status | grep -q "^applied_config_version=$next_applied_version$"
 "$ctl" render-all
 grep -q 'applied.example.com' "$TEST_DIR/state/active/v2ray.json"
 

@@ -18,6 +18,9 @@ const callNodes = rpc.declare({
 const callProfiles = rpc.declare({
 	object: 'luci.v2rayb', method: 'list_profiles', expect: { '': {} }
 });
+const callAppliedProfile = rpc.declare({
+	object: 'luci.v2rayb', method: 'get_applied_profile', expect: { '': {} }
+});
 const callGetSetting = rpc.declare({
 	object: 'luci.v2rayb', method: 'get_setting', params: [ 'key' ], expect: { '': {} }
 });
@@ -614,7 +617,8 @@ return view.extend({
 		return Promise.all([
 			L.resolveDefault(callStatus(), { output: '' }), L.resolveDefault(callNodes(), { output: '' }),
 			L.resolveDefault(callProfiles(), { output: '' }), L.resolveDefault(callGetSetting('direct_dns'), { output: '223.5.5.5:53' }),
-			L.resolveDefault(callDnsState(), { output: '' }), L.resolveDefault(callGetV2rayConfig(), { output: '' })
+			L.resolveDefault(callDnsState(), { output: '' }), L.resolveDefault(callGetV2rayConfig(), { output: '' }),
+			L.resolveDefault(callAppliedProfile(), { output: '' })
 		]);
 	},
 
@@ -630,9 +634,11 @@ return view.extend({
 		const profiles = parseRows(outputOf(data[2]));
 		const directDns = outputOf(data[3]) || '223.5.5.5:53';
 		const dnsState = parseKeyValues(outputOf(data[4]));
+		const appliedProfileRows = parseRows(outputOf(data[6]));
+		const appliedProfile = status.active_profile || '';
 		let activeProfile = draftPending
-			? (status.draft_active_profile || status.active_profile || '')
-			: (status.active_profile || '');
+			? (status.draft_active_profile || appliedProfile)
+			: appliedProfile;
 		const state = status.state || 'normal';
 		let enabledNodes = nodes.filter(row => isEnabled(row[5])).length;
 		let enabledProfiles = profiles.filter(row => isEnabled(row[4])).length;
@@ -647,9 +653,9 @@ return view.extend({
 			const mosdns = isEnabled(row[10]) ? _('MosDNS on') : _('MosDNS off');
 			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${china} · ${v2rayDns} · ${mosdns}`;
 		}
-		const activeProfileRow = profiles.find(row => row[0] === activeProfile);
-		const activeProfileCard = card(_('Active profile'),
-			activeProfileRow ? activeProfileRow[1] : (activeProfile || _('Not selected')),
+		const activeProfileRow = appliedProfileRows[0] || null;
+		const activeProfileCard = card(_('Applied profile'),
+			activeProfileRow ? activeProfileRow[1] : (appliedProfile || _('Not selected')),
 			profilePolicyText(activeProfileRow));
 		function profileOptionsFromProfiles(rows) {
 			const options = [ E('option', { value: '' }, _('Select a profile')) ];
@@ -757,9 +763,8 @@ return view.extend({
 		});
 		activeProfileSelect.addEventListener('change', () => {
 			activeProfile = activeProfileSelect.value;
-			pageView.activeProfileDirty = activeProfile !== (status.active_profile || '');
+			pageView.activeProfileDirty = activeProfile !== appliedProfile;
 			updateLocalChangesNotice();
-			refreshProfileCard();
 		});
 
 		const overview = [
@@ -774,8 +779,8 @@ return view.extend({
 				E('h3', {}, _('Service Control')),
 				field(_('Enable v2rayB'), E('div', {}, [ serviceEnabled, ' ', statusBadge(state) ]),
 					_('Also controls boot startup.')),
-				field(_('Active profile'), activeProfileSelect,
-					_('Used after Save & Apply.'))
+				field(_('Profile to activate'), activeProfileSelect,
+					_('Applied after Save & Apply.'))
 			]),
 			table([ _('Property'), _('Current value') ], [
 				[ _('Engine'), status.active_engine || '-' ], [ _('Proxy mode'), status.proxy_mode || '-' ],
@@ -810,8 +815,8 @@ return view.extend({
 				displayId(row[0]), row[1], primaryName || E('span', { class: 'v2rayb-muted' }, _('No node')),
 				profilePolicySummary(row),
 				enabledToggle(row[4], enabled => {
-					if (enabled === '0' && row[0] === activeProfile) {
-						ui.addNotification(null, E('p', {}, _('Select another active profile before disabling this one.')), 'warning');
+					if (enabled === '0' && (row[0] === activeProfile || row[0] === appliedProfile)) {
+						ui.addNotification(null, E('p', {}, _('Select and apply another profile before disabling this one.')), 'warning');
 						refreshProfileTable();
 						return;
 					}
@@ -856,8 +861,8 @@ return view.extend({
 						}, details.profile);
 					}),
 					removeButton(async () => {
-						if (row[0] === activeProfile) {
-							ui.addNotification(null, E('p', {}, _('Select another active profile before deleting this one.')), 'warning');
+						if (row[0] === activeProfile || row[0] === appliedProfile) {
+							ui.addNotification(null, E('p', {}, _('Select and apply another profile before deleting this one.')), 'warning');
 							return;
 						}
 						if (!await confirmDelete(_('Delete profile "%s"?').format(row[1])))
@@ -947,9 +952,9 @@ return view.extend({
 		}
 		function refreshProfileCard() {
 			enabledProfiles = profiles.filter(row => isEnabled(row[4])).length;
-			const row = profiles.find(item => item[0] === activeProfile);
+			const row = activeProfileRow;
 			activeProfileCard.querySelector('.v2rayb-card-value').textContent =
-				row ? row[1] : (activeProfile || _('Not selected'));
+				row ? row[1] : (appliedProfile || _('Not selected'));
 			activeProfileCard.querySelector('.v2rayb-card-help').textContent = profilePolicyText(row);
 			pageView.refreshActiveProfileSelect();
 		}
@@ -1120,7 +1125,7 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Effective Profile Policy')),
 				table([ _('Item'), _('Effective value') ], [
-					[ _('Active profile'), activeProfileRow ? activeProfileRow[1] : _('Not selected') ],
+					[ _('Applied profile'), activeProfileRow ? activeProfileRow[1] : _('Not selected') ],
 					[ _('Direct DNS upstream'), effectiveDns ],
 					[ _('Transparent TCP ports'), activeProfileRow ? (activeProfileRow[7] || '-') : '-' ]
 				], _('No active profile policy available.'))
@@ -1145,7 +1150,7 @@ return view.extend({
 				E('h2', {}, _('v2rayB unified proxy')),
 				E('div', { class: 'v2rayb-hero-meta' }, [
 					E('span', { class: 'v2rayb-chip' }, [ _('Current state:'), statusBadge(state) ]),
-					E('span', { class: 'v2rayb-chip' }, `${_('Profile')}: ${activeProfile || _('none')}`),
+					E('span', { class: 'v2rayb-chip' }, `${_('Profile')}: ${appliedProfile || _('none')}`),
 					E('span', { class: 'v2rayb-chip' }, `${_('DNS')}: ${status.v2ray_dns_listen || '-'}`)
 				])
 			]),
