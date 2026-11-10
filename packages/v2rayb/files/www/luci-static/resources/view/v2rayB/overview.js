@@ -103,7 +103,8 @@ function css() {
 		.v2rayb-hero p { margin: 0; color: rgba(255,255,255,.82); }
 		.v2rayb-hero-meta { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
 		.v2rayb-chip { display: inline-flex; align-items: center; gap: .35rem; padding: .35rem .65rem;
-			border: 1px solid rgba(255,255,255,.22); border-radius: 999px; color: #fff; font-size: .82rem; }
+			border: 1px solid #d5dce5; border-radius: 999px; background: #f6f8fa; color: #29384d; font-size: .82rem; }
+		.v2rayb-hero .v2rayb-chip { border-color: rgba(255,255,255,.22); background: transparent; color: #fff; }
 		.v2rayb-nav { display: flex; flex-wrap: wrap; gap: .55rem; margin-bottom: 1rem; }
 		.v2rayb-nav button { min-width: 9.5rem; padding: .75rem .9rem; text-align: left; cursor: pointer;
 			border: 1px solid #d5dce5; border-radius: 12px; background: #fff; color: #29384d; }
@@ -602,7 +603,7 @@ return view.extend({
 				return;
 			}
 			ui.addNotification(null, E('p', {}, this.draftPending
-				? _('Draft version %s is saved. Use Save & Apply to make it active.').format(this.draftVersion || '')
+				? _('Your changes are saved as a draft. Use Save & Apply to make them active.')
 				: _('There are no pending draft changes.')), 'info');
 		}).catch(showRequestError);
 	},
@@ -693,14 +694,10 @@ return view.extend({
 		});
 
 		const draftToolbar = E('div', { class: 'cbi-section' }, [
-			E('h3', {}, _('Configuration draft')),
-			E('div', { class: 'v2rayb-hero-meta' }, [
-				E('span', { class: 'v2rayb-chip' }, `${_('Applied version')}: ${appliedVersion}`),
-				draftPending ? E('span', { class: 'v2rayb-chip' }, `${_('Pending draft version')}: ${draftVersion}`) : ''
-			]),
+			E('h3', {}, _('Configuration state')),
 			E('p', { class: 'v2rayb-help' }, draftPending
-				? _('Draft version %s contains saved changes that are not yet applied. Use the standard Save & Apply or Reset footer actions.').format(draftVersion)
-				: _('There are no pending changes. Editing and saving nodes or profiles creates a draft before it is applied.'))
+				? _('The running configuration is unchanged. The saved draft contains unapplied changes; use the standard Save & Apply or Reset footer actions.')
+				: _('The running configuration is up to date. There are no unapplied changes.'))
 		]);
 		const overview = [
 			draftToolbar,

@@ -45,15 +45,18 @@ def main():
     assert "handleSave()" in view_source
     assert "handleSaveApply()" in view_source
     assert "handleReset()" in view_source
-    assert "Draft version %s is saved. Use Save & Apply" in view_source
+    assert "Your changes are saved as a draft. Use Save & Apply" in view_source
     assert "Apply changes" not in view_source
     assert "Revert changes" not in view_source
     assert "addFooter() {" not in view_source
     assert "draft_pending === '1'" in view_source
-    assert "status.applied_config_version" in view_source
-    assert "status.draft_config_version" in view_source
-    assert "Pending draft version" in view_source
-    assert "Use the standard Save & Apply or Reset footer actions." in view_source
+    assert "Applied version" not in view_source
+    assert "Pending draft version" not in view_source
+    assert "Draft version %s" not in view_source
+    assert "The running configuration is unchanged." in view_source
+    assert ".v2rayb-hero .v2rayb-chip" in view_source
+    assert "background: #f6f8fa; color: #29384d;" in view_source
+    assert "use the standard Save & Apply or Reset footer actions." in view_source
     assert "profile policy is missing from both draft and applied configuration" in ctl_source
     assert "profileAddButton.disabled = !enabled;" in view_source
     assert "disabled: !nodes.some" not in view_source
