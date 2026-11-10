@@ -653,6 +653,20 @@ return view.extend({
 		const activeProfileCard = card(_('Active profile'),
 			activeProfileRow ? activeProfileRow[1] : (activeProfile || _('Not selected')),
 			profilePolicyText(activeProfileRow));
+		function profileOptionsFromProfiles(rows) {
+			const options = [ E('option', { value: '' }, _('Select a profile')) ];
+			for (const row of rows) {
+				if (!isEnabled(row[4]))
+					continue;
+				const option = E('option', { value: row[0] }, row[1]);
+				option.selected = row[0] === activeProfile;
+				options.push(option);
+			}
+			return options;
+		}
+		const activeProfileSelect = E('select', { class: 'cbi-input-select' },
+			profileOptionsFromProfiles(profiles));
+		activeProfileSelect.value = activeProfile;
 		const nodesCard = card(_('Nodes'), `${enabledNodes} / ${nodes.length}`, _('Enabled nodes / total nodes'));
 		const appliedServiceEnabled = status.service_enabled !== '0';
 		const configuredServiceEnabled = draftPending
@@ -677,8 +691,16 @@ return view.extend({
 		pageView.resolveProfileId = function(id) {
 			return this.profileIdMap[id] || id;
 		};
+		pageView.activeProfileDirty = false;
 		pageView.hasLocalChanges = function() {
-			return this.serviceEnabledDirty || this.pendingOperations.length > 0;
+			return this.serviceEnabledDirty || this.activeProfileDirty ||
+				this.pendingOperations.length > 0;
+		};
+		pageView.refreshActiveProfileSelect = function() {
+			const current = String(activeProfile || '');
+			const options = profileOptionsFromProfiles(profiles);
+			activeProfileSelect.replaceChildren(...options);
+			activeProfileSelect.value = options.some(option => option.value === current) ? current : '';
 		};
 		pageView.persistLocalChanges = function() {
 			let chain = Promise.resolve({ success: true });
@@ -736,6 +758,12 @@ return view.extend({
 			pageView.serviceEnabledDirty = serviceEnabled.checked !== configuredServiceEnabled;
 			updateLocalChangesNotice();
 		});
+		activeProfileSelect.addEventListener('change', () => {
+			activeProfile = activeProfileSelect.value;
+			pageView.activeProfileDirty = activeProfile !== (status.active_profile || '');
+			updateLocalChangesNotice();
+			refreshProfileCard();
+		});
 
 		const overview = [
 			unappliedNotice,
@@ -748,7 +776,9 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Service Control')),
 				field(_('Enable v2rayB'), E('div', {}, [ serviceEnabled, ' ', statusBadge(state) ]),
-					_('This setting participates in the standard Save, Save & Apply and Reset workflow. Applying enabled starts the service and enables boot startup; applying disabled stops it safely and disables boot startup.'))
+					_('This setting participates in the standard Save, Save & Apply and Reset workflow. Applying enabled starts the service and enables boot startup; applying disabled stops it safely and disables boot startup.')),
+				field(_('Active profile'), activeProfileSelect,
+					_('Select the profile used by the service. Profile choices participate in the same Save, Save & Apply and Reset workflow.'))
 			]),
 			table([ _('Property'), _('Current value') ], [
 				[ _('Engine'), status.active_engine || '-' ], [ _('Proxy mode'), status.proxy_mode || '-' ],
@@ -758,7 +788,7 @@ return view.extend({
 		];
 
 		let profileTable, nodeTable, profileAddButton;
-		const profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Active'), _('Actions') ];
+		const profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ];
 		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Enabled'), _('Actions') ];
 
 		function enabledToggle(enabled, change) {
@@ -796,16 +826,7 @@ return view.extend({
 					refreshProfileTable();
 					refreshProfileCard();
 				}),
-				row[0] === activeProfile ? E('strong', {}, _('Active')) : '',
 				actionCell([
-					row[0] !== activeProfile && isEnabled(row[4])
-						? E('button', { class: 'btn cbi-button cbi-button-apply', type: 'button', click: () => {
-							activeProfile = row[0];
-							if (!isTempId(row[0]))
-								queuePendingOperation(() => callSelectProfile(pageView.resolveProfileId(row[0])), 'profile-select');
-							refreshProfileTable();
-							refreshProfileCard();
-						} }, _('Use')) : '',
 					editButton(async () => {
 						let details;
 						if (pageView.localProfileDetails[row[0]])
@@ -933,6 +954,7 @@ return view.extend({
 			activeProfileCard.querySelector('.v2rayb-card-value').textContent =
 				row ? row[1] : (activeProfile || _('Not selected'));
 			activeProfileCard.querySelector('.v2rayb-card-help').textContent = profilePolicyText(row);
+			pageView.refreshActiveProfileSelect();
 		}
 		function onNodeSaved(node) {
 			if (node.id) {
@@ -996,10 +1018,8 @@ return view.extend({
 			const index = profiles.findIndex(item => item[0] === id);
 			if (index >= 0)
 				profiles[index] = row;
-			else {
+			else
 				profiles.push(row);
-				activeProfile = id;
-			}
 			pageView.localProfileDetails[id] = Object.assign({ id: id, enabled: '1' }, profile);
 			queuePendingOperation(() => callAddProfile(
 				profile.name, pageView.resolveNodeId(profile.node_id),
@@ -1011,7 +1031,7 @@ return view.extend({
 				if (!result || !result.success)
 					return result;
 				pageView.profileIdMap[id] = String(result.profile_id);
-				return callSelectProfile(result.profile_id);
+				return result;
 			}), 'profile-create:' + id);
 			refreshProfileTable();
 			refreshProfileCard();
@@ -1039,7 +1059,11 @@ return view.extend({
 				const resolvedActive = this.resolveProfileId(activeProfile);
 				if (!activeProfile || String(resolvedActive) === String(initialActiveProfile))
 					return result;
-				return callSelectProfile(resolvedActive);
+				return callSelectProfile(resolvedActive).then(selectResult => {
+					if (selectResult && selectResult.success)
+						this.activeProfileDirty = false;
+					return selectResult;
+				});
 			});
 		};
 		refreshProfileAddButton();
@@ -1047,7 +1071,7 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
 				E('p', { class: 'v2rayb-help' }, _('Nodes are stored in the v2rayB database. Use the structured editor to describe the endpoint; v2rayB generates the protocol-specific outbound configuration internally.')),
-				E('p', { class: 'v2rayb-help' }, _('Editor, checkbox, Use and Delete changes are staged in the page. The standard Save action writes them to the configuration draft; nothing becomes active until Save & Apply.')),
+				E('p', { class: 'v2rayb-help' }, _('Editor, checkbox and Delete changes are staged in the page. The active profile is selected on Overview. The standard Save action writes changes to the draft; nothing becomes active until Save & Apply.')),
 				nodeTable,
 				E('div', { class: 'v2rayb-create' }, [
 					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showNodeModal(pageView, onNodeSaved) }, _('Add'))

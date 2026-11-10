@@ -40,9 +40,15 @@ def main():
     assert "pageView.pendingOperations" in view_source
     assert "queuePendingOperation(() => callSetNodeEnabled" in view_source
     assert "queuePendingOperation(() => callSetProfileEnabled" in view_source
-    assert "queuePendingOperation(() => callSelectProfile" in view_source
+    assert "queuePendingOperation(() => callSelectProfile" not in view_source
     assert "queuePendingOperation(() => callDeleteNode" in view_source
     assert "queuePendingOperation(() => callDeleteProfile" in view_source
+    assert "field(_('Active profile'), activeProfileSelect" in view_source
+    assert "profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ]" in view_source
+    assert "'Use')) : ''" not in view_source
+    assert "_('Active')) : ''" not in view_source
+    assert "pageView.activeProfileDirty" in view_source
+    assert "profileOptionsFromProfiles(rows)" in view_source
     assert "Save DNS setting" not in view_source
     assert "Save port setting" not in view_source
     assert "Enable v2rayB" in view_source
@@ -145,8 +151,9 @@ def main():
     assert "value && value.nodeName === 'TD'" in view_source
     assert "class: 'td cbi-section-table-cell nowrap cbi-section-actions'" in view_source
     assert "nowrap cbi-section-actions" in view_source
-    assert "Editor, checkbox, Use and Delete changes are staged in the page." in view_source
-    assert "The standard Save action writes them to the configuration draft" in view_source
+    assert "Editor, checkbox and Delete changes are staged in the page." in view_source
+    assert "The active profile is selected on Overview." in view_source
+    assert "The standard Save action writes changes to the draft" in view_source
     node_modal = view_source[
         view_source.index("function showNodeModal"):
         view_source.index("function showProfileModal")
