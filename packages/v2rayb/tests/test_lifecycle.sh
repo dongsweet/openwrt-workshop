@@ -54,11 +54,11 @@ setup_case() {
 	LOCK_DIR="$RUNTIME/lock"
 	DNSMASQ_DIR="$RUNTIME/dnsmasq.d"
 	MOSDNS_FORWARD_FILE="$DNSMASQ_DIR/90-v2rayB-mosdns.conf"
-	MOSDNS_FORWARD_RULE='server=/xn--ngstr-lra8j.com/127.0.0.1#5354'
+	MOSDNS_FORWARD_EXPECTED="$RUNTIME/dnsmasq-mosdns-expected"
 	CTL="$TEST_DIR/ctl"
 	MOCK_SERVER=""
 	MOCK_NORESOLV=""
-	export RUNTIME FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_RULE MOCK_SERVER MOCK_NORESOLV
+	export RUNTIME FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED MOCK_SERVER MOCK_NORESOLV
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
@@ -73,6 +73,12 @@ case "$1" in
 	set-state) printf '%s\n' "$2" > "$RUNTIME/state" ;;
 	set-setting) exit 0 ;;
 	delete-nft) [ "${FAIL_NFT:-0}" = 0 ] ;;
+	dns-settings)
+		printf '%s\n' 'runtime_state=starting' 'dnsmasq_default=127.0.0.1#5353' \
+			'direct_dns=223.5.5.5:53' 'use_v2ray_dns=1' 'mosdns_enabled=1' \
+			'mosdns_domains=xn--ngstr-lra8j.com' 'mosdns_listen=127.0.0.1#5354' \
+			'v2ray_dns_listen=127.0.0.1#5353'
+		;;
 	*) exit 2 ;;
 esac
 EOF
@@ -106,7 +112,9 @@ setup_case clean-stop
 DNS_RELOAD_FAIL=0
 FAIL_NFT=0
 export FAIL_NFT
-printf '%s\n' "$MOSDNS_FORWARD_RULE" > "$MOSDNS_FORWARD_FILE"
+printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
+	'server=/xn--ngstr-lra8j.com/127.0.0.1#5354' > "$MOSDNS_FORWARD_EXPECTED"
+cp "$MOSDNS_FORWARD_EXPECTED" "$MOSDNS_FORWARD_FILE"
 printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
 stop_service
 [ -e "$RUNTIME/killed" ]
@@ -123,7 +131,7 @@ printf '1\n' > "$DNS_BACKUP/stale"
 MOCK_SERVER="$(cat "$DNS_BACKUP/server")"
 MOCK_NORESOLV=1
 set_proxy_dns
-[ "$(cat "$MOSDNS_FORWARD_FILE")" = "$MOSDNS_FORWARD_RULE" ]
+cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5
 127.0.0.1#5353' ]
 [ "$MOCK_NORESOLV" = 1 ]

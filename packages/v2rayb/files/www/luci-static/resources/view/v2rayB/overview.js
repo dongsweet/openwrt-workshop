@@ -29,12 +29,14 @@ const callSelectProfile = rpc.declare({
 });
 const callAddProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'add_profile',
-	params: [ 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china' ],
+	params: [ 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
+		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules' ],
 	expect: { '': {} }, reject: true
 });
 const callUpdateProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'update_profile',
-	params: [ 'profile_id', 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china' ],
+	params: [ 'profile_id', 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
+		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules' ],
 	expect: { '': {} }, reject: true
 });
 const callGetProfile = rpc.declare({
@@ -474,6 +476,23 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		type: 'checkbox',
 		checked: existing ? isEnabled(existing.bypass_china) : true
 	});
+	const useV2rayDns = E('input', {
+		type: 'checkbox',
+		checked: existing ? isEnabled(existing.use_v2ray_dns) : true
+	});
+	const mosdnsEnabled = E('input', {
+		type: 'checkbox',
+		checked: existing ? isEnabled(existing.mosdns_enabled) : true
+	});
+	const mosdnsDomains = E('input', {
+		class: 'cbi-input-text', type: 'text', maxlength: '1024',
+		value: existing ? existing.mosdns_domains : (defaults.mosdns_domains || 'xn--ngstr-lra8j.com')
+	});
+	const mosdnsRules = E('textarea', {
+		class: 'cbi-input-text', rows: '5', spellcheck: 'false',
+		placeholder: 'regexp:^r\\+...$'
+	});
+	mosdnsRules.value = existing ? existing.mosdns_match_rules : (defaults.mosdns_match_rules || '');
 	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
 		const profileName = name.value.trim();
 		if (!profileName || !nodeSelect.value || !profileDns.value || !profilePorts.value) {
@@ -481,19 +500,28 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			return;
 		}
 		const bypass = bypassChina.checked ? '1' : '0';
+		const v2rayDns = useV2rayDns.checked ? '1' : '0';
+		const mosdns = mosdnsEnabled.checked ? '1' : '0';
+		if (mosdns === '1' && !mosdnsDomains.value.trim()) {
+			ui.addNotification(null, E('p', {}, _('Enter at least one domain when MosDNS is enabled.')), 'warning');
+			return;
+		}
 		save.disabled = true;
 		const request = existing
 			? callUpdateProfile(existing.id, profileName, nodeSelect.value,
-				profileDns.value, profilePorts.value, bypass)
+				profileDns.value, profilePorts.value, bypass, v2rayDns,
+				mosdns, mosdnsDomains.value.trim(), mosdnsRules.value.trim())
 			: callAddProfile(profileName, nodeSelect.value,
-				profileDns.value, profilePorts.value, bypass);
+				profileDns.value, profilePorts.value, bypass, v2rayDns,
+				mosdns, mosdnsDomains.value.trim(), mosdnsRules.value.trim());
 		return request
 			.then(result => {
 				if (result && result.success) {
 					ui.hideModal();
 					if (onSaved)
 						onSaved(result, profileName, nodeSelect.value,
-							profileDns.value, profilePorts.value, bypass);
+							profileDns.value, profilePorts.value, bypass, v2rayDns,
+							mosdns, mosdnsDomains.value.trim(), mosdnsRules.value.trim());
 				}
 				notify(result, existing ? _('Profile changes saved.') : _('Profile created and selected.'));
 			})
@@ -513,6 +541,17 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 				_('Comma-separated individual ports or ranges, for example 80,443,8080-8443.')),
 			field(_('Bypass China IP'), bypassChina,
 				_('When disabled, all intercepted traffic is routed through the selected node.'))
+		]),
+		E('div', { class: 'cbi-section' }, [
+			E('h3', {}, _('DNS routing')),
+			field(_('Use V2Ray DNS as dnsmasq default'), useV2rayDns,
+				_('Disabled: dnsmasq sends its default traffic directly to the Direct DNS upstream.')),
+			field(_('Enable MosDNS branch'), mosdnsEnabled,
+				_('When disabled, MosDNS is neither started nor added as a dnsmasq domain upstream.')),
+			field(_('MosDNS domains'), mosdnsDomains,
+				_('Comma-separated suffixes routed to MosDNS, for example xn--ngstr-lra8j.com,example.com.')),
+			field(_('MosDNS match rules'), mosdnsRules,
+				_('One rule per line. Supports domain:, full: and regexp: entries used for the direct DNS and nftset branch.'))
 		]),
 		E('div', { class: 'cbi-page-actions' }, [
 			E('button', { class: 'cbi-button', type: 'button', click: () => ui.hideModal() }, _('Cancel')),
@@ -632,19 +671,27 @@ return view.extend({
 								notify(result, _('Profile selected.'));
 							}).catch(showRequestError);
 						} }, _('Use')) : '',
-					editButton(() => showProfileModal((result, profileName, nodeId, dns, ports, bypass) => {
-						const node = nodes.find(item => item[0] === nodeId);
-						const index = profiles.findIndex(item => item[0] === row[0]);
-						if (index >= 0)
-							profiles[index] = [ row[0], profileName, 'v2ray', node ? node[1] : '', row[4], nodeId, dns, ports, bypass ];
-						refreshProfileTable();
-						refreshProfileCard();
-					}, nodes, { direct_dns: directDns, transparent_proxy_ports: status.transparent_proxy_ports }, {
-						id: row[0], name: row[1], node_id: row[5],
-						direct_dns: row[6] || directDns,
-						transparent_proxy_ports: row[7] || status.transparent_proxy_ports || '80,443,8080,8443',
-						bypass_china: row[8]
-					})),
+					editButton(async () => {
+						const details = await callGetProfile(row[0]).catch(error => { showRequestError(error); return null; });
+						if (!details || !details.success) {
+							if (details) notify(details, '');
+							return;
+						}
+						showProfileModal((result, profileName, nodeId, dns, ports, bypass, v2rayDns,
+							mosdns, domains, rules) => {
+							const node = nodes.find(item => item[0] === nodeId);
+							const index = profiles.findIndex(item => item[0] === row[0]);
+							if (index >= 0)
+								profiles[index] = [ row[0], profileName, 'v2ray', node ? node[1] : '', row[4], nodeId, dns, ports, bypass, v2rayDns, mosdns, domains, rules ];
+							refreshProfileTable();
+							refreshProfileCard();
+						}, nodes, {
+							direct_dns: directDns,
+							transparent_proxy_ports: status.transparent_proxy_ports,
+							mosdns_domains: dnsState.mosdns_route_suffix || 'xn--ngstr-lra8j.com',
+							mosdns_match_rules: dnsState.direct_rule || ''
+						}, details.profile);
+					}),
 					removeButton(async () => {
 						if (!await confirmDelete(_('Delete profile "%s"?').format(row[1])))
 							return;
@@ -740,11 +787,12 @@ return view.extend({
 			profileAddButton.disabled = !enabled;
 			profileAddButton.classList.toggle('disabled', !enabled);
 		}
-		function onProfileSaved(result, name, nodeId, dns, ports, bypass) {
+		function onProfileSaved(result, name, nodeId, dns, ports, bypass, v2rayDns,
+			mosdns, domains, rules) {
 			const id = String(result.profile_id);
 			const node = nodes.find(item => item[0] === nodeId);
 			const index = profiles.findIndex(item => item[0] === id);
-			const row = [ id, name, 'v2ray', node ? node[1] : '', '1', nodeId, dns, ports, bypass ];
+			const row = [ id, name, 'v2ray', node ? node[1] : '', '1', nodeId, dns, ports, bypass, v2rayDns, mosdns, domains, rules ];
 			if (index >= 0)
 				profiles[index] = row;
 			else {
@@ -760,7 +808,9 @@ return view.extend({
 			class: 'cbi-button cbi-button-add', type: 'button',
 			click: () => showProfileModal(onProfileSaved, nodes, {
 				direct_dns: directDns,
-				transparent_proxy_ports: status.transparent_proxy_ports || '80,443,8080,8443'
+				transparent_proxy_ports: status.transparent_proxy_ports || '80,443,8080-8443',
+				mosdns_domains: dnsState.mosdns_route_suffix || 'xn--ngstr-lra8j.com',
+				mosdns_match_rules: dnsState.direct_rule || ''
 			})
 		}, _('Add'));
 		refreshProfileAddButton();

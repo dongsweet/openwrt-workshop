@@ -38,10 +38,14 @@ PRAGMA user_version=1;
 "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
 
 version=$("$sqlite" "$V2RAYB_DB" 'PRAGMA user_version;')
-[ "$version" = 2 ]
+[ "$version" = 3 ]
 columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(policies);')
 printf '%s\n' "$columns" | grep -q 'direct_dns'
 printf '%s\n' "$columns" | grep -q 'transparent_proxy_ports'
 printf '%s\n' "$columns" | grep -q 'bypass_china'
-"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^2$'
+printf '%s\n' "$columns" | grep -q 'use_v2ray_dns'
+printf '%s\n' "$columns" | grep -q 'mosdns_enabled'
+printf '%s\n' "$columns" | grep -q 'mosdns_domains'
+printf '%s\n' "$columns" | grep -q 'mosdns_match_rules'
+"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^3$'
 echo "migration tests: ok"

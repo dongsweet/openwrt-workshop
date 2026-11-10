@@ -11,7 +11,7 @@ LOCK_DIR="$RUNTIME/lock"
 DNSMASQ_SECTION='dhcp.@dnsmasq[0]'
 DNSMASQ_DIR="/etc/dnsmasq.d"
 MOSDNS_FORWARD_FILE="$DNSMASQ_DIR/90-v2rayB-mosdns.conf"
-MOSDNS_FORWARD_RULE='server=/xn--ngstr-lra8j.com/127.0.0.1#5354'
+MOSDNS_FORWARD_EXPECTED="$RUNTIME/dnsmasq-mosdns-expected"
 
 log() {
 	logger -t v2rayB "$*"
@@ -41,6 +41,28 @@ dnsmasq_reload() {
 		/etc/init.d/dnsmasq restart >/dev/null 2>&1
 }
 
+load_dns_policy() {
+	"$CTL" dns-settings > "$RUNTIME/dns-policy" || return 1
+	[ -s "$RUNTIME/dns-policy" ]
+}
+
+dns_policy_value() {
+	sed -n "s/^$1=//p" "$RUNTIME/dns-policy" | sed -n '1p'
+}
+
+write_mosdns_forward_expected() {
+	mosdns_listen="$(dns_policy_value mosdns_listen)"
+	mosdns_domains="$(dns_policy_value mosdns_domains)"
+	[ -n "$mosdns_listen" ] && [ -n "$mosdns_domains" ] || return 1
+	{
+		printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.'
+		printf '%s\n' "$mosdns_domains" | tr ',' '\n' | while IFS= read -r domain; do
+			[ -n "$domain" ] || continue
+			printf 'server=/%s/%s\n' "$domain" "$mosdns_listen"
+		done
+	} > "$MOSDNS_FORWARD_EXPECTED"
+}
+
 capture_dnsmasq_baseline() {
 	[ -f "$DNS_BACKUP/server" ] && return 0
 	mkdir -p "$DNS_BACKUP" || return 1
@@ -62,20 +84,28 @@ capture_dnsmasq_baseline() {
 }
 
 set_proxy_dns() {
+	load_dns_policy || return 1
+	default_upstream="$(dns_policy_value dnsmasq_default)"
+	mosdns_enabled="$(dns_policy_value mosdns_enabled)"
+	[ -n "$default_upstream" ] || return 1
 	uci -q show "$DNSMASQ_SECTION" >/dev/null 2>&1 || return 1
 	[ -d "$DNSMASQ_DIR" ] || return 1
 	[ "$(uci -q get "${DNSMASQ_SECTION}.confdir" 2>/dev/null || true)" = "$DNSMASQ_DIR" ] || {
 		log "dnsmasq is not configured to read $DNSMASQ_DIR"
 		return 1
 	}
-	if [ -e "$MOSDNS_FORWARD_FILE" ] && ! { [ "$(wc -l < "$MOSDNS_FORWARD_FILE")" = 1 ] && grep -Fxq "$MOSDNS_FORWARD_RULE" "$MOSDNS_FORWARD_FILE"; }; then
-		log "refusing to overwrite existing $MOSDNS_FORWARD_FILE"
-		return 1
+	if [ "$mosdns_enabled" = 1 ]; then
+		write_mosdns_forward_expected || return 1
+		if [ -e "$MOSDNS_FORWARD_FILE" ] && ! cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"; then
+			log "refusing to overwrite existing $MOSDNS_FORWARD_FILE"
+			return 1
+		fi
+		cp "$MOSDNS_FORWARD_EXPECTED" "$MOSDNS_FORWARD_FILE.tmp.$$" || return 1
+		mv "$MOSDNS_FORWARD_FILE.tmp.$$" "$MOSDNS_FORWARD_FILE" || return 1
+		printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
+	else
+		rm -f "$MOSDNS_FORWARD_EXPECTED"
 	fi
-	tmp_rule="$MOSDNS_FORWARD_FILE.tmp.$$"
-	printf '%s\n' "$MOSDNS_FORWARD_RULE" > "$tmp_rule" || return 1
-	mv "$tmp_rule" "$MOSDNS_FORWARD_FILE" || return 1
-	printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
 	: > "$RUNTIME/proxy-server.expected"
 	uci -q delete "${DNSMASQ_SECTION}.server" || true
 	while IFS= read -r server; do
@@ -86,8 +116,8 @@ set_proxy_dns() {
 				;;
 		esac
 	done < "$DNS_BACKUP/server"
-	uci -q add_list "${DNSMASQ_SECTION}.server=127.0.0.1#5353" || return 1
-	printf '%s\n' '127.0.0.1#5353' >> "$RUNTIME/proxy-server.expected"
+	uci -q add_list "${DNSMASQ_SECTION}.server=$default_upstream" || return 1
+	printf '%s\n' "$default_upstream" >> "$RUNTIME/proxy-server.expected"
 	uci -q set "${DNSMASQ_SECTION}.noresolv=1" || return 1
 	uci -q get "${DNSMASQ_SECTION}.server" > "$RUNTIME/proxy-server" 2>/dev/null || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$RUNTIME/proxy-noresolv" 2>/dev/null || :
@@ -132,13 +162,13 @@ restore_dnsmasq() {
 		fi
 	fi
 	if [ -e "$MOSDNS_FORWARD_FILE" ]; then
-		if [ "$(wc -l < "$MOSDNS_FORWARD_FILE")" != 1 ] || ! grep -Fxq "$MOSDNS_FORWARD_RULE" "$MOSDNS_FORWARD_FILE"; then
+		if [ ! -f "$MOSDNS_FORWARD_EXPECTED" ] || ! cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"; then
 			log "refusing to remove modified $MOSDNS_FORWARD_FILE"
 			return 1
 		fi
 		rm -f "$MOSDNS_FORWARD_FILE" || return 1
 	fi
-	rm -f "$RUNTIME/dnsmasq-mosdns-rule"
+	rm -f "$RUNTIME/dnsmasq-mosdns-rule" "$MOSDNS_FORWARD_EXPECTED"
 	dnsmasq_reload || {
 		log "dnsmasq reload failed while restoring its baseline"
 		return 1
@@ -189,7 +219,7 @@ start_mosdns() {
 	procd_open_instance mosdns
 	procd_set_param command /usr/bin/mosdns start -c "$RUNTIME/active/mosdns.yaml"
 	procd_set_param respawn 3600 5 5
-	procd_set_param file "$RUNTIME/active/mosdns.yaml" /etc/v2rayB/rules/direct_domains.txt /etc/v2rayB/rules/force_proxy_domains.txt
+	procd_set_param file "$RUNTIME/active/mosdns.yaml" "$RUNTIME/active/mosdns-direct-domains.txt" /etc/v2rayB/rules/force_proxy_domains.txt
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_close_instance
@@ -262,10 +292,15 @@ start_service() {
 	start_engine
 	port_ready 5353 || { rollback_start; return 1; }
 	"$CTL" apply-nft || { rollback_start; return 1; }
-	start_mosdns
-	port_ready 5354 || { rollback_start; return 1; }
+	load_dns_policy || { rollback_start; return 1; }
+	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
+		start_mosdns
+		port_ready 5354 || { rollback_start; return 1; }
+	fi
 	set_proxy_dns || { rollback_start; return 1; }
-	"$CTL" test-dns || { rollback_start; return 1; }
+	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
+		"$CTL" test-dns || { rollback_start; return 1; }
+	fi
 	"$CTL" test-dnsmasq || { rollback_start; return 1; }
 	start_watchdog || { rollback_start; return 1; }
 	"$CTL" set-setting proxy_mode proxy >/dev/null 2>&1 || { rollback_start; return 1; }

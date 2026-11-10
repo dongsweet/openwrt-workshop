@@ -27,8 +27,11 @@ def main():
     init_script = (ROOT / "files" / "etc" / "init.d" / "v2rayB").read_text(
         encoding="utf-8"
     )
-    assert "server=/xn--ngstr-lra8j.com/127.0.0.1#5354" in init_script
-    assert 'server=127.0.0.1#5353' in init_script
+    assert "write_mosdns_forward_expected" in init_script
+    assert "server=/%s/%s" in init_script
+    assert 'default_upstream="$(dns_policy_value dnsmasq_default)"' in init_script
+    assert "mosdns_enabled" in init_script
+    assert "start_mosdns" in init_script
 
     print("domain rule tests: ok")
 

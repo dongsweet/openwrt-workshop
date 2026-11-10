@@ -28,7 +28,8 @@ def main():
     assert "profileAddButton.disabled = !enabled;" in view_source
     assert "disabled: !nodes.some" not in view_source
     assert "function buildOutbound" in view_source
-    assert "E('textarea'" not in view_source
+    assert "MosDNS match rules" in view_source
+    assert "textarea" in view_source
     assert "params: [ 'name', 'protocol', 'server', 'port', 'data_json' ]" in view_source
     assert "method: 'add_profile'" in view_source
     assert "direct_dns', 'transparent_proxy_ports', 'bypass_china'" in view_source
@@ -36,6 +37,10 @@ def main():
     assert "8080-8443" in view_source
     assert "profilePolicyText(row)" in view_source
     assert "method: 'dns_state'" in view_source
+    assert "Use V2Ray DNS as dnsmasq default" in view_source
+    assert "Enable MosDNS branch" in view_source
+    assert "MosDNS domains" in view_source
+    assert "MosDNS match rules" in view_source
     assert "DNS Resolution Chain" in view_source
     assert "MosDNS Narrow Route" in view_source
     assert "nftables Direct Sets" in view_source

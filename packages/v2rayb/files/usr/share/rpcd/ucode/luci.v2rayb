@@ -48,14 +48,19 @@ function valid_id(value) {
 	return match(value, /^[0-9]+$/);
 }
 
-function valid_profile_policy(direct_dns, ports, bypass_china) {
+function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules) {
 	if (direct_dns == '' || length(direct_dns) > 255)
 		return 'Invalid direct DNS endpoint';
 	if (ports == '' || length(ports) > 255 ||
 	    !match(ports, /^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$/))
 		return 'Invalid transparent proxy port list';
-	if (!match(bypass_china, /^[01]$/))
-		return 'Invalid bypass China setting';
+	if (!match(bypass_china, /^[01]$/) || !match(use_v2ray_dns, /^[01]$/) ||
+	    !match(mosdns_enabled, /^[01]$/))
+		return 'Invalid DNS or bypass setting';
+	if (mosdns_domains == '' || length(mosdns_domains) > 1024)
+		return 'Invalid MosDNS domain list';
+	if (mosdns_match_rules != '' && length(mosdns_match_rules) > 16384)
+		return 'MosDNS match rules are too long';
 	return null;
 }
 
@@ -134,7 +139,7 @@ const methods = {
 			if (result.code != 0)
 				return failed(result);
 			let columns = split(result.output, '\t');
-			if (length(columns) != 6)
+			if (length(columns) != 10)
 				return { success: false, error: 'Profile details could not be read' };
 			return {
 				success: true,
@@ -145,7 +150,11 @@ const methods = {
 					enabled: columns[2],
 					direct_dns: columns[3],
 					transparent_proxy_ports: columns[4],
-					bypass_china: columns[5]
+					bypass_china: columns[5],
+					use_v2ray_dns: columns[6],
+					mosdns_enabled: columns[7],
+					mosdns_domains: columns[8],
+					mosdns_match_rules: columns[9]
 				}
 			};
 		}
@@ -226,18 +235,23 @@ const methods = {
 	},
 
 	add_profile: {
-		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1' },
+		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '' },
 		call: function(request) {
 			let name = string_arg(request, 'name');
 			let node_id = string_arg(request, 'node_id');
 			let direct_dns = string_arg(request, 'direct_dns');
 			let transparent_proxy_ports = string_arg(request, 'transparent_proxy_ports');
 			let bypass_china = string_arg(request, 'bypass_china');
+			let use_v2ray_dns = string_arg(request, 'use_v2ray_dns');
+			let mosdns_enabled = string_arg(request, 'mosdns_enabled');
+			let mosdns_domains = string_arg(request, 'mosdns_domains');
+			let mosdns_match_rules = string_arg(request, 'mosdns_match_rules');
 			if (length(name) > 64)
 				return { success: false, error: 'Profile name is too long' };
 			if (!match(node_id, /^[0-9]+$/))
 				return { success: false, error: 'Select a valid primary node' };
-			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china);
+			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china,
+				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules);
 			if (policy_error != null)
 				return { success: false, error: policy_error };
 
@@ -251,7 +265,8 @@ const methods = {
 					return { success: false, error: 'A profile with this name already exists' };
 			}
 
-			let result = ctl([ 'add-profile', name, node_id, direct_dns, transparent_proxy_ports, bypass_china ]);
+			let result = ctl([ 'add-profile', name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
+				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules ]);
 			if (result.code != 0)
 				return failed(result);
 
@@ -302,7 +317,7 @@ const methods = {
 	},
 
 	update_profile: {
-		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1' },
+		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '' },
 		call: function(request) {
 			let profile_id = string_arg(request, 'profile_id');
 			let name = string_arg(request, 'name');
@@ -310,14 +325,20 @@ const methods = {
 			let direct_dns = string_arg(request, 'direct_dns');
 			let transparent_proxy_ports = string_arg(request, 'transparent_proxy_ports');
 			let bypass_china = string_arg(request, 'bypass_china');
+			let use_v2ray_dns = string_arg(request, 'use_v2ray_dns');
+			let mosdns_enabled = string_arg(request, 'mosdns_enabled');
+			let mosdns_domains = string_arg(request, 'mosdns_domains');
+			let mosdns_match_rules = string_arg(request, 'mosdns_match_rules');
 			if (!valid_id(profile_id) || !valid_id(node_id))
 				return { success: false, error: 'Invalid profile or node id' };
 			if (name == '' || length(name) > 64)
 				return { success: false, error: 'Invalid profile name' };
-			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china);
+			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china,
+				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules);
 			if (policy_error != null)
 				return { success: false, error: policy_error };
-			let result = ctl([ 'update-profile', profile_id, name, node_id, direct_dns, transparent_proxy_ports, bypass_china ]);
+			let result = ctl([ 'update-profile', profile_id, name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
+				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules ]);
 			return result.code == 0 ? { success: true, profile_id: profile_id } : failed(result);
 		}
 	},

@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS policies (
     direct_dns              TEXT,
     transparent_proxy_ports TEXT,
     bypass_china            INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)),
+    use_v2ray_dns           INTEGER NOT NULL DEFAULT 1 CHECK (use_v2ray_dns IN (0, 1)),
+    mosdns_enabled          INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1)),
+    mosdns_domains          TEXT,
+    mosdns_match_rules      TEXT,
     created_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -107,6 +111,7 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
 
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
-PRAGMA user_version = 2;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
+PRAGMA user_version = 3;
 
 COMMIT;

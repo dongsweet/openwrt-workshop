@@ -21,7 +21,7 @@ fi
 "$ctl" render-all
 python3 -m json.tool "$TEST_DIR/runtime/active/v2ray.json" >/dev/null
 grep -q '"protocol":"vless"' "$TEST_DIR/runtime/active/v2ray.json"
-grep -q 'qname &/etc/v2rayB/rules/direct_domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
+grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'set force_proxy4' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set direct_static4' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'flags timeout; timeout 12h' "$TEST_DIR/runtime/active/nftables.nft"
@@ -60,13 +60,20 @@ if "$ctl" set-profile-policy 1 223.5.5.5:53 '80,,443' 1 >/dev/null 2>&1; then
 	echo "invalid profile port list unexpectedly accepted" >&2
 	exit 1
 fi
-"$ctl" update-profile 1 hk-profile-updated 1 1.1.1.1:53 '80,443,8080-8443' 0 >/dev/null
-"$ctl" get-profile 1 | grep -q 'hk-profile-updated.*1.*1.*1.1.1.1:53.*80,443,8080-8443.*0'
-"$ctl" list-profiles | grep -q 'hk-profile-updated.*hk-updated.*1.*1.*1.1.1.1:53.*80,443,8080-8443.*0'
+"$ctl" update-profile 1 hk-profile-updated 1 1.1.1.1:53 '80,443,8080-8443' 0 0 1 'example.com,xn--ngstr-lra8j.com' 'regexp:^cdn\.example\.com$' >/dev/null
+"$ctl" get-profile 1 | grep -q 'hk-profile-updated.*1.*1.*1.1.1.1:53.*80,443,8080-8443.*0.*0.*1.*example.com,xn--ngstr-lra8j.com.*regexp:'
+"$ctl" dns-settings | grep -q '^dnsmasq_default=1.1.1.1#53$'
+"$ctl" dns-settings | grep -q '^use_v2ray_dns=0$'
+"$ctl" dns-settings | grep -q '^mosdns_enabled=1$'
 "$ctl" render-all
 grep -q 'addr: "udp://1.1.1.1:53"' "$TEST_DIR/runtime/active/mosdns.yaml"
+grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
+grep -q 'regexp:\^cdn\\.example\\.com\$' "$TEST_DIR/runtime/active/mosdns-direct-domains.txt"
 grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'geoip:cn' "$TEST_DIR/runtime/active/v2ray.json"
+"$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$'
+"$ctl" dns-settings | grep -q '^dnsmasq_default=127.0.0.1#5353$'
+"$ctl" dns-settings | grep -q '^mosdns_enabled=0$'
 if "$ctl" set-profile-enabled 1 0 >/dev/null 2>&1; then
 	echo "active profile unexpectedly disabled" >&2
 	exit 1
