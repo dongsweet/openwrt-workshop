@@ -41,6 +41,17 @@ def main():
     assert "Enable MosDNS branch" in view_source
     assert "MosDNS domains" in view_source
     assert "MosDNS match rules" in view_source
+    assert "mosdnsDomains.disabled = !enabled;" in view_source
+    assert "mosdnsRules.disabled = !enabled;" in view_source
+    assert "class: 'cbi-input-text v2rayb-form-wide'" in view_source
+    assert "mosdnsDomains.value.split(/[\\s,]+/)" in view_source
+    assert "One domain suffix per line." in view_source
+    assert "Domains and rules remain saved but inactive." in view_source
+    assert "Fixed evaluation order and actions" in view_source
+    assert "write force_proxy4/force_proxy6/force_proxy" in view_source
+    assert "write direct4/direct6" in view_source
+    assert "do not write the direct sets" in view_source
+    assert "mosdns_enabled == '1' && mosdns_domains == ''" in rpc_source
     assert "DNS Resolution Chain" in view_source
     assert "MosDNS Narrow Route" in view_source
     assert "nftables Direct Sets" in view_source

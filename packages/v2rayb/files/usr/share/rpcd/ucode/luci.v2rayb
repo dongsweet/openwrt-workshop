@@ -57,7 +57,7 @@ function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mo
 	if (!match(bypass_china, /^[01]$/) || !match(use_v2ray_dns, /^[01]$/) ||
 	    !match(mosdns_enabled, /^[01]$/))
 		return 'Invalid DNS or bypass setting';
-	if (mosdns_domains == '' || length(mosdns_domains) > 1024)
+	if ((mosdns_enabled == '1' && mosdns_domains == '') || length(mosdns_domains) > 1024)
 		return 'Invalid MosDNS domain list';
 	if (mosdns_match_rules != '' && length(mosdns_match_rules) > 16384)
 		return 'MosDNS match rules are too long';

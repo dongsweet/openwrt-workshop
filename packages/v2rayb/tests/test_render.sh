@@ -81,6 +81,10 @@ grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime
 "$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$'
 "$ctl" dns-settings | grep -q '^dnsmasq_default=127.0.0.1#5353$'
 "$ctl" dns-settings | grep -q '^mosdns_enabled=0$'
+"$ctl" get-profile 1 | grep -q '^mosdns_domains=example.com$'
+"$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
+"$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 '' 'regexp:^cdn\.example\.com$'
+"$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
 if "$ctl" set-profile-enabled 1 0 >/dev/null 2>&1; then
 	echo "active profile unexpectedly disabled" >&2
 	exit 1

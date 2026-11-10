@@ -120,6 +120,9 @@ function css() {
 		.v2rayb-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1rem; }
 		.v2rayb-toolbar .cbi-button { margin: 0; }
 		.v2rayb-table .cbi-section-table-cell { text-align: left !important; vertical-align: middle; }
+		.v2rayb-disabled-control { opacity: .5; }
+		.v2rayb-form-wide { width: 100%; box-sizing: border-box; min-height: 7rem; resize: vertical; font-family: monospace; }
+		.v2rayb-form-wide:disabled { background: #f0f2f5; cursor: not-allowed; }
 		.v2rayb-create { display: flex; justify-content: flex-start; margin-top: .75rem; }
 		.v2rayb-help { color: #687587; font-size: .88rem; line-height: 1.5; }
 		.v2rayb-code { display: block; max-height: 20rem; overflow: auto; padding: 1rem; border-radius: 10px;
@@ -484,15 +487,30 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		type: 'checkbox',
 		checked: existing ? isEnabled(existing.mosdns_enabled) : true
 	});
-	const mosdnsDomains = E('input', {
-		class: 'cbi-input-text', type: 'text', maxlength: '1024',
-		value: (existing && existing.mosdns_domains) || defaults.mosdns_domains || 'xn--ngstr-lra8j.com'
+	const mosdnsDomains = E('textarea', {
+		class: 'cbi-input-text v2rayb-form-wide', rows: '4', spellcheck: 'false',
+		maxlength: '1024', placeholder: 'xn--ngstr-lra8j.com\nexample.com'
 	});
+	mosdnsDomains.value = ((existing && existing.mosdns_domains) || defaults.mosdns_domains || 'xn--ngstr-lra8j.com')
+		.replace(/,/g, '\n');
 	const mosdnsRules = E('textarea', {
-		class: 'cbi-input-text', rows: '5', spellcheck: 'false',
-		placeholder: 'regexp:^r\\+...$'
+		class: 'cbi-input-text v2rayb-form-wide', rows: '7', spellcheck: 'false',
+		placeholder: 'domain:example.com\nfull:www.example.com\nregexp:^r\\+...$'
 	});
 	mosdnsRules.value = (existing && existing.mosdns_match_rules) || defaults.mosdns_match_rules || '';
+	const mosdnsDomainsField = field(_('MosDNS domains'), mosdnsDomains,
+		_('One domain suffix per line. Commas are also accepted for compatibility.'));
+	const mosdnsRulesField = field(_('MosDNS match rules'), mosdnsRules,
+		_('One rule per line. Supported prefixes: domain:, full: and regexp:. All entries share the fixed action shown below.'));
+	function refreshMosdnsFields() {
+		const enabled = mosdnsEnabled.checked;
+		mosdnsDomains.disabled = !enabled;
+		mosdnsRules.disabled = !enabled;
+		mosdnsDomainsField.classList.toggle('v2rayb-disabled-control', !enabled);
+		mosdnsRulesField.classList.toggle('v2rayb-disabled-control', !enabled);
+	}
+	mosdnsEnabled.addEventListener('change', refreshMosdnsFields);
+	refreshMosdnsFields();
 	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
 		const profileName = name.value.trim();
 		if (!profileName || !nodeSelect.value || !profileDns.value || !profilePorts.value) {
@@ -502,7 +520,8 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		const bypass = bypassChina.checked ? '1' : '0';
 		const v2rayDns = useV2rayDns.checked ? '1' : '0';
 		const mosdns = mosdnsEnabled.checked ? '1' : '0';
-		if (mosdns === '1' && !mosdnsDomains.value.trim()) {
+		const domains = mosdnsDomains.value.split(/[\s,]+/).filter(value => value !== '').join(',');
+		if (mosdns === '1' && !domains) {
 			ui.addNotification(null, E('p', {}, _('Enter at least one domain when MosDNS is enabled.')), 'warning');
 			return;
 		}
@@ -510,10 +529,10 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		const request = existing
 			? callUpdateProfile(existing.id, profileName, nodeSelect.value,
 				profileDns.value, profilePorts.value, bypass, v2rayDns,
-				mosdns, mosdnsDomains.value.trim(), mosdnsRules.value.trim())
+				mosdns, domains, mosdnsRules.value.trim())
 			: callAddProfile(profileName, nodeSelect.value,
 				profileDns.value, profilePorts.value, bypass, v2rayDns,
-				mosdns, mosdnsDomains.value.trim(), mosdnsRules.value.trim());
+				mosdns, domains, mosdnsRules.value.trim());
 		return request
 			.then(result => {
 				if (result && result.success) {
@@ -521,7 +540,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 					if (onSaved)
 						onSaved(result, profileName, nodeSelect.value,
 							profileDns.value, profilePorts.value, bypass, v2rayDns,
-							mosdns, mosdnsDomains.value.trim(), mosdnsRules.value.trim());
+							mosdns, domains, mosdnsRules.value.trim());
 				}
 				notify(result, existing ? _('Profile changes saved.') : _('Profile created and selected.'));
 			})
@@ -547,11 +566,16 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			field(_('Use V2Ray DNS as dnsmasq default'), useV2rayDns,
 				_('Disabled: dnsmasq sends its default traffic directly to the Direct DNS upstream.')),
 			field(_('Enable MosDNS branch'), mosdnsEnabled,
-				_('When disabled, MosDNS is neither started nor added as a dnsmasq domain upstream.')),
-			field(_('MosDNS domains'), mosdnsDomains,
-				_('Comma-separated suffixes routed to MosDNS, for example xn--ngstr-lra8j.com,example.com.')),
-			field(_('MosDNS match rules'), mosdnsRules,
-				_('One rule per line. Supports domain:, full: and regexp: entries used for the direct DNS and nftset branch.'))
+				_('When disabled, MosDNS is neither started nor added as a dnsmasq domain upstream. Domains and rules remain saved but inactive.')),
+			mosdnsDomainsField,
+			mosdnsRulesField,
+			E('h4', {}, _('Fixed evaluation order and actions')),
+			table([ _('Order'), _('Match group'), _('Fixed action') ], [
+				[ '1', _('Force-proxy rules'), _('Query V2Ray DNS, return its answer and write force_proxy4/force_proxy6/force_proxy.') ],
+				[ '2', _('Profile MosDNS rules'), _('Query the Direct DNS upstream, return its answer and write direct4/direct6.') ],
+				[ '3', _('No rule matched'), _('Query V2Ray DNS and do not write the direct sets.') ]
+			], _('No rule actions available.')),
+			E('p', { class: 'v2rayb-help' }, _('These actions are fixed so DNS answers and nftables bypass decisions cannot diverge. Rules saved while MosDNS is disabled take effect after re-enabling and restarting the service.'))
 		]),
 		E('div', { class: 'cbi-page-actions' }, [
 			E('button', { class: 'cbi-button', type: 'button', click: () => ui.hideModal() }, _('Cancel')),
