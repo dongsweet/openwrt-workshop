@@ -30,15 +30,18 @@ def main():
     assert "function isEnabled(value)" in view_source
     assert "method: 'apply_draft'" in view_source
     assert "method: 'revert_draft'" in view_source
-    assert "Apply changes" in view_source
-    assert "Revert changes" in view_source
+    assert "handleSave()" in view_source
+    assert "handleSaveApply()" in view_source
+    assert "handleReset()" in view_source
+    assert "Draft version %s is saved. Use Save & Apply" in view_source
+    assert "Apply changes" not in view_source
+    assert "Revert changes" not in view_source
+    assert "addFooter() {" not in view_source
     assert "draft_pending === '1'" in view_source
     assert "status.applied_config_version" in view_source
     assert "status.draft_config_version" in view_source
     assert "Pending draft version" in view_source
-    assert "addFooter()" in view_source
-    assert "disabled: !pending" in view_source
-    assert "Use Apply changes or Revert changes in the footer." in view_source
+    assert "Use the standard Save & Apply or Reset footer actions." in view_source
     assert "profile policy is missing from both draft and applied configuration" in ctl_source
     assert "profileAddButton.disabled = !enabled;" in view_source
     assert "disabled: !nodes.some" not in view_source

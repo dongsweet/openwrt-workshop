@@ -597,32 +597,31 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 }
 
 return view.extend({
-	addFooter() {
-		const pending = this.draftPending === true;
-		function action(label, style, method) {
-			const button = E('button', {
-				class: 'cbi-button ' + style,
-				type: 'button',
-				disabled: !pending,
-				click: () => {
-					button.disabled = true;
-					method().then(result => {
-						if (result && result.success)
-							window.location.reload();
-						else
-							notify(result, '');
-					}).catch(showRequestError).finally(() => { button.disabled = !pending; });
-				}
-			}, label);
-			return button;
-		}
-		return E('div', { class: 'cbi-page-actions' }, [
-			E('span', { class: 'v2rayb-help' }, pending
-				? _('Pending draft version %s').format(this.draftVersion || '')
-				: _('No pending draft changes')),
-			action(_('Apply changes'), 'cbi-button-apply', callApplyDraft),
-			action(_('Revert changes'), 'cbi-button-negative', callRevertDraft)
-		]);
+	handleSave() {
+		ui.addNotification(null, E('p', {}, this.draftPending
+			? _('Draft version %s is saved. Use Save & Apply to make it active.').format(this.draftVersion || '')
+			: _('There are no pending draft changes.')), 'info');
+		return Promise.resolve();
+	},
+
+	handleSaveApply() {
+		return callApplyDraft().then(result => {
+			if (result && result.success) {
+				window.location.reload();
+				return;
+			}
+			notify(result, '');
+		}).catch(showRequestError);
+	},
+
+	handleReset() {
+		return callRevertDraft().then(result => {
+			if (result && result.success) {
+				window.location.reload();
+				return;
+			}
+			notify(result, '');
+		}).catch(showRequestError);
 	},
 
 	load() {
@@ -675,7 +674,7 @@ return view.extend({
 				draftPending ? E('span', { class: 'v2rayb-chip' }, `${_('Pending draft version')}: ${draftVersion}`) : ''
 			]),
 			E('p', { class: 'v2rayb-help' }, draftPending
-				? _('Draft version %s contains saved changes that are not yet applied. Use Apply changes or Revert changes in the footer.').format(draftVersion)
+				? _('Draft version %s contains saved changes that are not yet applied. Use the standard Save & Apply or Reset footer actions.').format(draftVersion)
 				: _('There are no pending changes. Editing and saving nodes or profiles creates a draft before it is applied.'))
 		]);
 		const overview = [
