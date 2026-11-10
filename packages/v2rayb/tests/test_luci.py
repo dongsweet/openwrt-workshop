@@ -44,6 +44,8 @@ def main():
     assert "mosdnsDomains.disabled = !enabled;" in view_source
     assert "mosdnsRules.disabled = !enabled;" in view_source
     assert "class: 'cbi-input-text v2rayb-form-wide'" in view_source
+    assert "class: 'cbi-value-description'" in view_source
+    assert "help ? E('div', { class: 'v2rayb-help' }" not in view_source
     assert "mosdnsDomains.value.split(/[\\s,]+/)" in view_source
     assert "One domain suffix per line." in view_source
     assert "Domains and rules remain saved but inactive." in view_source

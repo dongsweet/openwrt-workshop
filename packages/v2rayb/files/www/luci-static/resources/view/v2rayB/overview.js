@@ -133,7 +133,10 @@ function css() {
 function field(label, control, help) {
 	return E('div', { class: 'cbi-value' }, [
 		E('label', { class: 'cbi-value-title' }, label),
-		E('div', { class: 'cbi-value-field' }, [ control, help ? E('div', { class: 'v2rayb-help' }, help) : '' ])
+		E('div', { class: 'cbi-value-field' }, [
+			control,
+			help ? E('div', { class: 'cbi-value-description' }, help) : ''
+		])
 	]);
 }
 
