@@ -205,6 +205,33 @@ const methods = {
 		}
 	},
 
+	apply_draft: {
+		call: function() {
+			let apply = ctl([ 'apply-draft' ]);
+			if (apply.code != 0)
+				return { success: false, error: apply.output || 'Draft could not be applied' };
+
+			let render = ctl([ 'render-all' ]);
+			if (render.code != 0)
+				return { success: false, error: render.output || 'Applied configuration could not be rendered' };
+
+			let status = ctl([ 'status' ]);
+			if (status.code == 0 && match(status.output, /(^|\n)state=proxy(\n|$)/)) {
+				let restart = run(init_path, [ 'restart' ]);
+				if (restart.code != 0)
+					return { success: false, error: restart.output || 'Applied, but service restart failed' };
+			}
+			return { success: true };
+		}
+	},
+
+	revert_draft: {
+		call: function() {
+			let result = ctl([ 'revert-draft' ]);
+			return result.code == 0 ? { success: true } : failed(result);
+		}
+	},
+
 	select_profile: {
 		args: { profile_id: '' },
 		call: function(request) {

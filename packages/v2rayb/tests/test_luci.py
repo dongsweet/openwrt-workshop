@@ -25,6 +25,12 @@ def main():
         FILES / "www/luci-static/resources/view/v2rayB/overview.js"
     ).read_text(encoding="utf-8")
     assert "function isEnabled(value)" in view_source
+    assert "method: 'apply_draft'" in view_source
+    assert "method: 'revert_draft'" in view_source
+    assert "Apply changes" in view_source
+    assert "Revert changes" in view_source
+    assert "draft_pending === '1'" in view_source
+    assert "addFooter()" in view_source
     assert "profileAddButton.disabled = !enabled;" in view_source
     assert "disabled: !nodes.some" not in view_source
     assert "function buildOutbound" in view_source

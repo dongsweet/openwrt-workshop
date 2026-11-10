@@ -34,7 +34,11 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert {
+            "draft_nodes", "draft_policies", "draft_profiles",
+            "draft_profile_nodes",
+        } <= tables
         profile_columns = {
             row[1]
             for row in conn.execute("PRAGMA table_info(profiles)")

@@ -87,6 +87,58 @@ CREATE TABLE IF NOT EXISTS rulesets (
     updated_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS draft_nodes (
+    id              INTEGER PRIMARY KEY,
+    source_id       INTEGER,
+    name            TEXT NOT NULL,
+    protocol        TEXT NOT NULL,
+    server          TEXT NOT NULL,
+    port            INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+    data_json       TEXT NOT NULL DEFAULT '{}',
+    enabled         INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    last_latency_ms INTEGER,
+    last_checked_at TEXT,
+    last_error      TEXT,
+    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (source_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS draft_policies (
+    id                      INTEGER PRIMARY KEY,
+    name                    TEXT NOT NULL UNIQUE,
+    dns_policy_json         TEXT NOT NULL DEFAULT '{}',
+    routing_policy_json     TEXT NOT NULL DEFAULT '{}',
+    direct_dns              TEXT,
+    transparent_proxy_ports TEXT,
+    bypass_china            INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)),
+    use_v2ray_dns           INTEGER NOT NULL DEFAULT 1 CHECK (use_v2ray_dns IN (0, 1)),
+    mosdns_enabled          INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1)),
+    mosdns_domains          TEXT,
+    mosdns_match_rules      TEXT,
+    created_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS draft_profiles (
+    id                  INTEGER PRIMARY KEY,
+    name                TEXT NOT NULL UNIQUE,
+    engine              TEXT NOT NULL,
+    policy_id           INTEGER,
+    engine_options_json TEXT NOT NULL DEFAULT '{}',
+    enabled             INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS draft_profile_nodes (
+    profile_id INTEGER NOT NULL,
+    node_id    INTEGER NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'primary',
+    priority   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (profile_id, node_id)
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version    INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -99,6 +151,10 @@ CREATE INDEX IF NOT EXISTS idx_profile_nodes_priority ON profile_nodes(profile_i
 INSERT OR IGNORE INTO settings(key, value) VALUES
     ('active_engine', 'v2ray'),
     ('active_profile', ''),
+    ('draft_pending', '0'),
+    ('draft_active_profile', ''),
+    ('draft_direct_dns', '223.5.5.5:53'),
+    ('draft_transparent_proxy_ports', '80,443,8080,8443'),
     ('proxy_mode', 'normal'),
     ('watchdog_enabled', '1'),
     ('fallback_on_failure', '1'),
@@ -112,6 +168,7 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
-PRAGMA user_version = 3;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (4);
+PRAGMA user_version = 4;
 
 COMMIT;
