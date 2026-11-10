@@ -94,6 +94,16 @@ function isEnabled(value) {
 	return value === '1' || value === 1 || value === true;
 }
 
+function checkbox(attributes, checked) {
+	const input = E('input', {
+		type: 'checkbox',
+		class: 'cbi-input-checkbox',
+		...(attributes || {})
+	});
+	input.checked = checked === true;
+	return input;
+}
+
 function css() {
 	return E('style', {}, `
 		.v2rayb-shell { max-width: 1180px; }
@@ -289,7 +299,7 @@ function showNodeModal(view, onSaved, existing) {
 	const security = E('select', { class: 'cbi-input-select' }, [ 'none', 'tls', 'reality' ].map(value => E('option', { value }, value.toUpperCase())));
 	const sni = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '255' });
 	const alpn = E('input', { class: 'cbi-input-text', type: 'text', placeholder: 'h2,http/1.1' });
-	const insecure = E('input', { type: 'checkbox' });
+	const insecure = checkbox({}, false);
 	const fingerprint = E('select', { class: 'cbi-input-select' }, [ 'chrome', 'firefox', 'safari', 'edge', 'android', 'ios' ].map(value => E('option', { value }, value)));
 	const publicKey = E('input', { class: 'cbi-input-text', type: 'text' });
 	const shortId = E('input', { class: 'cbi-input-text', type: 'text' });
@@ -303,8 +313,7 @@ function showNodeModal(view, onSaved, existing) {
 	const h2Path = E('input', { class: 'cbi-input-text', type: 'text', value: '/' });
 	const h2Host = E('input', { class: 'cbi-input-text', type: 'text' });
 	const grpcService = E('input', { class: 'cbi-input-text', type: 'text' });
-	const muxEnabled = E('input', { type: 'checkbox' });
-	muxEnabled.checked = true;
+	const muxEnabled = checkbox({}, true);
 	const muxConcurrency = E('input', { class: 'cbi-input-text', type: 'number', min: '1', max: '128', value: '8' });
 	const conditional = [];
 	function add(label, control, help, predicate, full) {
@@ -476,18 +485,9 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		class: 'cbi-input-text', type: 'text',
 		value: (existing && existing.transparent_proxy_ports) || defaults.transparent_proxy_ports
 	});
-	const bypassChina = E('input', {
-		type: 'checkbox',
-		checked: existing ? isEnabled(existing.bypass_china) : true
-	});
-	const useV2rayDns = E('input', {
-		type: 'checkbox',
-		checked: existing ? isEnabled(existing.use_v2ray_dns) : true
-	});
-	const mosdnsEnabled = E('input', {
-		type: 'checkbox',
-		checked: existing ? isEnabled(existing.mosdns_enabled) : true
-	});
+	const bypassChina = checkbox({}, existing ? isEnabled(existing.bypass_china) : true);
+	const useV2rayDns = checkbox({}, existing ? isEnabled(existing.use_v2ray_dns) : true);
+	const mosdnsEnabled = checkbox({}, existing ? isEnabled(existing.mosdns_enabled) : true);
 	const mosdnsDomains = E('textarea', {
 		class: 'cbi-input-text v2rayb-form-wide', rows: '4', spellcheck: 'false',
 		maxlength: '1024', placeholder: 'xn--ngstr-lra8j.com\nexample.com'
@@ -676,11 +676,7 @@ return view.extend({
 		const configuredServiceEnabled = draftPending
 			? status.draft_service_enabled !== '0'
 			: appliedServiceEnabled;
-		const serviceEnabled = E('input', {
-			type: 'checkbox',
-			class: 'cbi-input-checkbox',
-			checked: configuredServiceEnabled
-		});
+		const serviceEnabled = checkbox({}, configuredServiceEnabled);
 		pageView.serviceEnabledDesired = configuredServiceEnabled;
 		pageView.serviceEnabledDirty = false;
 		pageView.pendingOperations = [];
@@ -746,7 +742,7 @@ return view.extend({
 		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Enabled'), _('Actions') ];
 
 		function enabledToggle(enabled, change) {
-			const input = E('input', { type: 'checkbox', class: 'cbi-input-checkbox', checked: isEnabled(enabled) });
+			const input = checkbox({}, isEnabled(enabled));
 			input.addEventListener('change', () => change(input.checked ? '1' : '0'));
 			return input;
 		}

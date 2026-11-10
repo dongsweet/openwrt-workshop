@@ -28,6 +28,10 @@ def main():
         encoding="utf-8"
     )
     assert "function isEnabled(value)" in view_source
+    assert "function checkbox(attributes, checked)" in view_source
+    assert "input.checked = checked === true" in view_source
+    assert "checked: configuredServiceEnabled" not in view_source
+    assert "checked: isEnabled(enabled)" not in view_source
     assert "set_service_enabled" not in view_source
     assert "callSetSetting('service_enabled'" in view_source
     assert "pageView.serviceEnabledDirty" in view_source
