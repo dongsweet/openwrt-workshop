@@ -658,8 +658,6 @@ return view.extend({
 		let enabledNodes = nodes.filter(row => isEnabled(row[5])).length;
 		let enabledProfiles = profiles.filter(row => isEnabled(row[4])).length;
 
-		const dnsInput = E('input', { class: 'cbi-input-text', type: 'text', value: directDns });
-		const portsInput = E('input', { class: 'cbi-input-text', type: 'text', value: status.transparent_proxy_ports || '80,443,8080,8443' });
 		function profilePolicyText(row) {
 			if (!row)
 				return _('No active profile policy');
@@ -683,22 +681,13 @@ return view.extend({
 		pageView.serviceEnabledDesired = configuredServiceEnabled;
 		pageView.serviceEnabledDirty = false;
 		pageView.pendingOperations = [];
-		const initialDirectDns = directDns;
-		const initialProxyPorts = status.transparent_proxy_ports || '80,443,8080,8443';
 		pageView.hasLocalChanges = function() {
-			return this.serviceEnabledDirty ||
-				this.pendingOperations.length > 0 ||
-				dnsInput.value !== initialDirectDns ||
-				portsInput.value !== initialProxyPorts;
+			return this.serviceEnabledDirty || this.pendingOperations.length > 0;
 		};
 		pageView.persistLocalChanges = function() {
 			let chain = Promise.resolve({ success: true });
 			if (this.serviceEnabledDirty)
 				chain = chain.then(() => callSetSetting('service_enabled', this.serviceEnabledDesired ? '1' : '0'));
-			if (dnsInput.value !== initialDirectDns)
-				chain = chain.then(() => callSetSetting('direct_dns', dnsInput.value));
-			if (portsInput.value !== initialProxyPorts)
-				chain = chain.then(() => callSetSetting('transparent_proxy_ports', portsInput.value));
 			for (const operation of this.pendingOperations)
 				chain = chain.then(() => operation());
 			return chain.then(result => {
@@ -993,10 +982,13 @@ return view.extend({
 				E('p', { class: 'v2rayb-help' }, _('nftables returns direct matches before applying transparent proxy rules. These sets belong to the service-owned inet v2rayB table and are removed on stop.'))
 			]),
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, _('Default DNS and Transparent Proxy')),
-				E('p', { class: 'v2rayb-help' }, _('These values seed new profiles and are fallbacks for profiles without an explicit policy. The active profile value is shown above.')),
-				field(_('Direct DNS upstream'), dnsInput, _('Used by the MosDNS direct branch, for example 223.5.5.5:53. This value is saved with the standard Save action.')),
-				field(_('Transparent TCP ports'), portsInput, _('Comma-separated individual ports or ranges, for example 80,443,8080-8443. This value is saved with the standard Save action.'))
+				E('h3', {}, _('Effective Profile Policy')),
+				E('p', { class: 'v2rayb-help' }, _('Direct DNS and transparent ports are configured per profile. These are the effective values of the active applied profile.')),
+				table([ _('Item'), _('Effective value') ], [
+					[ _('Active profile'), activeProfileRow ? activeProfileRow[1] : _('Not selected') ],
+					[ _('Direct DNS upstream'), effectiveDns ],
+					[ _('Transparent TCP ports'), activeProfileRow ? (activeProfileRow[7] || '-') : '-' ]
+				], _('No active profile policy available.'))
 			])
 		];
 

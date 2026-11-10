@@ -156,8 +156,11 @@ def main():
     assert "class: 'cbi-button cbi-button-add'" in view_source
     assert "refreshNodeTable();" in view_source
     assert "refreshProfileTable();" in view_source
-    assert "callSetSetting('direct_dns', dnsInput.value)" in view_source
-    assert "callSetSetting('transparent_proxy_ports', portsInput.value)" in view_source
+    assert "Default DNS and Transparent Proxy" not in view_source
+    assert "Effective Profile Policy" in view_source
+    assert "Direct DNS and transparent ports are configured per profile." in view_source
+    assert "callSetSetting('direct_dns', dnsInput.value)" not in view_source
+    assert "callSetSetting('transparent_proxy_ports', portsInput.value)" not in view_source
     assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('function showProfileModal')]
     for method in methods:
         assert f"\n\t{method}: {{" in rpc_source
