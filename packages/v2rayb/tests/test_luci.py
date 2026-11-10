@@ -45,8 +45,8 @@ def main():
     assert "queuePendingOperation(() => callDeleteProfile" in view_source
     assert "field(_('Profile to activate'), activeProfileSelect" in view_source
     assert "card(_('Applied profile')" in view_source
-    assert "activeProfileRows = parseRows(outputOf(data[6]))" not in view_source
-    assert "appliedProfileRows = parseRows(outputOf(data[6]))" in view_source
+    assert "activeProfileRows = parseRows(outputOf(data[5]))" not in view_source
+    assert "appliedProfileRows = parseRows(outputOf(data[5]))" in view_source
     assert "const activeProfileRow = appliedProfileRows[0] || null" in view_source
     assert "method: 'get_applied_profile'" in view_source
     assert "get_applied_profile" in rpc_source
@@ -206,6 +206,14 @@ def main():
     assert "Direct DNS and transparent ports are configured per profile." not in view_source
     assert "callSetSetting('direct_dns', dnsInput.value)" not in view_source
     assert "callSetSetting('transparent_proxy_ports', portsInput.value)" not in view_source
+    assert "callGetSetting" not in view_source
+    assert "method: 'get_setting'" not in view_source
+    assert "\n\tget_setting: {" not in rpc_source
+    assert "key != 'service_enabled'" in rpc_source
+    assert "setting draft_direct_dns" not in ctl_source
+    assert "setting draft_transparent_proxy_ports" not in ctl_source
+    assert "printf 'transparent_proxy_ports=%s\\n'" not in ctl_source
+    assert "DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports')" in ctl_source
     assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('function showProfileModal')]
     for method in methods:
         assert f"\n\t{method}: {{" in rpc_source

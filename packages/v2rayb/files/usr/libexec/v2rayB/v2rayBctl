@@ -166,14 +166,6 @@ draft_pending() {
 	[ "$count" -gt 0 ] || return 1
 }
 
-current_setting() {
-	if draft_pending && [ "$(db_sql "SELECT COUNT(*) FROM settings WHERE key=$(sql_quote "draft_$1");" | tr -d '[:space:]')" = 1 ]; then
-		setting "draft_$1"
-	else
-		setting "$1"
-	fi
-}
-
 begin_draft() {
 	draft_pending && return 0
 	db_sql "BEGIN;
@@ -185,10 +177,8 @@ begin_draft() {
 		INSERT INTO draft_nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM nodes;
 		INSERT INTO draft_profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM profiles;
 		INSERT INTO draft_profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM profile_nodes;
-		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_direct_dns','draft_transparent_proxy_ports','draft_service_enabled');
+		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_service_enabled');
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_active_profile',value,CURRENT_TIMESTAMP FROM settings WHERE key='active_profile';
-		INSERT INTO settings(key,value,updated_at) SELECT 'draft_direct_dns',value,CURRENT_TIMESTAMP FROM settings WHERE key='direct_dns';
-		INSERT INTO settings(key,value,updated_at) SELECT 'draft_transparent_proxy_ports',value,CURRENT_TIMESTAMP FROM settings WHERE key='transparent_proxy_ports';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_service_enabled',value,CURRENT_TIMESTAMP FROM settings WHERE key='service_enabled';
 		INSERT INTO settings(key,value,updated_at) VALUES('draft_pending','1',CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value='1',updated_at=CURRENT_TIMESTAMP;
 		COMMIT;"
@@ -261,7 +251,7 @@ ensure_db() {
 		version=4
 	fi
 	[ "$version" = 4 ] || die "unsupported database schema version: $version"
-	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('direct_dns', '223.5.5.5:53'), ('force_proxy_port', '12346'), ('transparent_proxy_ports', '80,443,8080,8443'), ('service_enabled', '1'), ('draft_service_enabled', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('draft_direct_dns', '223.5.5.5:53'), ('draft_transparent_proxy_ports', '80,443,8080,8443');"
+	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '1'), ('draft_service_enabled', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
 }
 
 set_state() {
@@ -291,14 +281,6 @@ cmd_init_db() {
 	[ -f "$RULE_DIR/direct_ipv6.txt" ] || : > "$RULE_DIR/direct_ipv6.txt"
 }
 
-cmd_get_setting() {
-	ensure_db
-	case "$1" in
-		''|*[!A-Za-z0-9_./-]*) die "invalid setting key" ;;
-	esac
-	setting "$1"
-}
-
 cmd_set_setting() {
 	ensure_db
 	key="$1"
@@ -307,18 +289,12 @@ cmd_set_setting() {
 		''|*[!A-Za-z0-9_./-]*) die "invalid setting key" ;;
 	esac
 	case "$key" in
-		direct_dns)
-			validate_dns_endpoint "$value" || die "invalid DNS endpoint"
-			;;
-		transparent_proxy_ports)
-			format_ports "$value" >/dev/null || die "invalid transparent proxy port list"
-			;;
 		service_enabled)
 			case "$value" in 0|1) ;; *) die "service_enabled must be 0 or 1" ;; esac
 			;;
 	esac
 	case "$key" in
-		direct_dns|transparent_proxy_ports|active_profile|service_enabled)
+		active_profile|service_enabled)
 			draft_change_begin
 			set_draft_setting "$key" "$value"
 			draft_change_commit
@@ -410,8 +386,8 @@ cmd_add_profile() {
 	ensure_db
 	name="$1"
 	node_id="$2"
-	direct_dns="${3:-$(current_setting direct_dns)}"
-	transparent_proxy_ports="${4:-$(current_setting transparent_proxy_ports)}"
+	direct_dns="${3:-223.5.5.5:53}"
+	transparent_proxy_ports="${4:-80,443,8080,8443}"
 	bypass_china="${5:-1}"
 	use_v2ray_dns="${6:-1}"
 	mosdns_enabled="${7:-1}"
@@ -535,7 +511,7 @@ cmd_set_profile_enabled() {
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
-	active_profile_id="$(current_setting active_profile)"
+	active_profile_id="$(setting draft_active_profile)"
 	if [ "$enabled" = 0 ] && [ "$active_profile_id" = "$profile_id" ]; then
 		die "active profile must be switched before it can be disabled"
 	fi
@@ -550,7 +526,7 @@ cmd_delete_profile() {
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
-	active_profile_id="$(current_setting active_profile)"
+	active_profile_id="$(setting draft_active_profile)"
 	[ "$active_profile_id" != "$profile_id" ] || die "active profile must be switched before it can be deleted"
 	policy_id="$(db_sql "SELECT COALESCE(policy_id, 0) FROM draft_profiles WHERE id=$profile_id;" | sed -n '1p')"
 	db_sql "DELETE FROM draft_profile_nodes WHERE profile_id=$profile_id; DELETE FROM draft_profiles WHERE id=$profile_id;"
@@ -588,8 +564,6 @@ cmd_apply_draft() {
 		INSERT INTO profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM draft_profiles;
 		INSERT INTO profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM draft_profile_nodes;
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_active_profile'),value),updated_at=CURRENT_TIMESTAMP WHERE key='active_profile';
-		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_direct_dns'),value),updated_at=CURRENT_TIMESTAMP WHERE key='direct_dns';
-		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_transparent_proxy_ports'),value),updated_at=CURRENT_TIMESTAMP WHERE key='transparent_proxy_ports';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_service_enabled'),value),updated_at=CURRENT_TIMESTAMP WHERE key='service_enabled';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_config_version'),value),updated_at=CURRENT_TIMESTAMP WHERE key='applied_config_version';
 		DELETE FROM draft_profile_nodes;
@@ -681,9 +655,7 @@ cmd_get_profile_rules() {
 active_profile() {
 	profile_id="$(setting active_profile)"
 	is_uint "$profile_id" || die "no active profile selected"
-	default_direct_dns="$(setting direct_dns)"
-	default_proxy_ports="$(setting transparent_proxy_ports)"
-	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, $(sql_quote "$default_direct_dns")) || char(9) || COALESCE(pol.transparent_proxy_ports, $(sql_quote "$default_proxy_ports")) || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, 'xn--ngstr-lra8j.com') FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
+	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, '223.5.5.5:53') || char(9) || COALESCE(pol.transparent_proxy_ports, '80,443,8080,8443') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, 'xn--ngstr-lra8j.com') FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
 	[ -n "$row" ] || die "active profile has no enabled node"
 	printf '%s\n' "$row"
 }
@@ -1041,8 +1013,6 @@ cmd_status() {
 	printf 'draft_config_version=%s\n' "$(setting draft_config_version)"
 	printf 'draft_pending=%s\n' "$draft_state"
 	printf 'draft_active_profile=%s\n' "$(setting draft_active_profile)"
-	printf 'draft_direct_dns=%s\n' "$(setting draft_direct_dns)"
-	printf 'draft_transparent_proxy_ports=%s\n' "$(setting draft_transparent_proxy_ports)"
 	printf 'proxy_mode=%s\n' "$(setting proxy_mode)"
 	printf 'watchdog_enabled=%s\n' "$(setting watchdog_enabled)"
 	printf 'fallback_on_failure=%s\n' "$(setting fallback_on_failure)"
@@ -1050,7 +1020,23 @@ cmd_status() {
 	printf 'v2ray_dns_listen=%s\n' "$(setting v2ray_dns_listen)"
 	printf 'transparent_proxy_port=%s\n' "$(setting transparent_proxy_port)"
 	printf 'force_proxy_port=%s\n' "$(setting force_proxy_port)"
-	printf 'transparent_proxy_ports=%s\n' "$(setting transparent_proxy_ports)"
+	row="$(active_profile 2>/dev/null || true)"
+	if [ -n "$row" ]; then
+		old_ifs="$IFS"
+		IFS="$(printf '\t')"
+		read -r profile_protocol profile_server profile_port profile_data \
+			profile_direct_dns profile_proxy_ports profile_bypass_china \
+			profile_use_v2ray_dns profile_mosdns_enabled profile_mosdns_domains <<EOF
+$row
+EOF
+		IFS="$old_ifs"
+		printf 'profile_direct_dns=%s\n' "$profile_direct_dns"
+		printf 'profile_transparent_proxy_ports=%s\n' "$profile_proxy_ports"
+		printf 'profile_bypass_china=%s\n' "$profile_bypass_china"
+		printf 'profile_use_v2ray_dns=%s\n' "$profile_use_v2ray_dns"
+		printf 'profile_mosdns_enabled=%s\n' "$profile_mosdns_enabled"
+		printf 'profile_mosdns_domains=%s\n' "$profile_mosdns_domains"
+	fi
 }
 
 usage() {
@@ -1058,7 +1044,6 @@ usage() {
 Usage:
   v2rayBctl init-db
   v2rayBctl status
-  v2rayBctl get-setting KEY
   v2rayBctl set-setting KEY VALUE
   v2rayBctl set-state normal|starting|proxy|stopping|degraded
   v2rayBctl add-source manual|subscription|imported NAME [URL] [FORMAT]
@@ -1097,7 +1082,6 @@ case "$command" in
 	status) [ "$#" -eq 0 ] || usage; cmd_status ;;
 	dns-state) [ "$#" -eq 0 ] || usage; cmd_dns_state ;;
 	dns-settings) [ "$#" -eq 0 ] || usage; cmd_dns_settings ;;
-	get-setting) [ "$#" -eq 1 ] || usage; cmd_get_setting "$1" ;;
 	set-setting) [ "$#" -eq 2 ] || usage; cmd_set_setting "$1" "$2" ;;
 	set-state) [ "$#" -eq 1 ] || usage; cmd_set_state "$1" ;;
 	add-source) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage; cmd_add_source "$@" ;;

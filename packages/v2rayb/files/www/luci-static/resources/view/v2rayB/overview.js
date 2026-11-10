@@ -21,9 +21,6 @@ const callProfiles = rpc.declare({
 const callAppliedProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'get_applied_profile', expect: { '': {} }
 });
-const callGetSetting = rpc.declare({
-	object: 'luci.v2rayb', method: 'get_setting', params: [ 'key' ], expect: { '': {} }
-});
 const callSetSetting = rpc.declare({
 	object: 'luci.v2rayb', method: 'set_setting', params: [ 'key', 'value' ], expect: { '': {} }, reject: true
 });
@@ -616,7 +613,7 @@ return view.extend({
 	load() {
 		return Promise.all([
 			L.resolveDefault(callStatus(), { output: '' }), L.resolveDefault(callNodes(), { output: '' }),
-			L.resolveDefault(callProfiles(), { output: '' }), L.resolveDefault(callGetSetting('direct_dns'), { output: '223.5.5.5:53' }),
+			L.resolveDefault(callProfiles(), { output: '' }),
 			L.resolveDefault(callDnsState(), { output: '' }), L.resolveDefault(callGetV2rayConfig(), { output: '' }),
 			L.resolveDefault(callAppliedProfile(), { output: '' })
 		]);
@@ -632,9 +629,8 @@ return view.extend({
 		pageView.draftVersion = draftVersion;
 		const nodes = parseRows(outputOf(data[1]));
 		const profiles = parseRows(outputOf(data[2]));
-		const directDns = outputOf(data[3]) || '223.5.5.5:53';
-		const dnsState = parseKeyValues(outputOf(data[4]));
-		const appliedProfileRows = parseRows(outputOf(data[6]));
+		const dnsState = parseKeyValues(outputOf(data[3]));
+		const appliedProfileRows = parseRows(outputOf(data[5]));
 		const appliedProfile = status.active_profile || '';
 		let activeProfile = draftPending
 			? (status.draft_active_profile || appliedProfile)
@@ -646,8 +642,8 @@ return view.extend({
 		function profilePolicyText(row) {
 			if (!row)
 				return _('No active profile policy');
-			const dns = row[6] || directDns;
-			const ports = row[7] || status.transparent_proxy_ports || '80,443,8080,8443';
+			const dns = row[6] || '-';
+			const ports = row[7] || '-';
 			const china = isEnabled(row[8]) ? _('China IP direct') : _('All through proxy');
 			const v2rayDns = isEnabled(row[9]) ? _('V2Ray DNS default') : _('Direct DNS default');
 			const mosdns = isEnabled(row[10]) ? _('MosDNS on') : _('MosDNS off');
@@ -854,8 +850,8 @@ return view.extend({
 							refreshProfileTable();
 							refreshProfileCard();
 						}, nodes, {
-							direct_dns: directDns,
-							transparent_proxy_ports: status.transparent_proxy_ports,
+							direct_dns: '223.5.5.5:53',
+							transparent_proxy_ports: '80,443,8080,8443',
 							mosdns_domains: dnsState.mosdns_route_suffix || 'xn--ngstr-lra8j.com',
 							mosdns_match_rules: dnsState.direct_rule || ''
 						}, details.profile);
@@ -1043,8 +1039,8 @@ return view.extend({
 		profileAddButton = E('button', {
 			class: 'cbi-button cbi-button-add', type: 'button',
 			click: () => showProfileModal(onProfileSaved, nodes, {
-				direct_dns: directDns,
-				transparent_proxy_ports: status.transparent_proxy_ports || '80,443,8080-8443',
+				direct_dns: '223.5.5.5:53',
+				transparent_proxy_ports: '80,443,8080,8443',
 				mosdns_domains: dnsState.mosdns_route_suffix || 'xn--ngstr-lra8j.com',
 				mosdns_match_rules: dnsState.direct_rule || ''
 			})
@@ -1084,7 +1080,7 @@ return view.extend({
 			])
 		];
 
-		const effectiveDns = dnsState.direct_dns || directDns;
+		const effectiveDns = dnsState.direct_dns || '-';
 		const dnsmasqDefault = dnsState.dnsmasq_default || (state === 'proxy' ? (dnsState.v2ray_dns_listen || '127.0.0.1#5353') : _('WAN DHCP DNS'));
 		const v2rayDns = dnsState.v2ray_dns_listen || status.v2ray_dns_listen || '127.0.0.1#5353';
 		const mosDns = dnsState.mosdns_listen || status.mosdns_listen || '127.0.0.1#5354';

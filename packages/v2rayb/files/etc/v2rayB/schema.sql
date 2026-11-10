@@ -157,17 +157,13 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
     ('draft_config_version', '1'),
     ('draft_pending', '0'),
     ('draft_active_profile', ''),
-    ('draft_direct_dns', '223.5.5.5:53'),
-    ('draft_transparent_proxy_ports', '80,443,8080,8443'),
     ('proxy_mode', 'normal'),
     ('watchdog_enabled', '1'),
     ('fallback_on_failure', '1'),
     ('mosdns_listen', '127.0.0.1#5354'),
     ('v2ray_dns_listen', '127.0.0.1#5353'),
-    ('direct_dns', '223.5.5.5:53'),
     ('transparent_proxy_port', '12345'),
-    ('force_proxy_port', '12346'),
-    ('transparent_proxy_ports', '80,443,8080,8443');
+    ('force_proxy_port', '12346');
 
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);

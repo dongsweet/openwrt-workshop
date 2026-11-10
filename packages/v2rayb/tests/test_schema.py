@@ -95,6 +95,13 @@ def main():
             "SELECT value FROM settings WHERE key = 'draft_service_enabled'"
         ).fetchone()[0] == "1"
         assert conn.execute(
+            """
+            SELECT COUNT(*) FROM settings
+            WHERE key IN ('direct_dns', 'transparent_proxy_ports',
+                          'draft_direct_dns', 'draft_transparent_proxy_ports')
+            """
+        ).fetchone()[0] == 0
+        assert conn.execute(
             "SELECT data_json FROM nodes WHERE id = ?", (node_id,)
         ).fetchone()[0] == json.dumps(node_data)
         assert conn.execute(

@@ -24,6 +24,9 @@ fi
 python3 -m json.tool "$TEST_DIR/runtime/active/v2ray.json" >/dev/null
 grep -q '"protocol":"vless"' "$TEST_DIR/runtime/active/v2ray.json"
 "$ctl" get-v2ray-config | python3 -m json.tool >/dev/null
+"$ctl" status | grep -q '^profile_direct_dns=223.5.5.5:53$'
+"$ctl" status | grep -q '^profile_transparent_proxy_ports=80,443,8080-8443$'
+! "$ctl" status | grep -q '^transparent_proxy_ports='
 grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'exec: "nftset inet,v2rayB,direct4,ipv4_addr,32' "$TEST_DIR/runtime/active/mosdns.yaml"
 ! grep -q 'type: nftset' "$TEST_DIR/runtime/active/mosdns.yaml"
@@ -39,22 +42,6 @@ grep -q 'tcp dport { 80, 443, 8080, 8443 } redirect to :12345' "$TEST_DIR/runtim
 grep -q '"force-proxy-in"' "$TEST_DIR/runtime/active/v2ray.json"
 ! grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
-if "$ctl" set-setting transparent_proxy_ports '80,,443' >/dev/null 2>&1; then
-	echo "empty port item unexpectedly accepted" >&2
-	exit 1
-fi
-if "$ctl" set-setting transparent_proxy_ports '8443-8080' >/dev/null 2>&1; then
-	echo "reversed port range unexpectedly accepted" >&2
-	exit 1
-fi
-if "$ctl" set-setting transparent_proxy_ports '0-443' >/dev/null 2>&1; then
-	echo "out-of-range port unexpectedly accepted" >&2
-	exit 1
-fi
-if "$ctl" set-setting transparent_proxy_ports '1-2-3' >/dev/null 2>&1; then
-	echo "malformed port range unexpectedly accepted" >&2
-	exit 1
-fi
 
 "$ctl" update-node 1 hk-updated vless hk3.example.com 8443 '{"settings":{"vnext":[{"address":"hk3.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"ws"}}' >/dev/null
 "$ctl" list-nodes | grep -q 'hk-updated.*hk3.example.com.*8443'
@@ -62,10 +49,12 @@ if "$ctl" set-node-enabled 1 0 >/dev/null 2>&1; then
 	echo "referenced node unexpectedly disabled" >&2
 	exit 1
 fi
-if "$ctl" set-profile-policy 1 223.5.5.5:53 '80,,443' 1 >/dev/null 2>&1; then
-	echo "invalid profile port list unexpectedly accepted" >&2
-	exit 1
-fi
+for ports in '80,,443' '8443-8080' '0-443' '1-2-3'; do
+	if "$ctl" set-profile-policy 1 223.5.5.5:53 "$ports" 1 >/dev/null 2>&1; then
+		echo "invalid profile port list unexpectedly accepted: $ports" >&2
+		exit 1
+	fi
+done
 "$ctl" update-profile 1 hk-profile-updated 1 1.1.1.1:53 '80,443,8080-8443' 0 0 1 'example.com,xn--ngstr-lra8j.com' 'regexp:^cdn\.example\.com$' >/dev/null
 "$ctl" get-profile 1 | grep -q '^name=hk-profile-updated$'
 "$ctl" get-profile 1 | grep -q '^node_id=1$'

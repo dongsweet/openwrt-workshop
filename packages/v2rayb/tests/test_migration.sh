@@ -95,4 +95,19 @@ INSERT INTO profile_nodes(profile_id,node_id) VALUES(1,1);
 "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" set-setting active_profile 1
 "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" apply-draft
 "$sqlite" "$V2RAYB_DB" 'SELECT bypass_china || "|" || use_v2ray_dns || "|" || mosdns_enabled FROM policies WHERE id=1;' | grep -q '^1|1|1$'
+
+# Legacy global DNS/port defaults are removed from the database.
+"$sqlite" "$V2RAYB_DB" '
+INSERT INTO settings(key,value) VALUES("direct_dns","1.1.1.1:53")
+ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+INSERT INTO settings(key,value) VALUES("transparent_proxy_ports","443")
+ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+'
+"$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
+count=$("$sqlite" "$V2RAYB_DB" '
+SELECT COUNT(*) FROM settings
+WHERE key IN ("direct_dns","transparent_proxy_ports",
+              "draft_direct_dns","draft_transparent_proxy_ports");
+')
+[ "$count" = 0 ]
 echo "migration tests: ok"

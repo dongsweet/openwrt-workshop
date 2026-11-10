@@ -185,17 +185,6 @@ const methods = {
 		}
 	},
 
-	get_setting: {
-		args: { key: '' },
-		call: function(request) {
-			let key = string_arg(request, 'key');
-			if (key != 'direct_dns')
-				return { code: -1, output: 'Unsupported setting' };
-
-			return ctl([ 'get-setting', key ]);
-		}
-	},
-
 	service_action: {
 		args: { action: '' },
 		call: function(request) {
@@ -213,7 +202,7 @@ const methods = {
 		call: function(request) {
 			let key = string_arg(request, 'key');
 			let value = string_arg(request, 'value');
-			if (key != 'direct_dns' && key != 'transparent_proxy_ports' && key != 'service_enabled')
+			if (key != 'service_enabled')
 				return { success: false, error: 'Unsupported setting' };
 
 			let result = ctl([ 'set-setting', key, value ]);
