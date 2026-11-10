@@ -44,6 +44,11 @@ ${2#*=}"
 		*) return 2 ;;
 	esac
 }
+service_registered() { [ "$PROCD_STALE" = 1 ] || [ "$INSTANCES_RUNNING" = 1 ]; }
+json_init() { :; }
+json_add_string() { :; }
+_procd_ubus_call() { :; }
+jsonfilter() { :; }
 procd_running() { [ "${INSTANCES_RUNNING:-0}" = 1 ]; }
 procd_kill() {
 	touch "$RUNTIME/killed"

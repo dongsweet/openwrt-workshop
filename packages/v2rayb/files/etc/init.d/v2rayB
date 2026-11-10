@@ -180,10 +180,18 @@ restore_dnsmasq() {
 	cmp -s "$RUNTIME/restore-noresolv" "$RUNTIME/restore-noresolv.expected" || return 1
 }
 
+service_registered() {
+	json_init
+	json_add_string name v2rayB
+	_procd_ubus_call list | jsonfilter -l 1 -e "@.v2rayB" >/dev/null 2>&1
+}
+
 stop_instances() {
-	# Remove stale procd definitions even when all instances are stopped but
-	# still tracked in crash-loop state.
-	procd_kill v2rayB >/dev/null 2>&1 || true
+	# Delete a registered service so stopped crash-loop definitions do not
+	# shadow a subsequent clean start.
+	if service_registered; then
+		procd_kill v2rayB >/dev/null 2>&1 || return 1
+	fi
 	n=0
 	while procd_running v2rayB; do
 		[ "$n" -lt 10 ] || return 1
