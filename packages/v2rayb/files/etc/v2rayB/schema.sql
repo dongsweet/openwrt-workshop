@@ -151,6 +151,8 @@ CREATE INDEX IF NOT EXISTS idx_profile_nodes_priority ON profile_nodes(profile_i
 INSERT OR IGNORE INTO settings(key, value) VALUES
     ('active_engine', 'v2ray'),
     ('active_profile', ''),
+    ('applied_config_version', '1'),
+    ('draft_config_version', '1'),
     ('draft_pending', '0'),
     ('draft_active_profile', ''),
     ('draft_direct_dns', '223.5.5.5:53'),

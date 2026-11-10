@@ -167,10 +167,8 @@ draft_pending() {
 }
 
 current_setting() {
-	if draft_pending; then
-		value="$(setting "draft_$1")"
-		[ -n "$value" ] || value="$(setting "$1")"
-		printf '%s\n' "$value"
+	if draft_pending && [ "$(db_sql "SELECT COUNT(*) FROM settings WHERE key=$(sql_quote "draft_$1");" | tr -d '[:space:]')" = 1 ]; then
+		setting "draft_$1"
 	else
 		setting "$1"
 	fi
@@ -193,6 +191,34 @@ begin_draft() {
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_transparent_proxy_ports',value,CURRENT_TIMESTAMP FROM settings WHERE key='transparent_proxy_ports';
 		INSERT INTO settings(key,value,updated_at) VALUES('draft_pending','1',CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value='1',updated_at=CURRENT_TIMESTAMP;
 		COMMIT;"
+}
+
+draft_change_begin() {
+	DRAFT_CHANGE_DEPTH=$(( ${DRAFT_CHANGE_DEPTH:-0} + 1 ))
+	[ "$DRAFT_CHANGE_DEPTH" -eq 1 ] || return 0
+	DRAFT_CHANGE_NEW=0
+	if ! draft_pending; then
+		DRAFT_CHANGE_NEW=1
+		begin_draft
+	fi
+}
+
+draft_change_commit() {
+	DRAFT_CHANGE_DEPTH=$(( ${DRAFT_CHANGE_DEPTH:-1} - 1 ))
+	[ "$DRAFT_CHANGE_DEPTH" -le 0 ] || return 0
+	if [ "${DRAFT_CHANGE_NEW:-0}" = 1 ]; then
+		version="$(setting applied_config_version)"
+		is_uint "$version" || version=1
+		version=$((version + 1))
+	else
+		version="$(setting draft_config_version)"
+		is_uint "$version" || version="$(setting applied_config_version)"
+		is_uint "$version" || version=1
+		version=$((version + 1))
+	fi
+	db_sql "INSERT INTO settings(key,value,updated_at) VALUES('draft_config_version',$(sql_quote "$version"),CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP;"
+	DRAFT_CHANGE_DEPTH=0
+	DRAFT_CHANGE_NEW=0
 }
 
 discard_drafts() {
@@ -234,7 +260,7 @@ ensure_db() {
 		version=4
 	fi
 	[ "$version" = 4 ] || die "unsupported database schema version: $version"
-	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('direct_dns', '223.5.5.5:53'), ('force_proxy_port', '12346'), ('transparent_proxy_ports', '80,443,8080,8443'), ('draft_pending', '0'), ('draft_active_profile', ''), ('draft_direct_dns', '223.5.5.5:53'), ('draft_transparent_proxy_ports', '80,443,8080,8443');"
+	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('direct_dns', '223.5.5.5:53'), ('force_proxy_port', '12346'), ('transparent_proxy_ports', '80,443,8080,8443'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('draft_direct_dns', '223.5.5.5:53'), ('draft_transparent_proxy_ports', '80,443,8080,8443');"
 }
 
 set_state() {
@@ -289,8 +315,9 @@ cmd_set_setting() {
 	esac
 	case "$key" in
 		direct_dns|transparent_proxy_ports|active_profile)
-			begin_draft
+			draft_change_begin
 			set_draft_setting "$key" "$value"
+			draft_change_commit
 			;;
 		*)
 			db_sql "INSERT INTO settings(key, value, updated_at) VALUES($(sql_quote "$key"), $(sql_quote "$value"), CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=CURRENT_TIMESTAMP;"
@@ -335,8 +362,9 @@ cmd_add_manual_node() {
 	esac
 	db_sql "INSERT INTO sources(type, name, updated_at) VALUES('manual', 'manual', CURRENT_TIMESTAMP) ON CONFLICT(type, name) DO NOTHING;"
 	source_id="$(db_sql "SELECT id FROM sources WHERE type='manual' AND name='manual';" | sed -n '1p')"
-	begin_draft
+	draft_change_begin
 	db_sql "INSERT INTO draft_nodes(source_id, name, protocol, server, port, data_json, updated_at) VALUES($source_id, $(sql_quote "$name"), $(sql_quote "$protocol"), $(sql_quote "$server"), $port, $(sql_quote "$data_json"), CURRENT_TIMESTAMP) ON CONFLICT(source_id, name) DO UPDATE SET protocol=excluded.protocol, server=excluded.server, port=excluded.port, data_json=excluded.data_json, enabled=1, updated_at=CURRENT_TIMESTAMP;"
+	draft_change_commit
 	db_sql "SELECT id FROM draft_nodes WHERE source_id=$source_id AND name=$(sql_quote "$name");" | sed -n '1p'
 }
 
@@ -353,7 +381,7 @@ cmd_set_profile_policy() {
 	is_uint "$profile_id" || die "profile id must be numeric"
 	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules"
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
 	policy_id="$(db_sql "SELECT COALESCE(policy_id, 0) FROM draft_profiles WHERE id=$profile_id;" | sed -n '1p')"
@@ -365,6 +393,7 @@ cmd_set_profile_policy() {
 		is_uint "$policy_id" || die "failed to create profile policy"
 		db_sql "UPDATE draft_profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
 	fi
+	draft_change_commit
 }
 
 cmd_add_profile() {
@@ -382,7 +411,7 @@ cmd_add_profile() {
 	is_uint "$node_id" || die "node id must be numeric"
 	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules"
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id AND enabled=1;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found or disabled: $node_id"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE name=$(sql_quote "$name");" | tr -d '[:space:]')"
@@ -393,6 +422,7 @@ cmd_add_profile() {
 	cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules"
 	set_draft_setting active_profile "$profile_id"
+	draft_change_commit
 	printf '%s\n' "$profile_id"
 }
 
@@ -415,13 +445,14 @@ cmd_update_node() {
 		\{*\}) ;;
 		*) die "data_json must be a JSON object" ;;
 	esac
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found: $node_id"
 	source_id="$(db_sql "SELECT source_id FROM draft_nodes WHERE id=$node_id;" | sed -n '1p')"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE source_id=$source_id AND name=$(sql_quote "$name") AND id<>$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 0 ] || die "node name already exists: $name"
 	db_sql "UPDATE draft_nodes SET name=$(sql_quote "$name"), protocol=$(sql_quote "$protocol"), server=$(sql_quote "$server"), port=$port, data_json=$(sql_quote "$data_json"), updated_at=CURRENT_TIMESTAMP WHERE id=$node_id;"
+	draft_change_commit
 	printf '%s\n' "$node_id"
 }
 
@@ -431,25 +462,27 @@ cmd_set_node_enabled() {
 	enabled="$2"
 	is_uint "$node_id" || die "node id must be numeric"
 	case "$enabled" in 0|1) ;; *) die "enabled must be 0 or 1" ;; esac
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found: $node_id"
 	if [ "$enabled" = 0 ] && [ "$(db_sql "SELECT COUNT(*) FROM draft_profile_nodes WHERE node_id=$node_id;" | tr -d '[:space:]')" != 0 ]; then
 		die "node is referenced by a profile; remove the profile first"
 	fi
 	db_sql "UPDATE draft_nodes SET enabled=$enabled, updated_at=CURRENT_TIMESTAMP WHERE id=$node_id;"
+	draft_change_commit
 }
 
 cmd_delete_node() {
 	ensure_db
 	node_id="$1"
 	is_uint "$node_id" || die "node id must be numeric"
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found: $node_id"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profile_nodes WHERE node_id=$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 0 ] || die "node is referenced by a profile; remove the profile first"
 	db_sql "DELETE FROM draft_nodes WHERE id=$node_id;"
+	draft_change_commit
 }
 
 cmd_update_profile() {
@@ -460,7 +493,7 @@ cmd_update_profile() {
 	is_uint "$profile_id" || die "profile id must be numeric"
 	is_name "$name" || die "invalid profile name"
 	is_uint "$node_id" || die "node id must be numeric"
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id AND enabled=1;" | tr -d '[:space:]')"
@@ -479,6 +512,7 @@ cmd_update_profile() {
 		cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 			"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules"
 	fi
+	draft_change_commit
 	printf '%s\n' "$profile_id"
 }
 
@@ -488,7 +522,7 @@ cmd_set_profile_enabled() {
 	enabled="$2"
 	is_uint "$profile_id" || die "profile id must be numeric"
 	case "$enabled" in 0|1) ;; *) die "enabled must be 0 or 1" ;; esac
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
 	active_profile_id="$(current_setting active_profile)"
@@ -496,32 +530,35 @@ cmd_set_profile_enabled() {
 		die "active profile must be switched before it can be disabled"
 	fi
 	db_sql "UPDATE draft_profiles SET enabled=$enabled, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
+	draft_change_commit
 }
 
 cmd_delete_profile() {
 	ensure_db
 	profile_id="$1"
 	is_uint "$profile_id" || die "profile id must be numeric"
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
 	active_profile_id="$(current_setting active_profile)"
 	[ "$active_profile_id" != "$profile_id" ] || die "active profile must be switched before it can be deleted"
 	policy_id="$(db_sql "SELECT COALESCE(policy_id, 0) FROM draft_profiles WHERE id=$profile_id;" | sed -n '1p')"
-	db_sql "DELETE FROM draft_profiles WHERE id=$profile_id;"
+	db_sql "DELETE FROM draft_profile_nodes WHERE profile_id=$profile_id; DELETE FROM draft_profiles WHERE id=$profile_id;"
 	if is_uint "$policy_id" && [ "$policy_id" -gt 0 ] 2>/dev/null; then
 		db_sql "DELETE FROM draft_policies WHERE id=$policy_id AND NOT EXISTS (SELECT 1 FROM draft_profiles WHERE policy_id=$policy_id);"
 	fi
+	draft_change_commit
 }
 
 cmd_select_profile() {
 	ensure_db
 	profile_id="$1"
 	is_uint "$profile_id" || die "profile id must be numeric"
-	begin_draft
+	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id AND enabled=1;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found or disabled: $profile_id"
 	set_draft_setting active_profile "$profile_id"
+	draft_change_commit
 }
 
 cmd_apply_draft() {
@@ -543,6 +580,7 @@ cmd_apply_draft() {
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_active_profile'),value),updated_at=CURRENT_TIMESTAMP WHERE key='active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_direct_dns'),value),updated_at=CURRENT_TIMESTAMP WHERE key='direct_dns';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_transparent_proxy_ports'),value),updated_at=CURRENT_TIMESTAMP WHERE key='transparent_proxy_ports';
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_config_version'),value),updated_at=CURRENT_TIMESTAMP WHERE key='applied_config_version';
 		DELETE FROM draft_profile_nodes;
 		DELETE FROM draft_profiles;
 		DELETE FROM draft_nodes;
@@ -904,6 +942,13 @@ cmd_delete_nft() {
 	rm -f "$NFT_MARKER"
 }
 
+cmd_get_v2ray_config() {
+	ensure_db
+	[ -s "$ACTIVE_DIR/v2ray.json" ] || cmd_render_v2ray
+	[ -s "$ACTIVE_DIR/v2ray.json" ] || die "V2Ray configuration is not available"
+	sed -n '1,$p' "$ACTIVE_DIR/v2ray.json"
+}
+
 cmd_test_v2ray() {
 	ensure_db
 	[ -f "$ACTIVE_DIR/v2ray.json" ] || cmd_render_v2ray
@@ -972,6 +1017,8 @@ cmd_status() {
 	printf 'active_engine=%s\n' "$(setting active_engine)"
 	printf 'active_profile=%s\n' "$(setting active_profile)"
 	if draft_pending; then draft_state=1; else draft_state=0; fi
+	printf 'applied_config_version=%s\n' "$(setting applied_config_version)"
+	printf 'draft_config_version=%s\n' "$(setting draft_config_version)"
 	printf 'draft_pending=%s\n' "$draft_state"
 	printf 'draft_active_profile=%s\n' "$(setting draft_active_profile)"
 	printf 'draft_direct_dns=%s\n' "$(setting draft_direct_dns)"
@@ -1014,6 +1061,7 @@ Usage:
   v2rayBctl dns-state
   v2rayBctl dns-settings
   v2rayBctl render-v2ray|render-mosdns|render-nft|render-all
+  v2rayBctl get-v2ray-config
   v2rayBctl apply-nft|delete-nft|test-v2ray|test-dns|test-dnsmasq
 EOF
 	exit 2
@@ -1055,6 +1103,7 @@ case "$command" in
 	render-all) [ "$#" -eq 0 ] || usage; cmd_render_all ;;
 	apply-nft) [ "$#" -eq 0 ] || usage; cmd_apply_nft ;;
 	delete-nft) [ "$#" -eq 0 ] || usage; cmd_delete_nft ;;
+	get-v2ray-config) [ "$#" -eq 0 ] || usage; cmd_get_v2ray_config ;;
 	test-v2ray) [ "$#" -eq 0 ] || usage; cmd_test_v2ray ;;
 	test-dns) [ "$#" -eq 0 ] || usage; ensure_db; cmd_test_dns ;;
 	test-dnsmasq) [ "$#" -eq 0 ] || usage; cmd_test_dnsmasq ;;

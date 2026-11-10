@@ -14,13 +14,16 @@ ctl="$ROOT/files/usr/libexec/v2rayB/v2rayBctl"
 "$ctl" init-db
 "$ctl" add-node hk vless hk2.example.com 443 '{"settings":{"vnext":[{"address":"hk2.example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"tcp"}}'
 "$ctl" add-profile hk-profile 1 >/dev/null
+"$ctl" apply-draft
 if "$ctl" add-profile hk-profile 1 >/dev/null 2>&1; then
 	echo "duplicate profile name unexpectedly accepted" >&2
 	exit 1
 fi
+"$ctl" revert-draft
 "$ctl" render-all
 python3 -m json.tool "$TEST_DIR/runtime/active/v2ray.json" >/dev/null
 grep -q '"protocol":"vless"' "$TEST_DIR/runtime/active/v2ray.json"
+"$ctl" get-v2ray-config | python3 -m json.tool >/dev/null
 grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'exec: "nftset inet,v2rayB,direct4,ipv4_addr,32' "$TEST_DIR/runtime/active/mosdns.yaml"
 ! grep -q 'type: nftset' "$TEST_DIR/runtime/active/mosdns.yaml"
@@ -69,6 +72,7 @@ fi
 "$ctl" get-profile 1 | grep -q '^use_v2ray_dns=0$'
 "$ctl" get-profile 1 | grep -q '^mosdns_domains=example.com,xn--ngstr-lra8j.com$'
 "$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
+"$ctl" apply-draft
 "$ctl" dns-settings | grep -q '^dnsmasq_default=1.1.1.1#53$'
 "$ctl" dns-settings | grep -q '^use_v2ray_dns=0$'
 "$ctl" dns-settings | grep -q '^mosdns_enabled=1$'
@@ -79,6 +83,7 @@ grep -q 'regexp:\^cdn\\.example\\.com\$' "$TEST_DIR/runtime/active/mosdns-direct
 grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'geoip:cn' "$TEST_DIR/runtime/active/v2ray.json"
 "$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$'
+"$ctl" apply-draft
 "$ctl" dns-settings | grep -q '^dnsmasq_default=127.0.0.1#5353$'
 "$ctl" dns-settings | grep -q '^mosdns_enabled=0$'
 "$ctl" get-profile 1 | grep -q '^mosdns_domains=example.com$'
@@ -97,7 +102,7 @@ fi
 "$ctl" set-profile-enabled 1 0
 "$ctl" set-profile-enabled 1 1
 "$ctl" delete-profile 1
-policy_count="$("$V2RAYB_SQLITE3" -batch -bail "$V2RAYB_DB" 'SELECT COUNT(*) FROM policies;')"
+policy_count="$("$V2RAYB_SQLITE3" -batch -bail "$V2RAYB_DB" 'SELECT COUNT(*) FROM draft_policies;')"
 [ "$policy_count" = 0 ]
 "$ctl" set-node-enabled 1 0
 "$ctl" delete-node 1

@@ -30,6 +30,9 @@ def main():
     assert "Apply changes" in view_source
     assert "Revert changes" in view_source
     assert "draft_pending === '1'" in view_source
+    assert "status.applied_config_version" in view_source
+    assert "status.draft_config_version" in view_source
+    assert "Pending draft version" in view_source
     assert "addFooter()" in view_source
     assert "profileAddButton.disabled = !enabled;" in view_source
     assert "disabled: !nodes.some" not in view_source
@@ -63,6 +66,10 @@ def main():
     assert "table([ _('Order'), _('Match group'), _('Fixed action') ]" not in view_source
     assert "mosdnsRulesHelp" in view_source
     assert "mosdns_enabled == '1' && mosdns_domains == ''" in rpc_source
+    assert "method: 'get_v2ray_config'" in view_source
+    assert "Applied V2Ray configuration" in view_source
+    assert "contains node UUIDs or passwords" in view_source
+    assert "get_v2ray_config" in rpc_source
     assert "DNS Resolution Chain" in view_source
     assert "MosDNS Narrow Route" in view_source
     assert "nftables Direct Sets" in view_source

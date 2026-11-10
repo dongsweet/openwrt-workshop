@@ -9,6 +9,9 @@ const callStatus = rpc.declare({
 const callDnsState = rpc.declare({
 	object: 'luci.v2rayb', method: 'dns_state', expect: { '': {} }
 });
+const callGetV2rayConfig = rpc.declare({
+	object: 'luci.v2rayb', method: 'get_v2ray_config', expect: { '': {} }
+});
 const callNodes = rpc.declare({
 	object: 'luci.v2rayb', method: 'list_nodes', expect: { '': {} }
 });
@@ -602,7 +605,7 @@ return view.extend({
 		return Promise.all([
 			L.resolveDefault(callStatus(), { output: '' }), L.resolveDefault(callNodes(), { output: '' }),
 			L.resolveDefault(callProfiles(), { output: '' }), L.resolveDefault(callGetSetting('direct_dns'), { output: '223.5.5.5:53' }),
-			L.resolveDefault(callDnsState(), { output: '' })
+			L.resolveDefault(callDnsState(), { output: '' }), L.resolveDefault(callGetV2rayConfig(), { output: '' })
 		]);
 	},
 
@@ -610,6 +613,8 @@ return view.extend({
 		const pageView = this;
 		const status = parseKeyValues(outputOf(data[0]));
 		const draftPending = status.draft_pending === '1';
+		const appliedVersion = status.applied_config_version || '1';
+		const draftVersion = status.draft_config_version || appliedVersion;
 		const nodes = parseRows(outputOf(data[1]));
 		const profiles = parseRows(outputOf(data[2]));
 		const directDns = outputOf(data[3]) || '223.5.5.5:53';
@@ -652,8 +657,12 @@ return view.extend({
 		}
 		const draftToolbar = E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('Configuration draft')),
+			E('div', { class: 'v2rayb-hero-meta' }, [
+				E('span', { class: 'v2rayb-chip' }, `${_('Applied version')}: ${appliedVersion}`),
+				draftPending ? E('span', { class: 'v2rayb-chip' }, `${_('Pending draft version')}: ${draftVersion}`) : ''
+			]),
 			E('p', { class: 'v2rayb-help' }, draftPending
-				? _('There are saved changes not yet applied. They are stored in the database and will remain after a page reload.')
+				? _('Draft version %s contains saved changes that are not yet applied. It is stored in the database and will remain after a page reload.').format(draftVersion)
 				: _('There are no pending changes. Editing and saving nodes or profiles creates a draft before it is applied.')),
 			E('div', { class: 'v2rayb-toolbar' }, draftPending ? [
 				draftActionButton(_('Apply changes'), 'cbi-button-apply', callApplyDraft),
@@ -948,11 +957,18 @@ return view.extend({
 			])
 		];
 
-		const diagnosticsPane = [ E('div', { class: 'cbi-section' }, [
-			E('h3', {}, _('Runtime Diagnostics')),
-			E('p', { class: 'v2rayb-help' }, _('This is a read-only snapshot. It does not start services or change router configuration.')),
-			E('pre', { class: 'v2rayb-code' }, outputOf(data[0]) || _('No diagnostic output available.'))
-		]) ];
+		const diagnosticsPane = [
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('Runtime Diagnostics')),
+				E('p', { class: 'v2rayb-help' }, _('This is a read-only snapshot. It does not start services or change router configuration.')),
+				E('pre', { class: 'v2rayb-code' }, outputOf(data[0]) || _('No diagnostic output available.'))
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('Applied V2Ray configuration')),
+				E('p', { class: 'cbi-value-description' }, _('This is the configuration generated from the applied profile, not from unapplied draft changes. It contains node UUIDs or passwords; do not share it publicly.')),
+				E('pre', { class: 'v2rayb-code' }, outputOf(data[5]) || _('No V2Ray configuration available.'))
+			])
+		];
 
 		return E('div', { class: 'cbi-map v2rayb-shell' }, [
 			css(),

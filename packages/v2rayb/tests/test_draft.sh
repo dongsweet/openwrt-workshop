@@ -20,15 +20,21 @@ sqlite="$ROOT/tests/sqlite3-wrapper.py"
 	'{"settings":{"vnext":[{"address":"original.example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
 "$ctl" add-profile original-profile 1 >/dev/null
 "$ctl" apply-draft
+"$ctl" status | grep -q '^draft_pending=0$'
+applied_version="$("$ctl" status | sed -n 's/^applied_config_version=//p')"
 
 # A saved edit must remain a draft and not affect applied runtime data.
 "$ctl" update-node 1 draft-name vless draft.example.com 8443 \
 	'{"settings":{"vnext":[{"address":"draft.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
 "$ctl" status | grep -q '^draft_pending=1$'
+draft_version="$("$ctl" status | sed -n 's/^draft_config_version=//p')"
+[ "$draft_version" -eq $((applied_version + 1)) ]
 "$ctl" list-nodes | grep -q 'draft-name.*draft.example.com.*8443'
 "$ctl" render-all
 ! grep -q 'draft.example.com' "$TEST_DIR/state/active/v2ray.json"
 grep -q 'original.example.com' "$TEST_DIR/state/active/v2ray.json"
+! "$ctl" get-v2ray-config | grep -q 'draft.example.com'
+"$ctl" get-v2ray-config | grep -q 'original.example.com'
 
 # Revert restores the applied view.
 "$ctl" revert-draft
@@ -44,6 +50,7 @@ fi
 	'{"settings":{"vnext":[{"address":"applied.example.com","port":9443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
 "$ctl" apply-draft
 "$ctl" status | grep -q '^draft_pending=0$'
+"$ctl" status | grep -q "^applied_config_version=$draft_version$"
 "$ctl" render-all
 grep -q 'applied.example.com' "$TEST_DIR/state/active/v2ray.json"
 

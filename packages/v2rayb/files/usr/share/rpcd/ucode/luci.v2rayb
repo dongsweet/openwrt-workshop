@@ -90,6 +90,13 @@ const methods = {
 		}
 	},
 
+	get_v2ray_config: {
+		call: function() {
+			let result = ctl([ 'get-v2ray-config' ]);
+			return result.code == 0 ? result : failed(result);
+		}
+	},
+
 	list_nodes: {
 		call: function() {
 			return ctl([ 'list-nodes' ]);
