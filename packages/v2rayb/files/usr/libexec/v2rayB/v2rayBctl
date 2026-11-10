@@ -287,6 +287,14 @@ cmd_init_db() {
 	[ -f "$RULE_DIR/direct_ipv6.txt" ] || : > "$RULE_DIR/direct_ipv6.txt"
 }
 
+cmd_get_setting() {
+	ensure_db
+	case "$1" in
+		''|*[!A-Za-z0-9_./-]*) die "invalid setting key" ;;
+	esac
+	setting "$1"
+}
+
 cmd_set_setting() {
 	ensure_db
 	key="$1"
@@ -1045,6 +1053,7 @@ usage() {
 Usage:
   v2rayBctl init-db
   v2rayBctl status
+  v2rayBctl get-setting KEY
   v2rayBctl set-setting KEY VALUE
   v2rayBctl set-state normal|starting|proxy|stopping|degraded
   v2rayBctl add-source manual|subscription|imported NAME [URL] [FORMAT]
@@ -1083,6 +1092,7 @@ case "$command" in
 	status) [ "$#" -eq 0 ] || usage; cmd_status ;;
 	dns-state) [ "$#" -eq 0 ] || usage; cmd_dns_state ;;
 	dns-settings) [ "$#" -eq 0 ] || usage; cmd_dns_settings ;;
+	get-setting) [ "$#" -eq 1 ] || usage; cmd_get_setting "$1" ;;
 	set-setting) [ "$#" -eq 2 ] || usage; cmd_set_setting "$1" "$2" ;;
 	set-state) [ "$#" -eq 1 ] || usage; cmd_set_state "$1" ;;
 	add-source) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage; cmd_add_source "$@" ;;

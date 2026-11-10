@@ -197,5 +197,7 @@ if grep -q '"$CTL" test-dnsmasq' "$ROOT/files/etc/init.d/v2rayB"; then
 fi
 grep -q '"$CTL" get-setting service_enabled' "$ROOT/files/etc/init.d/v2rayB"
 grep -q 'service_enabled' "$ROOT/files/etc/v2rayB/schema.sql"
+grep -q 'cmd_get_setting()' "$ROOT/files/usr/libexec/v2rayB/v2rayBctl"
+grep -q 'get-setting) \[ "$#" -eq 1 \]' "$ROOT/files/usr/libexec/v2rayB/v2rayBctl"
 
 echo "lifecycle tests: ok"
