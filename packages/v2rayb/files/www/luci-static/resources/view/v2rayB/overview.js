@@ -6,6 +6,9 @@
 const callStatus = rpc.declare({
 	object: 'luci.v2rayb', method: 'status', expect: { '': {} }
 });
+const callDnsState = rpc.declare({
+	object: 'luci.v2rayb', method: 'dns_state', expect: { '': {} }
+});
 const callNodes = rpc.declare({
 	object: 'luci.v2rayb', method: 'list_nodes', expect: { '': {} }
 });
@@ -522,7 +525,8 @@ return view.extend({
 	load() {
 		return Promise.all([
 			L.resolveDefault(callStatus(), { output: '' }), L.resolveDefault(callNodes(), { output: '' }),
-			L.resolveDefault(callProfiles(), { output: '' }), L.resolveDefault(callGetSetting('direct_dns'), { output: '223.5.5.5:53' })
+			L.resolveDefault(callProfiles(), { output: '' }), L.resolveDefault(callGetSetting('direct_dns'), { output: '223.5.5.5:53' }),
+			L.resolveDefault(callDnsState(), { output: '' })
 		]);
 	},
 
@@ -532,6 +536,7 @@ return view.extend({
 		const nodes = parseRows(outputOf(data[1]));
 		const profiles = parseRows(outputOf(data[2]));
 		const directDns = outputOf(data[3]) || '223.5.5.5:53';
+		const dnsState = parseKeyValues(outputOf(data[4]));
 		let activeProfile = status.active_profile || '';
 		const state = status.state || 'normal';
 		let enabledNodes = nodes.filter(row => isEnabled(row[5])).length;
@@ -777,14 +782,56 @@ return view.extend({
 			])
 		];
 
-		const runtimePane = [ E('div', { class: 'cbi-section' }, [
-			E('h3', {}, _('Default DNS and Transparent Proxy')),
-			E('p', { class: 'v2rayb-help' }, _('dnsmasq remains the public DNS service. These values are defaults for new profiles and for profiles without an explicit policy.')),
-			field(_('Direct DNS upstream'), dnsInput, _('Used by the MosDNS direct branch, for example 223.5.5.5:53.')),
-			E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('direct_dns', dnsInput.value).then(result => notify(result, _('Direct DNS saved.'))) }, _('Save DNS setting')),
-			field(_('Transparent TCP ports'), portsInput, _('Comma-separated individual ports or ranges, for example 80,443,8080-8443.')),
-			E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('transparent_proxy_ports', portsInput.value).then(result => notify(result, _('Proxy ports saved.'))) }, _('Save port setting'))
-		]) ];
+		const effectiveDns = dnsState.direct_dns || directDns;
+		const dnsmasqDefault = dnsState.dnsmasq_default || (state === 'proxy' ? (dnsState.v2ray_dns_listen || '127.0.0.1#5353') : _('WAN DHCP DNS'));
+		const v2rayDns = dnsState.v2ray_dns_listen || status.v2ray_dns_listen || '127.0.0.1#5353';
+		const mosDns = dnsState.mosdns_listen || status.mosdns_listen || '127.0.0.1#5354';
+		const dnsSuffix = dnsState.mosdns_route_suffix || 'xn--ngstr-lra8j.com';
+		const directRule = dnsState.direct_rule || _('No direct regex rule configured');
+		const accelFiles = dnsState.china_accel_files || '0';
+
+		const dnsPipeline = table([ _('Order'), _('Component'), _('Listener / upstream'), _('Decision') ], [
+			[ '1', _('LAN client'), 'dnsmasq :53', _('Primary DNS entry point') ],
+			[ '2', _('dnsmasq main resolver'), dnsmasqDefault, _('Default upstream while in %s mode').format(state || 'normal') ],
+			[ '3', _('China acceleration'), `${dnsState.dnsmasq_confdir || '/etc/dnsmasq.d'} (${accelFiles} ${_('matching files')})`, _('Existing dnsmasq China domain rules stay in control') ],
+			[ '4', _('MosDNS narrow branch'), `${mosDns} ← *.${dnsSuffix}`, _('Only the configured suffix is sent here') ],
+			[ '5', _('Direct match + nftset'), effectiveDns, _('Matching regexp answers go domestic and populate nft direct sets') ],
+			[ '6', _('Fallback'), v2rayDns, _('Other names use V2Ray DNS') ]
+		], _('No DNS state data available.'));
+
+		const runtimePane = [
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('DNS Resolution Chain')),
+				E('p', { class: 'v2rayb-help' }, _('dnsmasq is the public resolver. Its existing China acceleration files remain in /etc/dnsmasq.d; v2rayB only owns the temporary default upstream and the narrow MosDNS suffix route.')),
+				dnsPipeline
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('MosDNS Narrow Route')),
+				table([ _('Item'), _('Current value') ], [
+					[ _('Forwarded suffix'), `*.${dnsSuffix}` ],
+					[ _('MosDNS listener'), mosDns ],
+					[ _('Direct DNS upstream'), effectiveDns ],
+					[ _('Direct regexp'), E('code', {}, directRule) ]
+				], _('No MosDNS route data available.')),
+				E('p', { class: 'v2rayb-help' }, _('The suffix is forwarded to MosDNS, but only matching regexp answers use the direct DNS path. Other names in the suffix fall back to V2Ray DNS.'))
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('nftables Direct Sets')),
+				table([ _('Source'), _('Runtime set'), _('Static set') ], [
+					[ _('MosDNS direct answers'), dnsState.nft_direct_sets || 'direct4,direct6', dnsState.nft_direct_static_sets || 'direct_static4,direct_static6' ],
+					[ _('Force-proxy answers'), dnsState.nft_force_proxy_sets || 'force_proxy4,force_proxy6,force_proxy', '-' ]
+				], _('No nftables set data available.')),
+				E('p', { class: 'v2rayb-help' }, _('nftables returns direct matches before applying transparent proxy rules. These sets belong to the service-owned inet v2rayB table and are removed on stop.'))
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('Default DNS and Transparent Proxy')),
+				E('p', { class: 'v2rayb-help' }, _('These values seed new profiles and are fallbacks for profiles without an explicit policy. The active profile value is shown above.')),
+				field(_('Direct DNS upstream'), dnsInput, _('Used by the MosDNS direct branch, for example 223.5.5.5:53.')),
+				E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('direct_dns', dnsInput.value).then(result => notify(result, _('Direct DNS saved.'))) }, _('Save DNS setting')),
+				field(_('Transparent TCP ports'), portsInput, _('Comma-separated individual ports or ranges, for example 80,443,8080-8443.')),
+				E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('transparent_proxy_ports', portsInput.value).then(result => notify(result, _('Proxy ports saved.'))) }, _('Save port setting'))
+			])
+		];
 
 		const diagnosticsPane = [ E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('Runtime Diagnostics')),

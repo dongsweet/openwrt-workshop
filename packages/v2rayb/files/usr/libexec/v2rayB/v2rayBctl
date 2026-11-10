@@ -14,6 +14,8 @@ RULE_DIR="${V2RAYB_RULE_DIR:-/etc/v2rayB/rules}"
 SQLITE3="${V2RAYB_SQLITE3:-sqlite3}"
 V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 MOSDNS_BIN="${V2RAYB_MOSDNS_BIN:-/usr/bin/mosdns}"
+DNSMASQ_CONFIG_DIR="${V2RAYB_DNSMASQ_DIR:-/etc/dnsmasq.d}"
+MOSDNS_ROUTE_SUFFIX="xn--ngstr-lra8j.com"
 
 die() {
 	echo "v2rayBctl: $*" >&2
@@ -694,6 +696,39 @@ cmd_test_dnsmasq() {
 	dig +short +time=3 +tries=1 @127.0.0.1 www.google.com A | grep -Eq '^[0-9]+(\.[0-9]+){3}$'
 }
 
+cmd_dns_state() {
+	ensure_db
+	state="$(get_state)"
+	direct_dns="$(setting direct_dns)"
+	profile_id="$(setting active_profile)"
+	if is_uint "$profile_id"; then
+		policy_dns="$(db_sql "SELECT COALESCE(pol.direct_dns, '') FROM profiles p LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p')"
+		[ -n "$policy_dns" ] && direct_dns="$policy_dns"
+	fi
+	direct_rule="$(sed -n '/^[[:space:]]*[^#[:space:]]/{p;q;}' "$RULE_DIR/direct_domains.txt" 2>/dev/null || true)"
+	accel_count=0
+	if [ -d "$DNSMASQ_CONFIG_DIR" ]; then
+		accel_count="$(find "$DNSMASQ_CONFIG_DIR" -maxdepth 1 -type f -iname '*china*' 2>/dev/null | wc -l | tr -d '[:space:]')"
+	fi
+	printf 'runtime_state=%s\n' "$state"
+	printf 'dnsmasq_listen=%s\n' '0.0.0.0:53'
+	if [ "$state" = proxy ]; then
+		printf 'dnsmasq_default=%s\n' "$(setting v2ray_dns_listen)"
+	else
+		printf 'dnsmasq_default=WAN DHCP DNS\n'
+	fi
+	printf 'dnsmasq_confdir=%s\n' "$DNSMASQ_CONFIG_DIR"
+	printf 'china_accel_files=%s\n' "${accel_count:-0}"
+	printf 'v2ray_dns_listen=%s\n' "$(setting v2ray_dns_listen)"
+	printf 'mosdns_listen=%s\n' "$(setting mosdns_listen)"
+	printf 'mosdns_route_suffix=%s\n' "$MOSDNS_ROUTE_SUFFIX"
+	printf 'direct_dns=%s\n' "$direct_dns"
+	printf 'direct_rule=%s\n' "$direct_rule"
+	printf 'nft_direct_sets=%s\n' 'direct4,direct6'
+	printf 'nft_direct_static_sets=%s\n' 'direct_static4,direct_static6'
+	printf 'nft_force_proxy_sets=%s\n' 'force_proxy4,force_proxy6,force_proxy'
+}
+
 cmd_status() {
 	ensure_db
 	printf 'state=%s\n' "$(get_state)"
@@ -732,6 +767,7 @@ Usage:
   v2rayBctl get-node NODE_ID
   v2rayBctl list-profiles
   v2rayBctl get-profile PROFILE_ID
+  v2rayBctl dns-state
   v2rayBctl render-v2ray|render-mosdns|render-nft|render-all
   v2rayBctl apply-nft|delete-nft|test-v2ray|test-dns|test-dnsmasq
 EOF
@@ -745,6 +781,7 @@ shift
 case "$command" in
 	init-db) [ "$#" -eq 0 ] || usage; cmd_init_db ;;
 	status) [ "$#" -eq 0 ] || usage; cmd_status ;;
+	dns-state) [ "$#" -eq 0 ] || usage; cmd_dns_state ;;
 	get-setting) [ "$#" -eq 1 ] || usage; cmd_get_setting "$1" ;;
 	set-setting) [ "$#" -eq 2 ] || usage; cmd_set_setting "$1" "$2" ;;
 	set-state) [ "$#" -eq 1 ] || usage; cmd_set_state "$1" ;;

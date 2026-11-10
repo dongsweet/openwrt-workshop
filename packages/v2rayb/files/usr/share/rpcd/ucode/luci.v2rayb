@@ -79,6 +79,12 @@ const methods = {
 		}
 	},
 
+	dns_state: {
+		call: function() {
+			return ctl([ 'dns-state' ]);
+		}
+	},
+
 	list_nodes: {
 		call: function() {
 			return ctl([ 'list-nodes' ]);

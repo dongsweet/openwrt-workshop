@@ -35,6 +35,11 @@ def main():
     assert "Profile policy" in view_source
     assert "8080-8443" in view_source
     assert "profilePolicyText(row)" in view_source
+    assert "method: 'dns_state'" in view_source
+    assert "DNS Resolution Chain" in view_source
+    assert "MosDNS Narrow Route" in view_source
+    assert "nftables Direct Sets" in view_source
+    assert "dns_state" in rpc_source
     assert "Array.isArray(error)" in view_source
     assert "rpc.getStatusText(error[0])" in view_source
     assert "expect: { '': {} }, reject: true" in view_source
