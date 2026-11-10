@@ -278,7 +278,7 @@ function renderTabs(panes) {
 			class: 'v2rayb-nav-link' + (selected ? ' active' : ''), type: 'button', role: 'tab',
 			'aria-selected': selected ? 'true' : 'false', 'data-tab': pane.id,
 			click: () => activate(pane.id, true)
-		}, [ E('span', { class: 'v2rayb-nav-title' }, pane.title), E('span', { class: 'v2rayb-nav-caption' }, pane.caption) ]);
+		}, [ E('span', { class: 'v2rayb-nav-title' }, pane.title), pane.caption ? E('span', { class: 'v2rayb-nav-caption' }, pane.caption) : '' ]);
 		const panel = E('div', {
 			class: 'v2rayb-panel', role: 'tabpanel', 'data-tab': pane.id,
 			style: selected ? '' : 'display:none', 'aria-hidden': selected ? 'false' : 'true'
@@ -489,14 +489,12 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	});
 	mosdnsRules.value = (existing && existing.mosdns_match_rules) || defaults.mosdns_match_rules || '';
 	const mosdnsDomainsField = field(_('MosDNS domains'), mosdnsDomains,
-		_('One domain suffix per line. Commas are also accepted for compatibility.'));
+		_('One suffix per line.'));
 	const mosdnsRulesHelp = E('div', {}, [
-		E('p', {}, _('One rule per line. Supported prefixes: domain:, full: and regexp:.')),
-		E('p', {}, E('strong', {}, _('Fixed evaluation order and actions:'))),
-		E('p', {}, _('1. Force-proxy rules: query V2Ray DNS, return its answer and write force_proxy4/force_proxy6/force_proxy.')),
-		E('p', {}, _('2. Profile MosDNS rules: query the Direct DNS upstream, return its answer and write direct4/direct6.')),
-		E('p', {}, _('3. No rule matched: query V2Ray DNS and do not write the direct sets.')),
-		E('p', {}, _('These actions are fixed so DNS answers and nftables bypass decisions cannot diverge. Rules saved while MosDNS is disabled take effect after re-enabling and restarting the service.'))
+		E('p', {}, _('One per line: domain:, full: or regexp:.')),
+		E('p', {}, _('Force-proxy: V2Ray DNS + force_proxy sets.')),
+		E('p', {}, _('Direct match: Direct DNS + direct sets.')),
+		E('p', {}, _('Fallback: V2Ray DNS, no direct sets.'))
 	]);
 	const mosdnsRulesField = field(_('MosDNS match rules'), mosdnsRules, mosdnsRulesHelp);
 	function refreshMosdnsFields() {
@@ -545,18 +543,18 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('Profile policy')),
 			field(_('Direct DNS upstream'), profileDns,
-				_('Used only by this profile for the MosDNS direct branch.')),
+				_('For MosDNS direct queries.')),
 			field(_('Transparent TCP ports'), profilePorts,
-				_('Comma-separated individual ports or ranges, for example 80,443,8080-8443.')),
+				_('Example: 80,443,8080-8443.')),
 			field(_('Bypass China IP'), bypassChina,
-				_('When disabled, all intercepted traffic is routed through the selected node.'))
+				_('Disabled: all intercepted traffic uses the proxy.'))
 		]),
 		E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('DNS routing')),
 			field(_('Use V2Ray DNS as dnsmasq default'), useV2rayDns,
-				_('Disabled: dnsmasq sends its default traffic directly to the Direct DNS upstream.')),
+				_('Disabled: default DNS uses Direct DNS.')),
 			field(_('Enable MosDNS branch'), mosdnsEnabled,
-				_('When disabled, MosDNS is neither started nor added as a dnsmasq domain upstream. Domains and rules remain saved but inactive.')),
+				_('Disabled: domains and rules are inactive but retained.')),
 			mosdnsDomainsField,
 			mosdnsRulesField
 		]),
@@ -667,7 +665,7 @@ return view.extend({
 		const activeProfileSelect = E('select', { class: 'cbi-input-select' },
 			profileOptionsFromProfiles(profiles));
 		activeProfileSelect.value = activeProfile;
-		const nodesCard = card(_('Nodes'), `${enabledNodes} / ${nodes.length}`, _('Enabled nodes / total nodes'));
+		const nodesCard = card(_('Nodes'), `${enabledNodes} / ${nodes.length}`);
 		const appliedServiceEnabled = status.service_enabled !== '0';
 		const configuredServiceEnabled = draftPending
 			? status.draft_service_enabled !== '0'
@@ -747,8 +745,7 @@ return view.extend({
 			class: 'cbi-section',
 			style: pageView.hasLocalChanges() || draftPending ? '' : 'display:none'
 		}, [
-			E('h3', {}, _('Unapplied changes')),
-			E('p', { class: 'v2rayb-help' }, _('Use Save & Apply to activate the pending changes, Save to keep them as a draft, or Reset to discard them.'))
+			E('p', { class: 'v2rayb-help' }, _('Pending changes: Save & Apply to activate, or Reset to discard.'))
 		]);
 		function updateLocalChangesNotice() {
 			unappliedNotice.style.display = pageView.hasLocalChanges() || draftPending ? '' : 'none';
@@ -768,17 +765,17 @@ return view.extend({
 		const overview = [
 			unappliedNotice,
 			E('div', { class: 'v2rayb-cards' }, [
-				card(_('Service'), statusBadge(state), _('Unified V2Ray, MosDNS, dnsmasq and nftables lifecycle')),
+				card(_('Service'), statusBadge(state)),
 				activeProfileCard,
 				nodesCard,
-				card(_('DNS path'), state === 'proxy' ? _('V2Ray + MosDNS') : _('WAN / normal mode'), _('dnsmasq remains the primary resolver'))
+				card(_('DNS path'), state === 'proxy' ? _('V2Ray + MosDNS') : _('WAN / normal mode'))
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Service Control')),
 				field(_('Enable v2rayB'), E('div', {}, [ serviceEnabled, ' ', statusBadge(state) ]),
-					_('This setting participates in the standard Save, Save & Apply and Reset workflow. Applying enabled starts the service and enables boot startup; applying disabled stops it safely and disables boot startup.')),
+					_('Also controls boot startup.')),
 				field(_('Active profile'), activeProfileSelect,
-					_('Select the profile used by the service. Profile choices participate in the same Save, Save & Apply and Reset workflow.'))
+					_('Used after Save & Apply.'))
 			]),
 			table([ _('Property'), _('Current value') ], [
 				[ _('Engine'), status.active_engine || '-' ], [ _('Proxy mode'), status.proxy_mode || '-' ],
@@ -1070,8 +1067,6 @@ return view.extend({
 		const nodesPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
-				E('p', { class: 'v2rayb-help' }, _('Nodes are stored in the v2rayB database. Use the structured editor to describe the endpoint; v2rayB generates the protocol-specific outbound configuration internally.')),
-				E('p', { class: 'v2rayb-help' }, _('Editor, checkbox and Delete changes are staged in the page. The active profile is selected on Overview. The standard Save action writes changes to the draft; nothing becomes active until Save & Apply.')),
 				nodeTable,
 				E('div', { class: 'v2rayb-create' }, [
 					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showNodeModal(pageView, onNodeSaved) }, _('Add'))
@@ -1079,7 +1074,6 @@ return view.extend({
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Profiles')),
-				E('p', { class: 'v2rayb-help' }, _('A profile selects the node plus the DNS, transparent port and China-IP routing policy used on the next service start or restart.')),
 				profileTable,
 				E('div', { class: 'v2rayb-create' }, [ profileAddButton ])
 			])
@@ -1093,20 +1087,18 @@ return view.extend({
 		const directRule = dnsState.direct_rule || _('No direct regex rule configured');
 		const accelFiles = dnsState.china_accel_files || '0';
 
-		const dnsPipeline = table([ _('Order'), _('Component'), _('Listener / upstream'), _('Decision') ], [
-			[ '1', _('LAN client'), 'dnsmasq :53', _('Primary DNS entry point') ],
-			[ '2', _('dnsmasq main resolver'), dnsmasqDefault, _('Default upstream while in %s mode').format(state || 'normal') ],
-			[ '3', _('China acceleration'), `${dnsState.dnsmasq_confdir || '/etc/dnsmasq.d'} (${accelFiles} ${_('matching files')})`, _('Existing dnsmasq China domain rules stay in control') ],
-			[ '4', _('MosDNS narrow branch'), `${mosDns} ← *.${dnsSuffix}`, _('Proxy mode only: only the configured suffix is sent here') ],
-			[ '5', _('Direct match + nftset'), effectiveDns, _('Proxy mode only: matching regexp answers go domestic and populate nft direct sets') ],
-			[ '6', _('Fallback'), v2rayDns, _('Proxy mode only: other names use V2Ray DNS') ]
+		const dnsPipeline = table([ _('Order'), _('Component'), _('Listener / upstream') ], [
+			[ '1', _('LAN client'), 'dnsmasq :53' ],
+			[ '2', _('dnsmasq main resolver'), dnsmasqDefault ],
+			[ '3', _('China acceleration'), `${dnsState.dnsmasq_confdir || '/etc/dnsmasq.d'} (${accelFiles})` ],
+			[ '4', _('MosDNS narrow branch'), `${mosDns} ← *.${dnsSuffix}` ],
+			[ '5', _('Direct match + nftset'), effectiveDns ],
+			[ '6', _('Fallback'), v2rayDns ]
 		], _('No DNS state data available.'));
 
 		const runtimePane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('DNS Resolution Chain')),
-				E('p', { class: 'v2rayb-help' }, _('dnsmasq is the public resolver. Its existing China acceleration files remain in /etc/dnsmasq.d; v2rayB only owns the temporary default upstream and the narrow MosDNS suffix route.')),
-				E('p', { class: 'v2rayb-help' }, _('In normal mode, dnsmasq uses its WAN baseline and the proxy-only MosDNS/V2Ray route is inactive.')),
 				dnsPipeline
 			]),
 			E('div', { class: 'cbi-section' }, [
@@ -1116,20 +1108,17 @@ return view.extend({
 					[ _('MosDNS listener'), mosDns ],
 					[ _('Direct DNS upstream'), effectiveDns ],
 					[ _('Direct regexp'), E('code', {}, directRule) ]
-				], _('No MosDNS route data available.')),
-				E('p', { class: 'v2rayb-help' }, _('The suffix is forwarded to MosDNS, but only matching regexp answers use the direct DNS path. Other names in the suffix fall back to V2Ray DNS.'))
+				], _('No MosDNS route data available.'))
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('nftables Direct Sets')),
 				table([ _('Source'), _('Runtime set'), _('Static set') ], [
 					[ _('MosDNS direct answers'), dnsState.nft_direct_sets || 'direct4,direct6', dnsState.nft_direct_static_sets || 'direct_static4,direct_static6' ],
 					[ _('Force-proxy answers'), dnsState.nft_force_proxy_sets || 'force_proxy4,force_proxy6,force_proxy', '-' ]
-				], _('No nftables set data available.')),
-				E('p', { class: 'v2rayb-help' }, _('nftables returns direct matches before applying transparent proxy rules. These sets belong to the service-owned inet v2rayB table and are removed on stop.'))
+				], _('No nftables set data available.'))
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Effective Profile Policy')),
-				E('p', { class: 'v2rayb-help' }, _('Direct DNS and transparent ports are configured per profile. These are the effective values of the active applied profile.')),
 				table([ _('Item'), _('Effective value') ], [
 					[ _('Active profile'), activeProfileRow ? activeProfileRow[1] : _('Not selected') ],
 					[ _('Direct DNS upstream'), effectiveDns ],
@@ -1141,12 +1130,11 @@ return view.extend({
 		const diagnosticsPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Runtime Diagnostics')),
-				E('p', { class: 'v2rayb-help' }, _('This is a read-only snapshot. It does not start services or change router configuration.')),
 				E('pre', { class: 'v2rayb-code' }, outputOf(data[0]) || _('No diagnostic output available.'))
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Applied V2Ray configuration')),
-				E('p', { class: 'cbi-value-description' }, _('This is the configuration generated from the applied profile, not from unapplied draft changes. It contains node UUIDs or passwords; do not share it publicly.')),
+				E('p', { class: 'cbi-value-description' }, _('Contains credentials. Do not share.')),
 				E('pre', { class: 'v2rayb-code' }, outputOf(data[5]) || _('No V2Ray configuration available.'))
 			])
 		];
@@ -1155,7 +1143,6 @@ return view.extend({
 			css(),
 			E('div', { class: 'v2rayb-hero' }, [
 				E('h2', {}, _('v2rayB unified proxy')),
-				E('p', {}, _('A single control plane for V2Ray, DNS routing and transparent proxy rules.')),
 				E('div', { class: 'v2rayb-hero-meta' }, [
 					E('span', { class: 'v2rayb-chip' }, [ _('Current state:'), statusBadge(state) ]),
 					E('span', { class: 'v2rayb-chip' }, `${_('Profile')}: ${activeProfile || _('none')}`),
@@ -1163,10 +1150,10 @@ return view.extend({
 				])
 			]),
 			renderTabs([
-				{ id: 'overview', title: _('Overview'), caption: _('Status and service control'), nodes: overview },
-				{ id: 'nodes', title: _('Nodes and profiles'), caption: _('Database-backed proxy entries'), nodes: nodesPane },
-				{ id: 'runtime', title: _('DNS and proxy'), caption: _('Runtime policy settings'), nodes: runtimePane },
-				{ id: 'diagnostics', title: _('Diagnostics'), caption: _('Read-only runtime details'), nodes: diagnosticsPane }
+				{ id: 'overview', title: _('Overview'), nodes: overview },
+				{ id: 'nodes', title: _('Nodes and profiles'), nodes: nodesPane },
+				{ id: 'runtime', title: _('DNS and proxy'), nodes: runtimePane },
+				{ id: 'diagnostics', title: _('Diagnostics'), nodes: diagnosticsPane }
 			])
 		]);
 	}

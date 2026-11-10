@@ -52,7 +52,8 @@ def main():
     assert "Save DNS setting" not in view_source
     assert "Save port setting" not in view_source
     assert "Enable v2rayB" in view_source
-    assert "standard Save, Save & Apply and Reset workflow" in view_source
+    assert "Also controls boot startup." in view_source
+    assert "Used after Save & Apply." in view_source
     assert "function actionButton(" not in view_source
     assert "actionButton(this, _('Start')" not in view_source
     assert "set_service_enabled" not in rpc_source
@@ -74,8 +75,8 @@ def main():
     assert "Applied version" not in view_source
     assert "Pending draft version" not in view_source
     assert "Draft version %s" not in view_source
-    assert "Unapplied changes" in view_source
-    assert "Use Save & Apply to activate the pending changes, Save to keep them as a draft, or Reset to discard them." in view_source
+    assert "Pending changes: Save & Apply to activate" in view_source
+    assert "Pending changes: Save & Apply to activate, or Reset to discard." in view_source
     assert "running configuration is unchanged" not in view_source
     assert "running configuration is up to date" not in view_source
     assert ".v2rayb-hero .v2rayb-chip" in view_source
@@ -103,25 +104,26 @@ def main():
     assert "class: 'cbi-value-description'" in view_source
     assert "help ? E('div', { class: 'v2rayb-help' }" not in view_source
     assert "mosdnsDomains.value.split(/[\\s,]+/)" in view_source
-    assert "One domain suffix per line." in view_source
-    assert "Domains and rules remain saved but inactive." in view_source
-    assert "Fixed evaluation order and actions" in view_source
-    assert "write force_proxy4/force_proxy6/force_proxy" in view_source
-    assert "write direct4/direct6" in view_source
-    assert "do not write the direct sets" in view_source
+    assert "One suffix per line." in view_source
+    assert "Disabled: domains and rules are inactive but retained." in view_source
+    assert "Force-proxy: V2Ray DNS + force_proxy sets." in view_source
+    assert "Direct match: Direct DNS + direct sets." in view_source
+    assert "Fallback: V2Ray DNS, no direct sets." in view_source
     assert "E('h4', {}, _('Fixed evaluation order and actions'))" not in view_source
     assert "table([ _('Order'), _('Match group'), _('Fixed action') ]" not in view_source
     assert "mosdnsRulesHelp" in view_source
     assert "mosdns_enabled == '1' && mosdns_domains == ''" in rpc_source
     assert "method: 'get_v2ray_config'" in view_source
     assert "Applied V2Ray configuration" in view_source
-    assert "contains node UUIDs or passwords" in view_source
+    assert "Contains credentials. Do not share." in view_source
     assert "get_v2ray_config" in rpc_source
     assert "DNS Resolution Chain" in view_source
     assert "MosDNS Narrow Route" in view_source
     assert "nftables Direct Sets" in view_source
-    assert "Proxy mode only:" in view_source
-    assert "proxy-only MosDNS/V2Ray route is inactive" in view_source
+    assert "Proxy mode only:" not in view_source
+    assert "_('Decision')" not in view_source
+    assert "proxy-only MosDNS/V2Ray route is inactive" not in view_source
+    assert "dnsmasq is the public resolver" not in view_source
     assert "dns_state" in rpc_source
     assert "Array.isArray(error)" in view_source
     assert "rpc.getStatusText(error[0])" in view_source
@@ -151,9 +153,11 @@ def main():
     assert "value && value.nodeName === 'TD'" in view_source
     assert "class: 'td cbi-section-table-cell nowrap cbi-section-actions'" in view_source
     assert "nowrap cbi-section-actions" in view_source
-    assert "Editor, checkbox and Delete changes are staged in the page." in view_source
-    assert "The active profile is selected on Overview." in view_source
-    assert "The standard Save action writes changes to the draft" in view_source
+    assert "Nodes are stored in the v2rayB database." not in view_source
+    assert "Editor, checkbox and Delete changes are staged in the page." not in view_source
+    assert "A profile selects the node plus" not in view_source
+    assert "Status and service control" not in view_source
+    assert "Read-only runtime details" not in view_source
     node_modal = view_source[
         view_source.index("function showNodeModal"):
         view_source.index("function showProfileModal")
@@ -186,7 +190,7 @@ def main():
     assert "refreshProfileTable();" in view_source
     assert "Default DNS and Transparent Proxy" not in view_source
     assert "Effective Profile Policy" in view_source
-    assert "Direct DNS and transparent ports are configured per profile." in view_source
+    assert "Direct DNS and transparent ports are configured per profile." not in view_source
     assert "callSetSetting('direct_dns', dnsInput.value)" not in view_source
     assert "callSetSetting('transparent_proxy_ports', portsInput.value)" not in view_source
     assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('function showProfileModal')]
