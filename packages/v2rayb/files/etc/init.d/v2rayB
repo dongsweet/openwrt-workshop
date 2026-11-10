@@ -181,8 +181,9 @@ restore_dnsmasq() {
 }
 
 stop_instances() {
-	procd_running v2rayB || return 0
-	procd_kill v2rayB >/dev/null 2>&1 || return 1
+	# Remove stale procd definitions even when all instances are stopped but
+	# still tracked in crash-loop state.
+	procd_kill v2rayB >/dev/null 2>&1 || true
 	n=0
 	while procd_running v2rayB; do
 		[ "$n" -lt 10 ] || return 1

@@ -45,7 +45,11 @@ ${2#*=}"
 	esac
 }
 procd_running() { [ "${INSTANCES_RUNNING:-0}" = 1 ]; }
-procd_kill() { touch "$RUNTIME/killed"; INSTANCES_RUNNING=0; }
+procd_kill() {
+	touch "$RUNTIME/killed"
+	INSTANCES_RUNNING=0
+	PROCD_STALE=0
+}
 dnsmasq_reload() { [ "${DNS_RELOAD_FAIL:-0}" = 0 ]; }
 
 setup_case() {
@@ -62,13 +66,15 @@ setup_case() {
 	TEST_MOSDNS_ENABLED=1
 	TEST_MOSDNS_DOMAINS='xn--ngstr-lra8j.com'
 	export RUNTIME FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
-		MOCK_SERVER MOCK_NORESOLV TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
+		MOCK_SERVER MOCK_NORESOLV TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS \
+		PROCD_STALE
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
 	printf '0\n' > "$DNS_BACKUP/stale"
 	printf 'proxy\n' > "$RUNTIME/state"
 	INSTANCES_RUNNING=1
+	PROCD_STALE=0
 }
 
 cat > "$TEST_DIR/ctl" <<'EOF'
@@ -162,5 +168,12 @@ set_proxy_dns
 restore_dnsmasq
 [ -z "$MOCK_SERVER" ]
 [ -z "$MOCK_NORESOLV" ]
+
+setup_case stale-procd
+INSTANCES_RUNNING=0
+PROCD_STALE=1
+stop_instances
+[ -e "$RUNTIME/killed" ]
+[ "$PROCD_STALE" = 0 ]
 
 echo "lifecycle tests: ok"
