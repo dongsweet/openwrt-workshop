@@ -223,6 +223,8 @@ def main():
     makefile_source = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "/etc/init.d/v2rayB enable" in makefile_source
     assert "/etc/init.d/v2rayB start" in makefile_source
+    assert "v2rayBctl get-setting service_enabled" not in makefile_source
+    assert "service_enabled=\"$$(/usr/libexec/v2rayB/v2rayBctl status" in makefile_source
     assert "luci-compat" not in makefile_source
     assert not (FILES / "usr/lib/lua/luci/controller/v2rayB.lua").exists()
     assert not (FILES / "usr/lib/lua/luci/view/v2rayB/overview.htm").exists()

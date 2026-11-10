@@ -25,7 +25,7 @@ python3 -m json.tool "$TEST_DIR/runtime/active/v2ray.json" >/dev/null
 grep -q '"protocol":"vless"' "$TEST_DIR/runtime/active/v2ray.json"
 "$ctl" get-v2ray-config | python3 -m json.tool >/dev/null
 "$ctl" status | grep -q '^profile_direct_dns=223.5.5.5:53$'
-"$ctl" status | grep -q '^profile_transparent_proxy_ports=80,443,8080-8443$'
+"$ctl" status | grep -q '^profile_transparent_proxy_ports=80,443,8080,8443$'
 ! "$ctl" status | grep -q '^transparent_proxy_ports='
 grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'exec: "nftset inet,v2rayB,direct4,ipv4_addr,32' "$TEST_DIR/runtime/active/mosdns.yaml"
