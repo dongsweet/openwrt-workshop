@@ -22,6 +22,8 @@ fi
 python3 -m json.tool "$TEST_DIR/runtime/active/v2ray.json" >/dev/null
 grep -q '"protocol":"vless"' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
+grep -q 'exec: "nftset inet,v2rayB,direct4,ipv4_addr,32' "$TEST_DIR/runtime/active/mosdns.yaml"
+! grep -q 'type: nftset' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'set force_proxy4' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set direct_static4' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'elements = { *}' "$TEST_DIR/runtime/active/nftables.nft"

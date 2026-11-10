@@ -391,8 +391,7 @@ reload_service() {
 	start_service
 }
 
-status_service() {
-	"$CTL" status 2>/dev/null | sed -n 's/^state=//p' | sed -n '1p'
+status() {
 	managed_processes_alive && echo running || echo inactive
 }
 
