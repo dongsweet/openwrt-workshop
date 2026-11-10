@@ -507,7 +507,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			field(_('Direct DNS upstream'), profileDns,
 				_('Used only by this profile for the MosDNS direct branch.')),
 			field(_('Transparent TCP ports'), profilePorts,
-				_('Destination ports intercepted while this profile is active.')),
+				_('Comma-separated individual ports or ranges, for example 80,443,8080-8443.')),
 			field(_('Bypass China IP'), bypassChina,
 				_('When disabled, all intercepted traffic is routed through the selected node.'))
 		]),
@@ -782,7 +782,7 @@ return view.extend({
 			E('p', { class: 'v2rayb-help' }, _('dnsmasq remains the public DNS service. These values are defaults for new profiles and for profiles without an explicit policy.')),
 			field(_('Direct DNS upstream'), dnsInput, _('Used by the MosDNS direct branch, for example 223.5.5.5:53.')),
 			E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('direct_dns', dnsInput.value).then(result => notify(result, _('Direct DNS saved.'))) }, _('Save DNS setting')),
-			field(_('Transparent TCP ports'), portsInput, _('Comma-separated ports, for example 80,443,8080,8443.')),
+			field(_('Transparent TCP ports'), portsInput, _('Comma-separated individual ports or ranges, for example 80,443,8080-8443.')),
 			E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('transparent_proxy_ports', portsInput.value).then(result => notify(result, _('Proxy ports saved.'))) }, _('Save port setting'))
 		]) ];
 

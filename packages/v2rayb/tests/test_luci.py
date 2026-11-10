@@ -33,6 +33,7 @@ def main():
     assert "method: 'add_profile'" in view_source
     assert "direct_dns', 'transparent_proxy_ports', 'bypass_china'" in view_source
     assert "Profile policy" in view_source
+    assert "8080-8443" in view_source
     assert "profilePolicyText(row)" in view_source
     assert "Array.isArray(error)" in view_source
     assert "rpc.getStatusText(error[0])" in view_source

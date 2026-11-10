@@ -65,9 +65,23 @@ format_ports() {
 	[ "$#" -gt 0 ] || return 1
 	case "$ports" in *,|,*|*,,*) return 1 ;; esac
 	formatted=""
-	for port in "$@"; do
-		is_uint "$port" || return 1
-		[ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || return 1
+	for item in "$@"; do
+		case "$item" in
+			*-*)
+				start="${item%%-*}"
+				end="${item#*-}"
+				case "$end" in *-*) return 1 ;; esac
+				is_uint "$start" && is_uint "$end" || return 1
+				[ "$start" -ge 1 ] 2>/dev/null && [ "$end" -le 65535 ] 2>/dev/null || return 1
+				[ "$start" -le "$end" ] 2>/dev/null || return 1
+				port="$start-$end"
+				;;
+			*)
+				is_uint "$item" || return 1
+				[ "$item" -ge 1 ] 2>/dev/null && [ "$item" -le 65535 ] 2>/dev/null || return 1
+				port="$item"
+				;;
+		esac
 		if [ -n "$formatted" ]; then
 			formatted="$formatted, $port"
 		else
