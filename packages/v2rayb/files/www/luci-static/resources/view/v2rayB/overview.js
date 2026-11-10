@@ -503,8 +503,15 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	mosdnsRules.value = (existing && existing.mosdns_match_rules) || defaults.mosdns_match_rules || '';
 	const mosdnsDomainsField = field(_('MosDNS domains'), mosdnsDomains,
 		_('One domain suffix per line. Commas are also accepted for compatibility.'));
-	const mosdnsRulesField = field(_('MosDNS match rules'), mosdnsRules,
-		_('One rule per line. Supported prefixes: domain:, full: and regexp:. All entries share the fixed action shown below.'));
+	const mosdnsRulesHelp = E('div', {}, [
+		E('p', {}, _('One rule per line. Supported prefixes: domain:, full: and regexp:.')),
+		E('p', {}, E('strong', {}, _('Fixed evaluation order and actions:'))),
+		E('p', {}, _('1. Force-proxy rules: query V2Ray DNS, return its answer and write force_proxy4/force_proxy6/force_proxy.')),
+		E('p', {}, _('2. Profile MosDNS rules: query the Direct DNS upstream, return its answer and write direct4/direct6.')),
+		E('p', {}, _('3. No rule matched: query V2Ray DNS and do not write the direct sets.')),
+		E('p', {}, _('These actions are fixed so DNS answers and nftables bypass decisions cannot diverge. Rules saved while MosDNS is disabled take effect after re-enabling and restarting the service.'))
+	]);
+	const mosdnsRulesField = field(_('MosDNS match rules'), mosdnsRules, mosdnsRulesHelp);
 	function refreshMosdnsFields() {
 		const enabled = mosdnsEnabled.checked;
 		mosdnsDomains.disabled = !enabled;
@@ -571,14 +578,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			field(_('Enable MosDNS branch'), mosdnsEnabled,
 				_('When disabled, MosDNS is neither started nor added as a dnsmasq domain upstream. Domains and rules remain saved but inactive.')),
 			mosdnsDomainsField,
-			mosdnsRulesField,
-			E('h4', {}, _('Fixed evaluation order and actions')),
-			table([ _('Order'), _('Match group'), _('Fixed action') ], [
-				[ '1', _('Force-proxy rules'), _('Query V2Ray DNS, return its answer and write force_proxy4/force_proxy6/force_proxy.') ],
-				[ '2', _('Profile MosDNS rules'), _('Query the Direct DNS upstream, return its answer and write direct4/direct6.') ],
-				[ '3', _('No rule matched'), _('Query V2Ray DNS and do not write the direct sets.') ]
-			], _('No rule actions available.')),
-			E('p', { class: 'v2rayb-help' }, _('These actions are fixed so DNS answers and nftables bypass decisions cannot diverge. Rules saved while MosDNS is disabled take effect after re-enabling and restarting the service.'))
+			mosdnsRulesField
 		]),
 		E('div', { class: 'cbi-page-actions' }, [
 			E('button', { class: 'cbi-button', type: 'button', click: () => ui.hideModal() }, _('Cancel')),

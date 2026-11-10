@@ -53,6 +53,9 @@ def main():
     assert "write force_proxy4/force_proxy6/force_proxy" in view_source
     assert "write direct4/direct6" in view_source
     assert "do not write the direct sets" in view_source
+    assert "E('h4', {}, _('Fixed evaluation order and actions'))" not in view_source
+    assert "table([ _('Order'), _('Match group'), _('Fixed action') ]" not in view_source
+    assert "mosdnsRulesHelp" in view_source
     assert "mosdns_enabled == '1' && mosdns_domains == ''" in rpc_source
     assert "DNS Resolution Chain" in view_source
     assert "MosDNS Narrow Route" in view_source
