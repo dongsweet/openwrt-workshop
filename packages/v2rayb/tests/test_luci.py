@@ -31,6 +31,14 @@ def main():
     assert "set_service_enabled" not in view_source
     assert "callSetSetting('service_enabled'" in view_source
     assert "pageView.serviceEnabledDirty" in view_source
+    assert "pageView.pendingOperations" in view_source
+    assert "queuePendingOperation(() => callSetNodeEnabled" in view_source
+    assert "queuePendingOperation(() => callSetProfileEnabled" in view_source
+    assert "queuePendingOperation(() => callSelectProfile" in view_source
+    assert "queuePendingOperation(() => callDeleteNode" in view_source
+    assert "queuePendingOperation(() => callDeleteProfile" in view_source
+    assert "Save DNS setting" not in view_source
+    assert "Save port setting" not in view_source
     assert "Enable v2rayB" in view_source
     assert "standard Save, Save & Apply and Reset workflow" in view_source
     assert "function actionButton(" not in view_source
@@ -128,6 +136,9 @@ def main():
     assert "value && value.nodeName === 'TD'" in view_source
     assert "class: 'td cbi-section-table-cell nowrap cbi-section-actions'" in view_source
     assert "nowrap cbi-section-actions" in view_source
+    assert "Editor Save writes the object to the configuration draft." in view_source
+    assert "Checkbox, Use and Delete changes are staged in the page" in view_source
+    assert "Nothing becomes active until Save & Apply." in view_source
     assert "showNodeModal(pageView, onNodeSaved)" in view_source
     assert "callGetNode(row[0])" in view_source
     assert "callSetNodeEnabled(row[0], enabled)" in view_source
@@ -137,8 +148,8 @@ def main():
     assert "class: 'cbi-button cbi-button-add'" in view_source
     assert "refreshNodeTable();" in view_source
     assert "refreshProfileTable();" in view_source
-    assert "notify(result, _('Direct DNS saved.'))" in view_source
-    assert "notify(result, _('Proxy ports saved.'))" in view_source
+    assert "callSetSetting('direct_dns', dnsInput.value)" in view_source
+    assert "callSetSetting('transparent_proxy_ports', portsInput.value)" in view_source
     assert "Profile name" not in view_source[view_source.index('function showNodeModal'):view_source.index('function showProfileModal')]
     for method in methods:
         assert f"\n\t{method}: {{" in rpc_source

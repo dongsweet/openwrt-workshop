@@ -586,19 +586,14 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 }
 
 return view.extend({
-	saveServiceEnabled() {
-		if (!this.serviceEnabledDirty)
-			return Promise.resolve({ success: true });
-		return callSetSetting('service_enabled', this.serviceEnabledDesired ? '1' : '0');
-	},
-
 	handleSave() {
-		return this.saveServiceEnabled().then(result => {
+		const hadChanges = this.hasLocalChanges();
+		return this.persistLocalChanges().then(result => {
 			if (!result || !result.success) {
 				notify(result, '');
 				return;
 			}
-			if (this.serviceEnabledDirty) {
+			if (hadChanges) {
 				window.location.reload();
 				return;
 			}
@@ -609,7 +604,7 @@ return view.extend({
 	},
 
 	handleSaveApply() {
-		return this.saveServiceEnabled().then(result => {
+		return this.persistLocalChanges().then(result => {
 			if (!result || !result.success) {
 				notify(result, '');
 				return;
@@ -688,6 +683,36 @@ return view.extend({
 		});
 		pageView.serviceEnabledDesired = configuredServiceEnabled;
 		pageView.serviceEnabledDirty = false;
+		pageView.pendingOperations = [];
+		const initialDirectDns = directDns;
+		const initialProxyPorts = status.transparent_proxy_ports || '80,443,8080,8443';
+		pageView.hasLocalChanges = function() {
+			return this.serviceEnabledDirty ||
+				this.pendingOperations.length > 0 ||
+				dnsInput.value !== initialDirectDns ||
+				portsInput.value !== initialProxyPorts;
+		};
+		pageView.persistLocalChanges = function() {
+			let chain = Promise.resolve({ success: true });
+			if (this.serviceEnabledDirty)
+				chain = chain.then(() => callSetSetting('service_enabled', this.serviceEnabledDesired ? '1' : '0'));
+			if (dnsInput.value !== initialDirectDns)
+				chain = chain.then(() => callSetSetting('direct_dns', dnsInput.value));
+			if (portsInput.value !== initialProxyPorts)
+				chain = chain.then(() => callSetSetting('transparent_proxy_ports', portsInput.value));
+			for (const operation of this.pendingOperations)
+				chain = chain.then(() => operation());
+			return chain.then(result => {
+				if (result && result.success) {
+					this.serviceEnabledDirty = false;
+					this.pendingOperations = [];
+				}
+				return result;
+			});
+		};
+		function queuePendingOperation(operation) {
+			pageView.pendingOperations.push(operation);
+		}
 		serviceEnabled.addEventListener('change', () => {
 			pageView.serviceEnabledDesired = serviceEnabled.checked;
 			pageView.serviceEnabledDirty = serviceEnabled.checked !== configuredServiceEnabled;
@@ -725,10 +750,7 @@ return view.extend({
 
 		function enabledToggle(enabled, change) {
 			const input = E('input', { type: 'checkbox', class: 'cbi-input-checkbox', checked: isEnabled(enabled) });
-			input.addEventListener('change', () => {
-				input.disabled = true;
-				change(input.checked ? '1' : '0').finally(() => { input.disabled = false; });
-			});
+			input.addEventListener('change', () => change(input.checked ? '1' : '0'));
 			return input;
 		}
 		function editButton(handler) {
@@ -747,29 +769,25 @@ return view.extend({
 				return [
 				row[0], row[1], primaryName || E('span', { class: 'v2rayb-muted' }, _('No node')),
 				profilePolicySummary(row),
-				enabledToggle(row[4], async enabled => {
-					const result = await callSetProfileEnabled(row[0], enabled).catch(error => { showRequestError(error); return null; });
-					if (result && result.success) {
-						row[4] = enabled;
+				enabledToggle(row[4], enabled => {
+					if (enabled === '0' && row[0] === activeProfile) {
+						ui.addNotification(null, E('p', {}, _('Select another active profile before disabling this one.')), 'warning');
 						refreshProfileTable();
-						refreshProfileCard();
-					} else {
-						refreshProfileTable();
-						if (result) notify(result, '');
+						return;
 					}
+					row[4] = enabled;
+					queuePendingOperation(() => callSetProfileEnabled(row[0], enabled));
+					refreshProfileTable();
+					refreshProfileCard();
 				}),
 				row[0] === activeProfile ? E('strong', {}, _('Active')) : '',
 				actionCell([
 					row[0] !== activeProfile && isEnabled(row[4])
 						? E('button', { class: 'btn cbi-button cbi-button-apply', type: 'button', click: () => {
-							return callSelectProfile(row[0]).then(result => {
-								if (result && result.success) {
-									activeProfile = row[0];
-									refreshProfileTable();
-									refreshProfileCard();
-								}
-								notify(result, _('Profile selected.'));
-							}).catch(showRequestError);
+							activeProfile = row[0];
+							queuePendingOperation(() => callSelectProfile(row[0]));
+							refreshProfileTable();
+							refreshProfileCard();
 						} }, _('Use')) : '',
 					editButton(async () => {
 						const details = await callGetProfile(row[0]).catch(error => { showRequestError(error); return null; });
@@ -793,15 +811,17 @@ return view.extend({
 						}, details.profile);
 					}),
 					removeButton(async () => {
+						if (row[0] === activeProfile) {
+							ui.addNotification(null, E('p', {}, _('Select another active profile before deleting this one.')), 'warning');
+							return;
+						}
 						if (!await confirmDelete(_('Delete profile "%s"?').format(row[1])))
 							return;
-						const result = await callDeleteProfile(row[0]).catch(error => { showRequestError(error); return null; });
-						if (result && result.success) {
-							const index = profiles.findIndex(item => item[0] === row[0]);
-							if (index >= 0) profiles.splice(index, 1);
-							refreshProfileTable();
-							refreshProfileCard();
-						} else if (result) notify(result, '');
+						const index = profiles.findIndex(item => item[0] === row[0]);
+						if (index >= 0) profiles.splice(index, 1);
+						queuePendingOperation(() => callDeleteProfile(row[0]));
+						refreshProfileTable();
+						refreshProfileCard();
 					})
 				].filter(Boolean))
 			];
@@ -810,17 +830,17 @@ return view.extend({
 		function nodeTableRows() {
 			return nodes.map(row => [
 				row[0], row[1], row[2].toUpperCase(), row[3], row[4],
-				enabledToggle(row[5], async enabled => {
-					const result = await callSetNodeEnabled(row[0], enabled).catch(error => { showRequestError(error); return null; });
-					if (result && result.success) {
-						row[5] = enabled;
+				enabledToggle(row[5], enabled => {
+					if (enabled === '0' && profiles.some(profile => profile[5] === row[0])) {
+						ui.addNotification(null, E('p', {}, _('Node is referenced by a profile; delete or move that profile before disabling the node.')), 'warning');
 						refreshNodeTable();
-						refreshNodeCard();
-						refreshProfileAddButton();
-					} else {
-						refreshNodeTable();
-						if (result) notify(result, '');
+						return;
 					}
+					row[5] = enabled;
+					queuePendingOperation(() => callSetNodeEnabled(row[0], enabled));
+					refreshNodeTable();
+					refreshNodeCard();
+					refreshProfileAddButton();
 				}),
 				actionCell([
 					editButton(async () => {
@@ -832,17 +852,19 @@ return view.extend({
 						showNodeModal(pageView, onNodeSaved, details.node);
 					}),
 					removeButton(async () => {
+						if (profiles.some(profile => profile[5] === row[0])) {
+							ui.addNotification(null, E('p', {}, _('Node is referenced by a profile; delete or move that profile first.')), 'warning');
+							return;
+						}
 						if (!await confirmDelete(_('Delete node "%s"?').format(row[1])))
 							return;
-						const result = await callDeleteNode(row[0]).catch(error => { showRequestError(error); return null; });
-						if (result && result.success) {
-							const index = nodes.findIndex(item => item[0] === row[0]);
-							if (index >= 0) nodes.splice(index, 1);
-							refreshNodeTable();
-							refreshNodeCard();
-							refreshProfileTable();
-							refreshProfileAddButton();
-						} else if (result) notify(result, '');
+						const index = nodes.findIndex(item => item[0] === row[0]);
+						if (index >= 0) nodes.splice(index, 1);
+						queuePendingOperation(() => callDeleteNode(row[0]));
+						refreshNodeTable();
+						refreshNodeCard();
+						refreshProfileTable();
+						refreshProfileAddButton();
 					})
 				])
 			]);
@@ -918,7 +940,7 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
 				E('p', { class: 'v2rayb-help' }, _('Nodes are stored in the v2rayB database. Use the structured editor to describe the endpoint; v2rayB generates the protocol-specific outbound configuration internally.')),
-				E('p', { class: 'v2rayb-help' }, _('Changes here update saved configuration only. Use Save & Apply to make pending changes active.')),
+				E('p', { class: 'v2rayb-help' }, _('Editor Save writes the object to the configuration draft. Checkbox, Use and Delete changes are staged in the page until the standard Save action. Nothing becomes active until Save & Apply.')),
 				nodeTable,
 				E('div', { class: 'v2rayb-create' }, [
 					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showNodeModal(pageView, onNodeSaved) }, _('Add'))
@@ -977,10 +999,8 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Default DNS and Transparent Proxy')),
 				E('p', { class: 'v2rayb-help' }, _('These values seed new profiles and are fallbacks for profiles without an explicit policy. The active profile value is shown above.')),
-				field(_('Direct DNS upstream'), dnsInput, _('Used by the MosDNS direct branch, for example 223.5.5.5:53.')),
-				E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('direct_dns', dnsInput.value).then(result => notify(result, _('Direct DNS saved.'))) }, _('Save DNS setting')),
-				field(_('Transparent TCP ports'), portsInput, _('Comma-separated individual ports or ranges, for example 80,443,8080-8443.')),
-				E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => callSetSetting('transparent_proxy_ports', portsInput.value).then(result => notify(result, _('Proxy ports saved.'))) }, _('Save port setting'))
+				field(_('Direct DNS upstream'), dnsInput, _('Used by the MosDNS direct branch, for example 223.5.5.5:53. This value is saved with the standard Save action.')),
+				field(_('Transparent TCP ports'), portsInput, _('Comma-separated individual ports or ranges, for example 80,443,8080-8443. This value is saved with the standard Save action.'))
 			])
 		];
 
