@@ -61,6 +61,11 @@ case "$3" in
 esac
 EOF
 chmod +x "$BIN/dig" "$BIN/curl" "$BIN/ip" "$BIN/uci"
+printf '%s\n' \
+	'# A less-specific rule must lose to the longest matching suffix.' \
+	'server=/com/1.1.1.1#53' \
+	'  server=/www.example.com/9.9.9.9#53 # the specific branch' \
+	'server=/not-example.com/192.0.2.1#53' >"$TEST_DIR/dnsmasq.d/pass.conf"
 
 ctl="$ROOT/files/usr/libexec/v2rayB/v2rayBctl"
 "$ctl" init-db
@@ -68,7 +73,7 @@ output="$("$ctl" network-probe 'https://www.example.com/path?q=1')"
 printf '%s\n' "$output" | grep -q '^dns_result=success$'
 printf '%s\n' "$output" | grep -q '^dns_a=198.51.100.10,198.51.100.11$'
 printf '%s\n' "$output" | grep -q '^dns_aaaa=2001:db8::10$'
-printf '%s\n' "$output" | grep -q '^dns_matched_rule=example.com -> 223.5.5.5#53$'
+printf '%s\n' "$output" | grep -q '^dns_matched_rule=www.example.com -> 9.9.9.9#53$'
 printf '%s\n' "$output" | grep -q '^https_result=success$'
 printf '%s\n' "$output" | grep -q '^https_remote=198.51.100.10:443$'
 printf '%s\n' "$output" | grep -q '^route_device=eth0$'

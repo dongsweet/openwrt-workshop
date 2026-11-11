@@ -1146,28 +1146,59 @@ EOF
 		dns_branch='not applicable'
 	fi
 	if [ "$dns_result" != not_applicable ]; then
-		dns_rule_file="$probe_dir/dnsmasq-rules"
-		uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null |
-			sed -n 's@^/\([^/]*\)/\([^/]*\)$@\1\t\2@p' >"$dns_rule_file" || :
-		if [ -d "$DNSMASQ_CONFIG_DIR" ]; then
-			for dns_file in "$DNSMASQ_CONFIG_DIR"/*; do
-				[ -f "$dns_file" ] || continue
-				sed -n 's@^[[:space:]]*server=/\([^/[:space:]]*\)/\([^[:space:]]*\).*@\1\t\2@p' "$dns_file" >>"$dns_rule_file"
-			done
-		fi
-		while IFS="$(printf '\t')" read -r rule_domain rule_upstream; do
-			[ -n "$rule_domain" ] && [ -n "$rule_upstream" ] || continue
-			case "$probe_host" in
-				"$rule_domain"|*."$rule_domain")
-					rule_len="${#rule_domain}"
-					if [ "$rule_len" -gt "$matched_rule_len" ]; then
-						matched_rule="$rule_domain -> $rule_upstream"
-						matched_rule_len="$rule_len"
-					fi
-					;;
-			esac
-		done <"$dns_rule_file"
-		if [ -n "$matched_rule" ]; then
+		matched_rule_row="$(
+			{
+				uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null || :
+				if [ -d "$DNSMASQ_CONFIG_DIR" ]; then
+					for dns_file in "$DNSMASQ_CONFIG_DIR"/*; do
+						[ -f "$dns_file" ] && cat "$dns_file"
+					done
+				fi
+			} | awk -v host="$probe_host" '
+				function consider(domain, upstream, suffix_start) {
+					if (domain == "" || upstream == "")
+						return
+					suffix_start = length(host) - length(domain) + 1
+					if (host == domain ||
+					    (suffix_start > 1 && substr(host, suffix_start - 1, 1) == "." &&
+					     substr(host, suffix_start) == domain)) {
+						if (length(domain) > best_length) {
+							best_domain = domain
+							best_upstream = upstream
+							best_length = length(domain)
+						}
+					}
+				}
+				{
+					line = $0
+					sub(/^[ \t]+/, "", line)
+					if (line !~ /^server=/)
+						next
+					sub(/^server=/, "", line)
+					split(line, args, /[ \t]+/)
+					rule = args[1]
+					if (substr(rule, 1, 1) != "/")
+						next
+					sub(/^\//, "", rule)
+					slash = index(rule, "/")
+					if (!slash)
+						next
+					consider(substr(rule, 1, slash - 1), substr(rule, slash + 1))
+				}
+				END {
+					if (best_domain != "")
+						printf "%s\t%s\n", best_domain, best_upstream
+				}
+			'
+		)"
+		if [ -n "$matched_rule_row" ]; then
+			old_ifs="$IFS"
+			IFS="$(printf '\t')"
+			read -r matched_domain matched_upstream <<EOF
+$matched_rule_row
+EOF
+			IFS="$old_ifs"
+			matched_rule="$matched_domain -> $matched_upstream"
 			dns_branch="dnsmasq domain rule: $matched_rule"
 			dns_path="router -> dnsmasq 127.0.0.1#53 -> $matched_rule"
 		fi
