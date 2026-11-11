@@ -114,7 +114,8 @@ const methods = {
 		call: function(request) {
 			let url = string_arg(request, 'url');
 			if (length(url) == 0 || length(url) > 2048 ||
-			    !match(url, /^https?:\/\/[A-Za-z0-9._:[\]-]+(\/.*)?$/))
+			    (substr(url, 0, 7) != 'http://' &&
+			     substr(url, 0, 8) != 'https://'))
 				return { success: false, error: 'Enter a valid http:// or https:// URL' };
 			return probe_result(ctl([ 'network-probe', url ]));
 		}

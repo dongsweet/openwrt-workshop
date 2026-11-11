@@ -132,6 +132,9 @@ def main():
     assert "method: 'get_v2ray_config'" in view_source
     assert "method: 'network_probe'" in view_source
     assert "network_probe" in rpc_source
+    assert "substr(url, 0, 7) != 'http://'" in rpc_source
+    assert "substr(url, 0, 8) != 'https://'" in rpc_source
+    assert "A-Za-z0-9._:[\\]-" not in rpc_source
     assert "network-probe" in ctl_source
     assert "Test a URL from this router" in view_source
     assert "transparent redirect applies to LAN PREROUTING" in ctl_source
