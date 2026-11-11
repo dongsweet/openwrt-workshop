@@ -35,8 +35,8 @@ The package Makefile builds:
 - `luci-app-v2rayb`: JavaScript LuCI console backed by rpcd/ucode. It does not
   require `luci-compat` or the Lua runtime.
 
-The core package declares dependencies on `sqlite3-cli`, `v2ray-core`,
-`v2ray-geoip`, `mosdns`, `nftables-json`, and `bind-dig`.
+The core package declares dependencies on sqlite3-cli, v2ray-core,
+v2ray-geoip, mosdns, nftables-json, bind-dig, and curl.
 
 ## Router State
 
@@ -99,6 +99,16 @@ dig @127.0.0.1 www.google.com
 dig @127.0.0.1 -p 5354 www.google.com
 nft list table inet v2rayB
 ```
+
+The LuCI Diagnostics tab also provides a router-originated URL probe. It
+queries the local dnsmasq listener, reports the matching dnsmasq/MosDNS rule,
+then performs a real HTTP(S) request pinned to the returned DNS addresses.
+The result includes TLS/HTTP status, local and remote sockets, kernel route,
+egress interface/gateway, and timings. The DNS upstream path is inferred from
+configuration; the HTTPS socket and egress route are observed from the actual
+request. Because the current transparent redirect table is for LAN traffic in
+PREROUTING, this probe does not prove that a LAN client will take the same
+proxy path.
 
 Stop and restore normal DNS:
 

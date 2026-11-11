@@ -28,6 +28,7 @@ acquire_lock() {
 	mkdir -p "$RUNTIME"
 	if mkdir "$LOCK_DIR" 2>/dev/null; then
 		printf '%s\n' "$$" > "$LOCK_DIR/pid"
+	export V2RAYB_LOCK_HELD=1
 		return 0
 	fi
 	old_pid="$(sed -n '1p' "$LOCK_DIR/pid" 2>/dev/null || true)"
@@ -37,10 +38,12 @@ acquire_lock() {
 	rm -rf "$LOCK_DIR"
 	mkdir "$LOCK_DIR" 2>/dev/null || return 1
 	printf '%s\n' "$$" > "$LOCK_DIR/pid"
+	export V2RAYB_LOCK_HELD=1
 }
 
 release_lock() {
 	rm -rf "$LOCK_DIR"
+	unexport V2RAYB_LOCK_HELD 2>/dev/null || :
 }
 
 dnsmasq_reload() {

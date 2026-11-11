@@ -130,6 +130,12 @@ def main():
     assert "mosdnsRulesHelp" in view_source
     assert "mosdns_enabled == '1' && mosdns_domains == ''" in rpc_source
     assert "method: 'get_v2ray_config'" in view_source
+    assert "method: 'network_probe'" in view_source
+    assert "network_probe" in rpc_source
+    assert "network-probe" in ctl_source
+    assert "Test a URL from this router" in view_source
+    assert "transparent redirect applies to LAN PREROUTING" in ctl_source
+    assert "rollbackAppliedChange" in rpc_source
     assert "Applied V2Ray configuration" in view_source
     assert "Contains credentials. Do not share." in view_source
     assert "get_v2ray_config" in rpc_source

@@ -10,6 +10,7 @@ builds both the core and LuCI packages.
 - DNS switching with rollback, an owned nftables table, and a DNS watchdog.
 - Watchdog cooldown timestamp persisted under `/tmp` across watchdog restarts.
 - JavaScript LuCI page backed by a narrow rpcd/ucode API and explicit read/write ACLs.
+- Router-originated DNS/HTTP(S) diagnostics with observed socket and kernel route data.
 - Structured node editor for VLESS, VMess, Trojan, Shadowsocks, TLS/Reality,
   TCP/WS/H2/gRPC and mux settings; outbound JSON is generated internally.
 - No Lua controller, Lua template, or `luci-compat` dependency.
@@ -49,6 +50,7 @@ python3 tests/test_schema.py
 python3 tests/test_import.py
 python3 tests/test_rules.py
 python3 tests/test_luci.py
+sh tests/test_network_probe.sh
 sh tests/test_render.sh
 sh tests/test_lifecycle.sh
 sh tests/test_migration.sh

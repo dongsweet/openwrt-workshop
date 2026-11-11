@@ -74,7 +74,7 @@ grep -q 'applied.example.com' "$TEST_DIR/state/active/v2ray.json"
 # The global service switch is a draft value, not an immediate action.
 applied_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='applied_config_version';")"
 "$ctl" set-setting service_enabled 0
-"$ctl" status | grep -q '^service_enabled=1$'
+"$ctl" status | grep -q '^service_enabled=0$'
 [ "$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_service_enabled';")" = 0 ]
 service_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='draft_config_version';")"
 [ "$service_version" -eq $((applied_version + 1)) ]
@@ -84,6 +84,17 @@ service_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key=
 "$ctl" revert-draft
 "$ctl" set-setting service_enabled 1
 "$ctl" apply-draft
+
+# A failed runtime apply can restore the committed database while retaining
+# the draft for correction or explicit discard.
+"$ctl" update-node 1 rollback-draft vless rollback.example.com 9443 \
+	'{"settings":{"vnext":[{"address":"rollback.example.com","port":9443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
+"$ctl" apply-draft
+"$ctl" rollback-apply
+"$ctl" get-applied-profile | grep -q '^1	original-profile	'
+"$ctl" status | grep -q '^draft_pending=1$'
+[ -s "$V2RAYB_STATE_DIR/db-before-apply" ]
+"$ctl" clear-apply-backup
 
 # A draft without an enabled active node is rejected.
 "$ctl" set-setting active_profile ''

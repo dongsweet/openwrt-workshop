@@ -90,10 +90,10 @@ def main():
         ).fetchone()[0] == "12346"
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'service_enabled'"
-        ).fetchone()[0] == "1"
+        ).fetchone()[0] == "0"
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'draft_service_enabled'"
-        ).fetchone()[0] == "1"
+        ).fetchone()[0] == "0"
         assert conn.execute(
             """
             SELECT COUNT(*) FROM settings

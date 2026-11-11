@@ -12,6 +12,9 @@ const callDnsState = rpc.declare({
 const callGetV2rayConfig = rpc.declare({
 	object: 'luci.v2rayb', method: 'get_v2ray_config', expect: { '': {} }
 });
+const callNetworkProbe = rpc.declare({
+	object: 'luci.v2rayb', method: 'network_probe', params: [ 'url' ], expect: { '': {} }, reject: true
+});
 const callNodes = rpc.declare({
 	object: 'luci.v2rayb', method: 'list_nodes', expect: { '': {} }
 });
@@ -1125,15 +1128,96 @@ return view.extend({
 			])
 		];
 
+		const probeUrlInput = E('input', {
+			class: 'cbi-input-text',
+			type: 'url',
+			value: 'https://www.google.com/',
+			maxlength: '2048',
+			placeholder: 'https://example.com/'
+		});
+		const probeResults = E('div', { class: 'v2rayb-probe-results' }, [
+			E('p', { class: 'cbi-value-description' }, _('No request has been tested yet.'))
+		]);
+		const probeButton = E('button', {
+			class: 'cbi-button cbi-button-action',
+			type: 'button',
+			click: async () => {
+				const url = probeUrlInput.value.trim();
+				if (!url) {
+					ui.addNotification(null, E('p', {}, _('Enter an http:// or https:// URL first.')), 'warning');
+					return;
+				}
+				probeButton.disabled = true;
+				probeButton.textContent = _('Testing...');
+				probeResults.replaceChildren(E('p', { class: 'cbi-value-description' }, _('Running DNS and HTTPS checks from the router...')));
+				try {
+					const result = await callNetworkProbe(url);
+					if (!result || !result.success) {
+						probeResults.replaceChildren(E('pre', { class: 'v2rayb-code' }, result && result.error || _('The URL probe failed.')));
+						return;
+					}
+					const probe = parseKeyValues(outputOf(result));
+					const dnsQueryMs = probe.dns_query_ms || '-';
+					const rows = [
+						[ _('Requested URL'), probe.probe_url || url ],
+						[ _('Proxy mode'), probe.runtime_state || '-' ],
+						[ _('DNS entry'), probe.dns_entry || '-' ],
+						[ _('DNS route'), probe.dns_path || '-' ],
+						[ _('DNS branch'), probe.dns_branch || '-' ],
+						[ _('Matched dnsmasq rule'), probe.dns_matched_rule || '-' ],
+						[ _('Configured default upstreams'), probe.dnsmasq_servers || '-' ],
+						[ _('DNS result'), (probe.dns_result || '-') + ' (' + (probe.dns_status || '-') + ')' ],
+						[ _('A answers'), probe.dns_a || '-' ],
+						[ _('AAAA answers'), probe.dns_aaaa || '-' ],
+						[ _('CNAME'), probe.dns_cname || '-' ],
+						[ _('DNS query time'), dnsQueryMs !== '-' ? dnsQueryMs + ' ms' : '-' ],
+						[ _('HTTP(S) result'), (probe.https_result || '-') + ' (HTTP ' + (probe.https_http_code || '-') + ')' ],
+						[ _('TLS verification'), probe.probe_scheme !== 'https' ? _('not applicable') : (probe.https_tls_verify === '0' ? _('valid') : (probe.https_tls_verify || '-')) ],
+						[ _('Connected remote'), probe.https_remote || '-' ],
+						[ _('Local socket'), probe.https_local || '-' ],
+						[ _('Kernel route'), probe.route_kernel || '-' ],
+						[ _('Egress device / gateway'), (probe.route_device || '-') + ' / ' + (probe.route_gateway || '-') ],
+						[ _('Route source address'), probe.route_source || '-' ],
+						[ _('DNS / TCP / TLS / first byte / total'), [
+							dnsQueryMs !== '-' ? dnsQueryMs + ' ms' : '-',
+							probe.https_time_connect ? probe.https_time_connect + ' s' : '-',
+							probe.https_time_tls ? probe.https_time_tls + ' s' : '-',
+							probe.https_time_first_byte ? probe.https_time_first_byte + ' s' : '-',
+							probe.https_time_total ? probe.https_time_total + ' s' : '-'
+						].join(' / ') ],
+						[ _('DNS upstream note'), probe.dns_upstream_observation || '-' ],
+						[ _('Path note'), probe.https_path || '-' ]
+					];
+					if (probe.https_error && probe.https_error !== '-')
+						rows.push([ _('HTTPS error'), probe.https_error ]);
+					probeResults.replaceChildren(table([ _('Probe detail'), _('Result') ], rows, _('No probe result.')));
+				}
+				catch (error) {
+					probeResults.replaceChildren(E('pre', { class: 'v2rayb-code' }, errorMessage(error)));
+				}
+				finally {
+					probeButton.disabled = false;
+					probeButton.textContent = _('Test URL');
+				}
+			}
+		}, _('Test URL'));
 		const diagnosticsPane = [
 			E('div', { class: 'cbi-section' }, [
-				E('h3', {}, _('Runtime Diagnostics')),
-				E('pre', { class: 'v2rayb-code' }, outputOf(data[0]) || _('No diagnostic output available.'))
+				E('h3', {}, _('Test a URL from this router')),
+				E('p', { class: 'cbi-value-description' }, _('The router will query DNS through local dnsmasq and make a real HTTP(S) request pinned to the returned address. Results include DNS rule routing, TLS/HTTP status, socket endpoints, kernel route, and timings. The DNS upstream shown is inferred from configuration; the HTTPS socket and egress route are observed from the actual request.')),
+				field(_('Target URL'), probeUrlInput, _('Use a full http:// or https:// URL. The request originates on the router itself.')),
+				E('p', { class: 'cbi-value-description' }, _('Important: v2rayB transparent redirect rules currently apply to LAN traffic in PREROUTING. A request generated by the router follows its own OUTPUT route and may not use the LAN client proxy path.')),
+				E('div', { class: 'v2rayb-toolbar' }, [ probeButton ]),
+				probeResults
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Applied V2Ray configuration')),
 				E('p', { class: 'cbi-value-description' }, _('Contains credentials. Do not share.')),
-				E('pre', { class: 'v2rayb-code' }, outputOf(data[5]) || _('No V2Ray configuration available.'))
+				E('pre', { class: 'v2rayb-code' }, outputOf(data[4]) || _('No V2Ray configuration available.'))
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('Runtime status')),
+				E('pre', { class: 'v2rayb-code' }, outputOf(data[0]) || _('No runtime status available.'))
 			])
 		];
 

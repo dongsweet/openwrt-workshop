@@ -16,6 +16,9 @@ V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 MOSDNS_BIN="${V2RAYB_MOSDNS_BIN:-/usr/bin/mosdns}"
 DNSMASQ_CONFIG_DIR="${V2RAYB_DNSMASQ_DIR:-/etc/dnsmasq.d}"
 MOSDNS_ROUTE_SUFFIX="xn--ngstr-lra8j.com"
+APPLY_BACKUP="$STATE_DIR/db-before-apply"
+CTL_LOCK_DIR="${V2RAYB_LOCK_DIR:-$STATE_DIR/lock}"
+CTL_LOCK_ACQUIRED=0
 
 die() {
 	echo "v2rayBctl: $*" >&2
@@ -156,6 +159,27 @@ db_sql() {
 	"$SQLITE3" -batch -bail "$DB" "PRAGMA foreign_keys=ON; $1"
 }
 
+acquire_ctl_lock() {
+	[ "${V2RAYB_LOCK_HELD:-0}" = 1 ] && return 0
+	mkdir -p "$(dirname "$CTL_LOCK_DIR")" || die "cannot create lock directory"
+	if mkdir "$CTL_LOCK_DIR" 2>/dev/null; then
+		printf "%s\n" "$$" > "$CTL_LOCK_DIR/pid"
+		CTL_LOCK_ACQUIRED=1
+		trap 'rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
+		return 0
+	fi
+	old_pid="$(sed -n "1p" "$CTL_LOCK_DIR/pid" 2>/dev/null || true)"
+	case "$old_pid" in
+		''|*[!0-9]*) ;;
+		*) kill -0 "$old_pid" 2>/dev/null && die "v2rayB is busy (pid $old_pid)" ;;
+	esac
+	rm -rf "$CTL_LOCK_DIR"
+	mkdir "$CTL_LOCK_DIR" 2>/dev/null || die "v2rayB is busy"
+	printf "%s\n" "$$" > "$CTL_LOCK_DIR/pid"
+	CTL_LOCK_ACQUIRED=1
+	trap 'rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
+}
+
 setting() {
 	db_sql "SELECT value FROM settings WHERE key=$(sql_quote "$1");" | sed -n '1p'
 }
@@ -218,6 +242,7 @@ discard_drafts() {
 		DELETE FROM draft_profiles;
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
+		DELETE FROM sources WHERE type='manual' AND name='manual' AND NOT EXISTS (SELECT 1 FROM nodes WHERE source_id=sources.id);
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='active_profile'),''),updated_at=CURRENT_TIMESTAMP WHERE key='draft_active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='service_enabled'),'0'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_service_enabled';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='applied_config_version'),'1'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_config_version';
@@ -242,7 +267,7 @@ ensure_db() {
 	fi
 	version="$(db_sql 'PRAGMA user_version;' | tr -d '[:space:]')"
 	if [ "$version" = 1 ]; then
-		db_sql "ALTER TABLE policies ADD COLUMN direct_dns TEXT; ALTER TABLE policies ADD COLUMN transparent_proxy_ports TEXT; ALTER TABLE policies ADD COLUMN bypass_china INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)); INSERT OR IGNORE INTO schema_migrations(version) VALUES (2); PRAGMA user_version=2;"
+		db_sql "ALTER TABLE policies ADD COLUMN direct_dns TEXT; ALTER TABLE policies ADD COLUMN transparent_proxy_ports TEXT; ALTER TABLE policies ADD COLUMN bypass_china INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)); CREATE TABLE IF NOT EXISTS sources (id INTEGER PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('manual','subscription','imported')), name TEXT NOT NULL, url TEXT, format TEXT, enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)), etag TEXT, last_error TEXT, last_updated TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(type,name)); CREATE INDEX IF NOT EXISTS idx_sources_enabled ON sources(enabled); INSERT OR IGNORE INTO schema_migrations(version) VALUES (2); PRAGMA user_version=2;"
 		version=2
 	fi
 	if [ "$version" = 2 ]; then
@@ -254,7 +279,7 @@ ensure_db() {
 		version=4
 	fi
 	[ "$version" = 4 ] || die "unsupported database schema version: $version"
-	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '1'), ('draft_service_enabled', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
+	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
 	if [ "$(setting draft_pending)" != 1 ]; then
 		discard_drafts
 	fi
@@ -568,6 +593,10 @@ cmd_apply_draft() {
 	is_uint "$active_id" || die "draft has no active profile"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles p JOIN draft_profile_nodes pn ON pn.profile_id=p.id JOIN draft_nodes n ON n.id=pn.node_id WHERE p.id=$active_id AND p.enabled=1 AND n.enabled=1;" | tr -d '[:space:]')"
 	[ "$count" -gt 0 ] || die "draft active profile has no enabled node"
+	tmp_backup="$APPLY_BACKUP.tmp.$$"
+	cp "$DB" "$tmp_backup" || die "could not save the applied database"
+	chmod 600 "$tmp_backup" 2>/dev/null || :
+	mv "$tmp_backup" "$APPLY_BACKUP" || die "could not finalize the applied database backup"
 	db_sql "BEGIN;
 		DELETE FROM profile_nodes;
 		DELETE FROM profiles;
@@ -585,7 +614,21 @@ cmd_apply_draft() {
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
 		INSERT INTO settings(key,value,updated_at) VALUES('draft_pending','0',CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value='0',updated_at=CURRENT_TIMESTAMP;
+		DELETE FROM sources WHERE type='manual' AND name='manual' AND NOT EXISTS (SELECT 1 FROM nodes WHERE source_id=sources.id) AND NOT EXISTS (SELECT 1 FROM draft_nodes WHERE source_id=sources.id);
 		COMMIT;"
+}
+
+cmd_rollback_apply() {
+	ensure_db
+	[ -s "$APPLY_BACKUP" ] || die "no pending apply backup"
+	tmp_db="$DB.tmp.$$"
+	cp "$APPLY_BACKUP" "$tmp_db" || die "could not restore the applied database"
+	chmod 600 "$tmp_db" 2>/dev/null || :
+	mv "$tmp_db" "$DB" || die "could not finalize the restored database"
+}
+
+cmd_clear_apply_backup() {
+	rm -f "$APPLY_BACKUP"
 }
 
 cmd_revert_draft() {
@@ -972,6 +1015,302 @@ cmd_test_dnsmasq() {
 	dig +short +time=3 +tries=1 @127.0.0.1 www.google.com A | grep -Eq '^[0-9]+(\.[0-9]+){3}$'
 }
 
+cmd_network_probe() {
+	ensure_db
+	probe_url="$1"
+	[ ${#probe_url} -le 2048 ] || die "URL is too long"
+	case "$probe_url" in
+		http://*|https://*) ;;
+		*) die "URL must start with http:// or https://" ;;
+	esac
+	probe_scheme="${probe_url%%://*}"
+	probe_rest="${probe_url#*://}"
+	probe_authority="${probe_rest%%/*}"
+	[ -n "$probe_authority" ] || die "URL host is missing"
+	case "$probe_authority" in
+		*@*|*'?'*|*'#'*) die "URL userinfo, query-only, or fragment-only authority is not supported" ;;
+	esac
+
+	case "$probe_authority" in
+		\[*\]:*)
+			probe_host="${probe_authority#\[}"
+			probe_host="${probe_host%%\]*}"
+			probe_port="${probe_authority#*\]}"
+			probe_port="${probe_port#:}"
+			;;
+		\[*\])
+			probe_host="${probe_authority#\[}"
+			probe_host="${probe_host%\]}"
+			probe_port=""
+			;;
+		*:*:*)
+			die "IPv6 URL hosts must be enclosed in brackets"
+			;;
+		*:*)
+			probe_host="${probe_authority%:*}"
+			probe_port="${probe_authority##*:}"
+			;;
+		*)
+			probe_host="$probe_authority"
+			probe_port=""
+			;;
+	esac
+	[ -n "$probe_host" ] || die "URL host is missing"
+	case "$probe_host" in
+		*[!A-Za-z0-9._:-]*) die "URL host contains unsupported characters" ;;
+	esac
+	if [ -z "$probe_port" ]; then
+		[ "$probe_scheme" = https ] && probe_port=443 || probe_port=80
+	fi
+	is_uint "$probe_port" || die "URL port is invalid"
+	[ "$probe_port" -ge 1 ] 2>/dev/null && [ "$probe_port" -le 65535 ] 2>/dev/null || die "URL port is out of range"
+
+	probe_dir="$STATE_DIR/probe.$$"
+	mkdir -p "$probe_dir" || die "cannot create probe workspace"
+	trap 'rm -rf "$probe_dir"' EXIT HUP INT TERM
+
+	command -v dig >/dev/null 2>&1 || die "dig is required"
+	command -v curl >/dev/null 2>&1 || die "curl is required"
+	dns_a_file="$probe_dir/dns-a"
+	dns_aaaa_file="$probe_dir/dns-aaaa"
+	case "$probe_host" in
+		*:* )
+			dns_a=''
+			dns_aaaa="$probe_host"
+			dns_cname=''
+			dns_status='LITERAL_IP'
+			dns_query_ms='-'
+			dns_result='not_applicable'
+			;;
+		*[!0-9.]*)
+			dig +noall +comments +answer +stats +time=3 +tries=1 @127.0.0.1 -p 53 "$probe_host" A >"$dns_a_file" 2>"$probe_dir/dns-a.err" || true
+			dig +noall +comments +answer +stats +time=3 +tries=1 @127.0.0.1 -p 53 "$probe_host" AAAA >"$dns_aaaa_file" 2>"$probe_dir/dns-aaaa.err" || true
+	dns_a="$(awk '$4 == "A" { if (out != "") out=out ","; out=out $5 } END { print out }' "$dns_a_file")"
+	dns_aaaa="$(awk '$4 == "AAAA" { if (out != "") out=out ","; out=out $5 } END { print out }' "$dns_aaaa_file")"
+	dns_cname="$(awk '$4 == "CNAME" { if (out != "") out=out ","; out=out $5 } END { print out }' "$dns_a_file" "$dns_aaaa_file")"
+	dns_status="$(sed -n 's/^;; ->>HEADER<<-.*status: \([^,]*\).*/\1/p' "$dns_a_file" | sed -n '1p')"
+	dns_aaaa_status="$(sed -n 's/^;; ->>HEADER<<-.*status: \([^,]*\).*/\1/p' "$dns_aaaa_file" | sed -n '1p')"
+	[ -n "$dns_status" ] || dns_status='UNKNOWN'
+	[ -n "$dns_aaaa_status" ] || dns_aaaa_status='UNKNOWN'
+	dns_query_ms="$(sed -n 's/^;; Query time: \([0-9][0-9]*\) msec.*/\1/p' "$dns_a_file" | sed -n '1p')"
+	[ -n "$dns_query_ms" ] || dns_query_ms='-'
+	if { [ "$dns_status" = NOERROR ] && { [ -n "$dns_a" ] || [ -n "$dns_cname" ]; }; } ||
+		{ [ "$dns_aaaa_status" = NOERROR ] && { [ -n "$dns_aaaa" ] || [ -n "$dns_cname" ]; }; }; then
+		dns_result=success
+	else
+		dns_result=failed
+	fi
+			;;
+		*)
+			dns_a="$probe_host"
+			dns_aaaa=''
+			dns_cname=''
+			dns_status='LITERAL_IP'
+			dns_query_ms='-'
+			dns_result='not_applicable'
+			;;
+	esac
+
+	runtime_state="$(get_state 2>/dev/null || printf normal)"
+	active_row=''
+	active_row="$(active_profile 2>/dev/null)" || active_row=''
+	dns_default='WAN DHCP DNS'
+	use_v2ray_dns=0
+	mosdns_enabled=0
+	mosdns_domains=''
+	if [ "$runtime_state" = proxy ] && [ -n "$active_row" ]; then
+		old_ifs="$IFS"
+		IFS="$(printf '\t')"
+		read -r _profile_protocol _profile_server _profile_port _profile_data _direct_dns _profile_proxy_ports _bypass_china \
+			use_v2ray_dns mosdns_enabled mosdns_domains <<EOF
+$active_row
+EOF
+		IFS="$old_ifs"
+		if [ "$use_v2ray_dns" = 1 ]; then
+			dns_default="$(setting v2ray_dns_listen)"
+		else
+			dns_default="$(dnsmasq_endpoint "$_direct_dns")"
+		fi
+	fi
+	dnsmasq_servers="$(uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null | tr '\n' ',' | sed 's/,$//' || true)"
+	[ -n "$dnsmasq_servers" ] || dnsmasq_servers='WAN DHCP DNS'
+	dns_path="router -> dnsmasq 127.0.0.1#53 -> $dns_default"
+	dns_branch='default upstream'
+	matched_rule=''
+	matched_rule_len=0
+	dns_entry='127.0.0.1#53 (dnsmasq)'
+	if [ "$dns_status" = LITERAL_IP ]; then
+		dns_entry='URL contains an IP literal; no DNS query'
+		dnsmasq_servers='not applicable'
+		dns_path='URL contains an IP literal; no DNS lookup'
+		dns_branch='not applicable'
+	fi
+	if [ "$dns_result" != not_applicable ]; then
+		dns_rule_file="$probe_dir/dnsmasq-rules"
+		uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null |
+			sed -n 's@^/\([^/]*\)/\([^/]*\)$@\1\t\2@p' >"$dns_rule_file" || :
+		if [ -d "$DNSMASQ_CONFIG_DIR" ]; then
+			for dns_file in "$DNSMASQ_CONFIG_DIR"/*; do
+				[ -f "$dns_file" ] || continue
+				sed -n 's@^[[:space:]]*server=/\([^/[:space:]]*\)/\([^[:space:]]*\).*@\1\t\2@p' "$dns_file" >>"$dns_rule_file"
+			done
+		fi
+		while IFS="$(printf '\t')" read -r rule_domain rule_upstream; do
+			[ -n "$rule_domain" ] && [ -n "$rule_upstream" ] || continue
+			case "$probe_host" in
+				"$rule_domain"|*."$rule_domain")
+					rule_len="${#rule_domain}"
+					if [ "$rule_len" -gt "$matched_rule_len" ]; then
+						matched_rule="$rule_domain -> $rule_upstream"
+						matched_rule_len="$rule_len"
+					fi
+					;;
+			esac
+		done <"$dns_rule_file"
+		if [ -n "$matched_rule" ]; then
+			dns_branch="dnsmasq domain rule: $matched_rule"
+			dns_path="router -> dnsmasq 127.0.0.1#53 -> $matched_rule"
+		fi
+	fi
+	if [ -z "$matched_rule" ] && [ "$runtime_state" = proxy ] && [ "$mosdns_enabled" = 1 ] && [ -n "$mosdns_domains" ]; then
+		old_ifs="$IFS"
+		IFS=,
+		for suffix in $mosdns_domains; do
+			[ -n "$suffix" ] || continue
+			case "$probe_host" in
+				"$suffix"|*."$suffix")
+					dns_branch="MosDNS for $suffix"
+					dns_path="router -> dnsmasq 127.0.0.1#53 -> $(setting mosdns_listen)"
+					break
+					;;
+			esac
+		done
+		IFS="$old_ifs"
+	fi
+
+	curl_format='%{http_code}|%{remote_ip}|%{remote_port}|%{local_ip}|%{local_port}|%{time_connect}|%{time_appconnect}|%{time_starttransfer}|%{time_total}|%{ssl_verify_result}|%{http_version}'
+	probe_dns_ip="$(printf '%s' "$dns_a" | cut -d, -f1)"
+	if [ -z "$probe_dns_ip" ]; then
+		probe_dns_ip="$(printf '%s' "$dns_aaaa" | cut -d, -f1)"
+	fi
+	resolve_ips=''
+	if [ "$dns_status" != LITERAL_IP ]; then
+		for resolved_ip in $(printf '%s,%s' "$dns_a" "$dns_aaaa" | tr ',' ' '); do
+			[ -n "$resolved_ip" ] || continue
+			case "$resolved_ip" in
+				*:*) resolved_ip="[$resolved_ip]" ;;
+			esac
+			if [ -n "$resolve_ips" ]; then
+				resolve_ips="$resolve_ips,$resolved_ip"
+			else
+				resolve_ips="$resolved_ip"
+			fi
+		done
+	fi
+	if [ "$dns_result" = failed ] || [ -z "$probe_dns_ip" ]; then
+		curl_code=6
+		: >"$probe_dir/curl"
+		printf '%s\n' 'HTTPS request skipped because dnsmasq returned no usable address' >"$probe_dir/curl.err"
+	elif [ "$dns_status" = LITERAL_IP ]; then
+		if curl --noproxy '*' --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null \
+			--write-out "$curl_format" "$probe_url" >"$probe_dir/curl" 2>"$probe_dir/curl.err"; then
+			curl_code=0
+		else
+			curl_code=$?
+		fi
+	elif [ "$dns_status" != LITERAL_IP ]; then
+		if curl --noproxy '*' --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null \
+			--resolve "$probe_host:$probe_port:$resolve_ips" --write-out "$curl_format" \
+			"$probe_url" >"$probe_dir/curl" 2>"$probe_dir/curl.err"; then
+			curl_code=0
+		else
+			curl_code=$?
+		fi
+	else
+		if curl --noproxy '*' --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null \
+			--write-out "$curl_format" "$probe_url" >"$probe_dir/curl" 2>"$probe_dir/curl.err"; then
+			curl_code=0
+		else
+			curl_code=$?
+		fi
+	fi
+	curl_line="$(cat "$probe_dir/curl" 2>/dev/null || true)"
+	old_ifs="$IFS"
+	IFS='|'
+	read -r http_code remote_ip remote_port local_ip local_port time_connect time_appconnect \
+		time_starttransfer time_total ssl_verify_result http_version <<EOF
+$curl_line
+EOF
+	IFS="$old_ifs"
+	[ "$curl_code" -eq 0 ] && https_result=success || https_result=failed
+	https_error="$(tr '\n' ' ' <"$probe_dir/curl.err" 2>/dev/null | cut -c1-300 || true)"
+	[ -n "$remote_ip" ] || remote_ip='-'
+	[ -n "$local_ip" ] || local_ip='-'
+	[ -n "$http_code" ] || http_code='-'
+	[ -n "$http_version" ] || http_version='-'
+	effective_url="$probe_url"
+
+	route_line=''
+	route_query_ip="$remote_ip"
+	case "$route_query_ip" in
+		-|'') ;;
+		*) route_line="$(ip route get "$route_query_ip" 2>/dev/null | sed -n '1p' || true)" ;;
+	esac
+	[ -n "$route_line" ] || {
+		case "$route_query_ip" in
+			-|'') ;;
+			*) route_line="$(ip -6 route get "$route_query_ip" 2>/dev/null | sed -n '1p' || true)" ;;
+		esac
+	}
+	route_dev="$(printf '%s\n' "$route_line" | awk '{for (i=1; i<=NF; i++) if ($i == "dev") print $(i+1)}' | sed -n '1p')"
+	route_via="$(printf '%s\n' "$route_line" | awk '{for (i=1; i<=NF; i++) if ($i == "via") print $(i+1)}' | sed -n '1p')"
+	route_src="$(printf '%s\n' "$route_line" | awk '{for (i=1; i<=NF; i++) if ($i == "src") print $(i+1)}' | sed -n '1p')"
+	[ -n "$route_line" ] || route_line='-'
+	[ -n "$route_dev" ] || route_dev='-'
+	[ -n "$route_via" ] || route_via='-'
+	[ -n "$route_src" ] || route_src='-'
+	if [ "$runtime_state" = proxy ]; then
+		https_path='router-originated curl -> kernel OUTPUT route; v2rayB transparent redirect applies to LAN PREROUTING, not this router-originated request'
+	else
+		https_path='router-originated curl -> kernel OUTPUT route; v2rayB is not in proxy mode'
+	fi
+
+	printf 'probe_url=%s\n' "$probe_url"
+	printf 'probe_host=%s\n' "$probe_host"
+	printf 'probe_scheme=%s\n' "$probe_scheme"
+	printf 'runtime_state=%s\n' "$runtime_state"
+	printf 'dns_entry=%s\n' "$dns_entry"
+	printf 'dns_result=%s\n' "$dns_result"
+	printf 'dns_status=%s\n' "$dns_status"
+	printf 'dns_a=%s\n' "${dns_a:--}"
+	printf 'dns_aaaa=%s\n' "${dns_aaaa:--}"
+	printf 'dns_cname=%s\n' "${dns_cname:--}"
+	printf 'dns_query_ms=%s\n' "$dns_query_ms"
+	printf 'dnsmasq_servers=%s\n' "$dnsmasq_servers"
+	printf 'dns_branch=%s\n' "$dns_branch"
+	printf 'dns_matched_rule=%s\n' "${matched_rule:--}"
+	printf 'dns_path=%s\n' "$dns_path"
+	printf '%s\n' 'dns_upstream_observation=configured path inferred from dnsmasq rules; upstream packets are not captured'
+	printf 'https_result=%s\n' "$https_result"
+	printf 'https_curl_code=%s\n' "$curl_code"
+	printf 'https_http_code=%s\n' "$http_code"
+	printf 'https_remote=%s:%s\n' "$remote_ip" "${remote_port:--}"
+	printf 'https_local=%s:%s\n' "$local_ip" "${local_port:--}"
+	printf 'https_http_version=%s\n' "$http_version"
+	printf 'https_tls_verify=%s\n' "${ssl_verify_result:--}"
+	printf 'https_effective_url=%s\n' "$effective_url"
+	printf 'https_error=%s\n' "${https_error:--}"
+	printf 'https_time_connect=%s\n' "${time_connect:--}"
+	printf 'https_time_tls=%s\n' "${time_appconnect:--}"
+	printf 'https_time_first_byte=%s\n' "${time_starttransfer:--}"
+	printf 'https_time_total=%s\n' "${time_total:--}"
+	printf 'route_device=%s\n' "$route_dev"
+	printf 'route_gateway=%s\n' "$route_via"
+	printf 'route_source=%s\n' "$route_src"
+	printf 'route_kernel=%s\n' "$route_line"
+	printf 'https_path=%s\n' "$https_path"
+}
+
 cmd_dns_state() {
 	ensure_db
 	state="$(get_state)"
@@ -1068,6 +1407,7 @@ Usage:
   v2rayBctl delete-profile PROFILE_ID
   v2rayBctl select-profile PROFILE_ID
   v2rayBctl apply-draft|revert-draft
+  v2rayBctl rollback-apply|clear-apply-backup
   v2rayBctl list-nodes
   v2rayBctl get-node NODE_ID
   v2rayBctl list-profiles
@@ -1079,6 +1419,7 @@ Usage:
   v2rayBctl render-v2ray|render-mosdns|render-nft|render-all
   v2rayBctl get-v2ray-config
   v2rayBctl apply-nft|delete-nft|test-v2ray|test-dns|test-dnsmasq
+  v2rayBctl network-probe URL
 EOF
 	exit 2
 }
@@ -1086,6 +1427,11 @@ EOF
 [ "$#" -gt 0 ] || usage
 command="$1"
 shift
+case "$command" in
+init-db|set-setting|set-state|add-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft)
+		acquire_ctl_lock
+		;;
+esac
 
 case "$command" in
 	init-db) [ "$#" -eq 0 ] || usage; cmd_init_db ;;
@@ -1108,6 +1454,8 @@ case "$command" in
 	select-profile) [ "$#" -eq 1 ] || usage; cmd_select_profile "$1" ;;
 	apply-draft) [ "$#" -eq 0 ] || usage; cmd_apply_draft ;;
 	revert-draft) [ "$#" -eq 0 ] || usage; cmd_revert_draft ;;
+	rollback-apply) [ "$#" -eq 0 ] || usage; cmd_rollback_apply ;;
+	clear-apply-backup) [ "$#" -eq 0 ] || usage; cmd_clear_apply_backup ;;
 	list-nodes) [ "$#" -eq 0 ] || usage; cmd_list_nodes ;;
 	get-node) [ "$#" -eq 1 ] || usage; cmd_get_node "$1" ;;
 	list-profiles) [ "$#" -eq 0 ] || usage; cmd_list_profiles ;;
@@ -1124,5 +1472,6 @@ case "$command" in
 	test-v2ray) [ "$#" -eq 0 ] || usage; cmd_test_v2ray ;;
 	test-dns) [ "$#" -eq 0 ] || usage; ensure_db; cmd_test_dns ;;
 	test-dnsmasq) [ "$#" -eq 0 ] || usage; cmd_test_dnsmasq ;;
+	network-probe) [ "$#" -eq 1 ] || usage; cmd_network_probe "$1" ;;
 	*) usage ;;
 esac

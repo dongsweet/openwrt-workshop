@@ -44,6 +44,15 @@ function failed(result) {
 	};
 }
 
+function probe_result(result) {
+	if (result.code != 0)
+		return failed(result);
+	return {
+		success: true,
+		output: result.output || ''
+	};
+}
+
 function valid_id(value) {
 	return match(value, /^[0-9]+$/);
 }
@@ -97,6 +106,17 @@ const methods = {
 		call: function() {
 			let result = ctl([ 'get-v2ray-config' ]);
 			return result.code == 0 ? result : failed(result);
+		}
+	},
+
+	network_probe: {
+		args: { url: '' },
+		call: function(request) {
+			let url = string_arg(request, 'url');
+			if (length(url) == 0 || length(url) > 2048 ||
+			    !match(url, /^https?:\/\/[A-Za-z0-9._:[\]-]+(\/.*)?$/))
+				return { success: false, error: 'Enter a valid http:// or https:// URL' };
+			return probe_result(ctl([ 'network-probe', url ]));
 		}
 	},
 
@@ -218,33 +238,65 @@ const methods = {
 
 			let apply = ctl([ 'apply-draft' ]);
 			if (apply.code != 0)
+			{
+				let rollback = ctl([ 'rollback-apply' ]);
+				if (rollback.code == 0)
+					ctl([ 'render-all' ]);
 				return { success: false, error: apply.output || 'Draft could not be applied' };
+			}
+
+			function rollbackAppliedChange(message) {
+				let rollback = ctl([ 'rollback-apply' ]);
+				if (rollback.code != 0)
+					return { success: false, error: message + '; rollback failed: ' + (rollback.output || 'unknown error') };
+				let renderOld = ctl([ 'render-all' ]);
+				if (renderOld.code != 0)
+					return { success: false, error: message + '; database rolled back but old runtime configuration could not be rendered: ' + (renderOld.output || 'unknown error') };
+				let wasProxy = match(before.output, /(^|\n)state=proxy(\n|$)/);
+				let wasEnabled = match(before.output, /(^|\n)service_enabled=1(\n|$)/);
+				let restoreBoot = run(init_path, [ wasEnabled ? 'enable' : 'disable' ]);
+				if (restoreBoot.code != 0)
+					return { success: false, error: message + '; database rolled back but boot state restoration failed: ' + (restoreBoot.output || 'unknown error') };
+				let restored = run(init_path, [ wasProxy ? 'restart' : 'stop' ]);
+				if (restored.code != 0)
+					return { success: false, error: message + '; configuration rolled back but service restoration failed: ' + (restored.output || 'unknown error') };
+				ctl([ 'clear-apply-backup' ]);
+				return { success: false, error: message };
+			}
 
 			let render = ctl([ 'render-all' ]);
 			if (render.code != 0)
-				return { success: false, error: render.output || 'Applied configuration could not be rendered' };
+				return rollbackAppliedChange(render.output || 'Applied configuration could not be rendered');
 
 			let status = ctl([ 'status' ]);
 			if (status.code != 0)
-				return failed(status);
+				return rollbackAppliedChange(status.output || 'Applied configuration status could not be read');
 
 			let enabled = match(status.output, /(^|\n)service_enabled=1(\n|$)/);
 			let boot = run(init_path, [ enabled ? 'enable' : 'disable' ]);
 			if (boot.code != 0)
-				return { success: false, error: boot.output || 'Applied, but boot state update failed' };
+				return rollbackAppliedChange(boot.output || 'Applied, but boot state update failed');
 
 			if (enabled) {
 				let was_proxy = match(before.output, /(^|\n)state=proxy(\n|$)/);
 				let action = was_proxy ? 'restart' : 'start';
 				let current = run(init_path, [ action ]);
 				if (current.code != 0)
-					return { success: false, error: current.output || 'Applied, but service start failed' };
+					return rollbackAppliedChange(current.output || 'Applied, but service start failed');
 			}
 			else {
 				let stop = run(init_path, [ 'stop' ]);
 				if (stop.code != 0)
-					return { success: false, error: stop.output || 'Applied, but service stop failed' };
+					return rollbackAppliedChange(stop.output || 'Applied, but service stop failed');
 			}
+			let after = ctl([ 'status' ]);
+			if (after.code != 0)
+				return rollbackAppliedChange(after.output || 'Applied service state could not be verified');
+			let nowProxy = match(after.output, /(^|\n)state=proxy(\n|$)/);
+			let nowNormal = match(after.output, /(^|\n)state=normal(\n|$)/);
+			if ((enabled && !nowProxy) || (!enabled && !nowNormal))
+				return rollbackAppliedChange('Service action returned without reaching the expected runtime state');
+			ctl([ 'clear-apply-backup' ]);
 			return { success: true };
 		}
 	},
