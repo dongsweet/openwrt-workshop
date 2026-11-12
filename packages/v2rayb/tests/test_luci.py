@@ -112,7 +112,12 @@ def main():
     assert "proxy_router_traffic" in rpc_source
     assert "proxy_router_traffic=' || COALESCE(pol.proxy_router_traffic, 0)" in ctl_source
     assert "type nat hook output priority -100" in ctl_source
-    assert "ip daddr @pass return" in ctl_source
+    assert "meta skuid %s return" in ctl_source
+    init_source = (FILES / "etc/init.d/v2rayB").read_text(encoding="utf-8")
+    assert 'V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"' in init_source
+    assert 'ulimit -n "$max_fd"' in init_source
+    assert 'start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP"' in init_source
+    assert 'chown "$V2RAY_USER:$V2RAY_GROUP" "$RUNTIME/v2ray-error.log"' in init_source
     assert "8080-8443" in view_source
     assert "profilePolicyText(row)" in view_source
     assert "method: 'dns_state'" in view_source

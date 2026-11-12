@@ -16,6 +16,7 @@ V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 MOSDNS_BIN="${V2RAYB_MOSDNS_BIN:-/usr/bin/mosdns}"
 DNSMASQ_CONFIG_DIR="${V2RAYB_DNSMASQ_DIR:-/etc/dnsmasq.d}"
 MOSDNS_ROUTE_SUFFIX="xn--ngstr-lra8j.com"
+V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 APPLY_BACKUP="$STATE_DIR/db-before-apply"
 CTL_LOCK_DIR="${V2RAYB_LOCK_DIR:-$STATE_DIR/lock}"
 PROBE_ROOT="$STATE_DIR/probes"
@@ -953,6 +954,8 @@ EOF
 	[ "$force_proxy_port" -ge 1 ] 2>/dev/null && [ "$force_proxy_port" -le 65535 ] 2>/dev/null || die "force-proxy port out of range"
 	[ "$proxy_port" != "$force_proxy_port" ] || die "proxy inbound ports must differ"
 	proxy_port_set="$(format_ports "$proxy_ports")" || die "invalid transparent proxy ports"
+	v2ray_uid="$(id -u "$V2RAY_USER" 2>/dev/null || true)"
+	is_uint "$v2ray_uid" || die "V2Ray service user does not exist: $V2RAY_USER"
 	tmp="$ACTIVE_DIR/nftables.nft.tmp.$$"
 	{
 		printf '%s\n' 'table inet v2rayB {'
@@ -1002,6 +1005,7 @@ EOF
 		if [ "$proxy_router_traffic" = 1 ]; then
 			printf '%s\n' '  chain output {'
 			printf '%s\n' '    type nat hook output priority -100; policy accept;'
+			printf '    meta skuid %s return\n' "$v2ray_uid"
 			printf '%s\n' '    ip daddr @pass return'
 			printf '%s\n' '    ip6 daddr @pass6 return'
 			printf '    ip daddr @force_proxy4 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$force_proxy_port"

@@ -12,6 +12,8 @@ DNSMASQ_SECTION='dhcp.@dnsmasq[0]'
 DNSMASQ_DIR="/etc/dnsmasq.d"
 MOSDNS_FORWARD_FILE="$DNSMASQ_DIR/90-v2rayB-mosdns.conf"
 MOSDNS_FORWARD_EXPECTED="$RUNTIME/dnsmasq-mosdns-expected"
+V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
+V2RAY_GROUP="${V2RAYB_V2RAY_GROUP:-nogroup}"
 
 log() {
 	logger -t v2rayB "$*"
@@ -250,10 +252,18 @@ port_ready() {
 
 start_engine() {
 	mkdir -p "$PID_DIR" || return 1
+	max_fd="$(ulimit -Hn 2>/dev/null || true)"
+	is_pid "$max_fd" && ulimit -n "$max_fd" 2>/dev/null || true
+	touch "$RUNTIME/v2ray-error.log" || return 1
+	chown "$V2RAY_USER:$V2RAY_GROUP" "$RUNTIME/v2ray-error.log" || return 1
+	chmod 600 "$RUNTIME/v2ray-error.log" || return 1
+	rm -f "$PID_DIR/v2ray.pid"
 	env 'v2ray.local.asset=/usr/share/v2ray' V2RAY_CONF_GEOLOADER=memconservative \
-		/usr/bin/v2ray run -c "$RUNTIME/active/v2ray.json" \
-		>>"$RUNTIME/v2ray.log" 2>&1 &
-	printf '%s\n' "$!" > "$PID_DIR/v2ray.pid"
+		start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP" \
+		-x /usr/bin/v2ray -O "$RUNTIME/v2ray.log" \
+		-m -p "$PID_DIR/v2ray.pid" -- \
+		run -c "$RUNTIME/active/v2ray.json" || return 1
+	is_pid "$(sed -n '1p' "$PID_DIR/v2ray.pid" 2>/dev/null || true)"
 }
 
 start_mosdns() {

@@ -84,6 +84,8 @@ fi
 grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'type nat hook output priority -100' "$TEST_DIR/runtime/active/nftables.nft"
 output_chain="$(sed -n '/chain output {/,/^  }/p' "$TEST_DIR/runtime/active/nftables.nft")"
+v2ray_uid="$(id -u nobody)"
+printf '%s\n' "$output_chain" | grep -q "^    meta skuid $v2ray_uid return$"
 printf '%s\n' "$output_chain" | grep -q 'ip daddr @pass return'
 printf '%s\n' "$output_chain" | grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345'
 "$ctl" status | grep -q '^profile_proxy_router_traffic=1$'
