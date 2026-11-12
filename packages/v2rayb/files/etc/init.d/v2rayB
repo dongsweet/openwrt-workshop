@@ -80,9 +80,12 @@ capture_dnsmasq_baseline() {
 	mkdir -p "$DNS_BACKUP" || return 1
 	: > "$DNS_BACKUP/server" || { rm -rf "$DNS_BACKUP"; return 1; }
 	: > "$DNS_BACKUP/noresolv" || { rm -rf "$DNS_BACKUP"; return 1; }
+	: > "$DNS_BACKUP/allservers" || { rm -rf "$DNS_BACKUP"; return 1; }
 	uci -q get "${DNSMASQ_SECTION}.server" > "$DNS_BACKUP/server" 2>/dev/null || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$DNS_BACKUP/noresolv" 2>/dev/null || :
-	[ -f "$DNS_BACKUP/server" ] && [ -f "$DNS_BACKUP/noresolv" ] || {
+	uci -q get "${DNSMASQ_SECTION}.allservers" > "$DNS_BACKUP/allservers" 2>/dev/null || :
+	[ -f "$DNS_BACKUP/server" ] && [ -f "$DNS_BACKUP/noresolv" ] &&
+		[ -f "$DNS_BACKUP/allservers" ] || {
 		rm -rf "$DNS_BACKUP"
 		return 1
 	}
@@ -168,7 +171,9 @@ restore_dnsmasq() {
 			printf '%s\n' "$server" >> "$RUNTIME/restore-server.expected"
 		done < "$DNS_BACKUP/server"
 		uci -q delete "${DNSMASQ_SECTION}.noresolv" || true
+		uci -q delete "${DNSMASQ_SECTION}.allservers" || true
 		: > "$RUNTIME/restore-noresolv.expected"
+		: > "$RUNTIME/restore-allservers.expected"
 	else
 		while IFS= read -r server; do
 			[ -n "$server" ] || continue
@@ -183,6 +188,14 @@ restore_dnsmasq() {
 			uci -q delete "${DNSMASQ_SECTION}.noresolv" || true
 			: > "$RUNTIME/restore-noresolv.expected"
 		fi
+	fi
+	if [ -s "$DNS_BACKUP/allservers" ]; then
+		allservers="$(sed -n '1p' "$DNS_BACKUP/allservers")"
+		uci -q set "${DNSMASQ_SECTION}.allservers=$allservers" || return 1
+		cp "$DNS_BACKUP/allservers" "$RUNTIME/restore-allservers.expected" || return 1
+	else
+		uci -q delete "${DNSMASQ_SECTION}.allservers" || true
+		: > "$RUNTIME/restore-allservers.expected"
 	fi
 	if [ -e "$MOSDNS_FORWARD_FILE" ]; then
 		if [ ! -f "$MOSDNS_FORWARD_EXPECTED" ] || ! cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"; then
@@ -199,8 +212,10 @@ restore_dnsmasq() {
 	uci -q show "$DNSMASQ_SECTION" >/dev/null 2>&1 || return 1
 	uci -q get "${DNSMASQ_SECTION}.server" > "$RUNTIME/restore-server" 2>/dev/null || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$RUNTIME/restore-noresolv" 2>/dev/null || :
+	uci -q get "${DNSMASQ_SECTION}.allservers" > "$RUNTIME/restore-allservers" 2>/dev/null || :
 	cmp -s "$RUNTIME/restore-server" "$RUNTIME/restore-server.expected" || return 1
 	cmp -s "$RUNTIME/restore-noresolv" "$RUNTIME/restore-noresolv.expected" || return 1
+	cmp -s "$RUNTIME/restore-allservers" "$RUNTIME/restore-allservers.expected" || return 1
 }
 
 cleanup_legacy_procd() {

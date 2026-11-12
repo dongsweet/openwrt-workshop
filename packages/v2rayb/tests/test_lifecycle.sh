@@ -81,6 +81,7 @@ setup_case() {
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
+	: > "$DNS_BACKUP/allservers"
 	printf '0\n' > "$DNS_BACKUP/stale"
 	printf 'proxy\n' > "$RUNTIME/state"
 }
