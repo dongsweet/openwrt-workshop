@@ -111,4 +111,5 @@ WHERE key IN ("direct_dns","transparent_proxy_ports",
               "draft_direct_dns","draft_transparent_proxy_ports");
 ')
 [ "$count" = 0 ]
+[ "$("$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="dns_fallback";')" = 1 ]
 echo "migration tests: ok"

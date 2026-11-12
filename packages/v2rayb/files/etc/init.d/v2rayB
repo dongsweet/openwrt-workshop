@@ -100,6 +100,7 @@ set_proxy_dns() {
 	default_upstream="$(dns_policy_value dnsmasq_default)"
 	mosdns_enabled="$(dns_policy_value mosdns_enabled)"
 	dns_fallback="$(dns_policy_value dns_fallback)"
+	[ -n "$dns_fallback" ] || dns_fallback=1
 	[ -n "$default_upstream" ] || return 1
 	uci -q show "$DNSMASQ_SECTION" >/dev/null 2>&1 || return 1
 	[ -d "$DNSMASQ_DIR" ] || return 1

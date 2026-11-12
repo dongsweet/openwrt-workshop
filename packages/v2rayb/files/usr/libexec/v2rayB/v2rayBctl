@@ -287,7 +287,7 @@ ensure_db() {
 		version=5
 	fi
 	[ "$version" = 5 ] || die "unsupported database schema version: $version"
-	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
+	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('dns_fallback', '1'); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
 	if [ "$(setting draft_pending)" != 1 ]; then
 		discard_drafts
 	fi
