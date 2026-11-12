@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS policies (
     mosdns_enabled          INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1)),
     mosdns_domains          TEXT,
     mosdns_match_rules      TEXT,
+    proxy_router_traffic     INTEGER NOT NULL DEFAULT 0 CHECK (proxy_router_traffic IN (0, 1)),
     created_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -116,6 +117,7 @@ CREATE TABLE IF NOT EXISTS draft_policies (
     mosdns_enabled          INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1)),
     mosdns_domains          TEXT,
     mosdns_match_rules      TEXT,
+    proxy_router_traffic     INTEGER NOT NULL DEFAULT 0 CHECK (proxy_router_traffic IN (0, 1)),
     created_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -169,6 +171,7 @@ INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (4);
-PRAGMA user_version = 4;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (5);
+PRAGMA user_version = 5;
 
 COMMIT;

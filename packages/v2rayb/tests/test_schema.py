@@ -34,7 +34,7 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
         assert {
             "draft_nodes", "draft_policies", "draft_profiles",
             "draft_profile_nodes",
@@ -51,7 +51,7 @@ def main():
         assert {
             "direct_dns", "transparent_proxy_ports", "bypass_china",
             "use_v2ray_dns", "mosdns_enabled", "mosdns_domains",
-            "mosdns_match_rules",
+            "mosdns_match_rules", "proxy_router_traffic",
         } <= policy_columns
 
         conn.execute(

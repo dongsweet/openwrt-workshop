@@ -38,7 +38,7 @@ draft_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='d
 
 # A missing draft policy is restored before a profile policy update.
 "$sqlite" "$V2RAYB_DB" 'DELETE FROM draft_policies;'
-"$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 0 'example.com' 'regexp:^cdn\.example\.com$'
+"$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 0 'example.com' 'regexp:^cdn\.example\.com$' 1
 policy_count="$("$sqlite" -batch -bail "$V2RAYB_DB" 'SELECT COUNT(*) FROM draft_policies;')"
 [ "$policy_count" = 1 ]
 

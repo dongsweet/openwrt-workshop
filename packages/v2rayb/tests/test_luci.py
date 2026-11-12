@@ -107,6 +107,12 @@ def main():
     assert "method: 'add_profile'" in view_source
     assert "direct_dns', 'transparent_proxy_ports', 'bypass_china'" in view_source
     assert "Profile policy" in view_source
+    assert "Proxy router-originated TCP" in view_source
+    assert "Includes TCP connections started by this router. UDP and DNS are not proxied." in view_source
+    assert "proxy_router_traffic" in rpc_source
+    assert "proxy_router_traffic=' || COALESCE(pol.proxy_router_traffic, 0)" in ctl_source
+    assert "type nat hook output priority -100" in ctl_source
+    assert "ip daddr @pass return" in ctl_source
     assert "8080-8443" in view_source
     assert "profilePolicyText(row)" in view_source
     assert "method: 'dns_state'" in view_source
@@ -142,6 +148,7 @@ def main():
     assert "A-Za-z0-9._:[\\]-" not in rpc_source
     assert "network-probe" in ctl_source
     assert "Test a URL from this router" in view_source
+    assert "enable Proxy router-originated TCP" in view_source
     assert "transparent redirect applies to LAN PREROUTING" in ctl_source
     assert "rollbackAppliedChange" in rpc_source
     assert "Applied V2Ray configuration" in view_source

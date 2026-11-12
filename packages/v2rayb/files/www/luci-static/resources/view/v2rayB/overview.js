@@ -42,13 +42,15 @@ const callRevertDraft = rpc.declare({
 const callAddProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'add_profile',
 	params: [ 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
-		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules' ],
+		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules',
+		'proxy_router_traffic' ],
 	expect: { '': {} }, reject: true
 });
 const callUpdateProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'update_profile',
 	params: [ 'profile_id', 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
-		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules' ],
+		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules',
+		'proxy_router_traffic' ],
 	expect: { '': {} }, reject: true
 });
 const callGetProfile = rpc.declare({
@@ -481,6 +483,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		value: (existing && existing.transparent_proxy_ports) || defaults.transparent_proxy_ports
 	});
 	const bypassChina = checkbox({}, existing ? isEnabled(existing.bypass_china) : true);
+	const proxyRouterTraffic = checkbox({}, existing ? isEnabled(existing.proxy_router_traffic) : false);
 	const useV2rayDns = checkbox({}, existing ? isEnabled(existing.use_v2ray_dns) : true);
 	const mosdnsEnabled = checkbox({}, existing ? isEnabled(existing.mosdns_enabled) : true);
 	const mosdnsDomains = E('textarea', {
@@ -519,6 +522,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			return;
 		}
 		const bypass = bypassChina.checked ? '1' : '0';
+		const routerTraffic = proxyRouterTraffic.checked ? '1' : '0';
 		const v2rayDns = useV2rayDns.checked ? '1' : '0';
 		const mosdns = mosdnsEnabled.checked ? '1' : '0';
 		const domains = mosdnsDomains.value.split(/[\s,]+/).filter(value => value !== '').join(',');
@@ -538,7 +542,8 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 				use_v2ray_dns: v2rayDns,
 				mosdns_enabled: mosdns,
 				mosdns_domains: domains,
-				mosdns_match_rules: mosdnsRules.value.trim()
+				mosdns_match_rules: mosdnsRules.value.trim(),
+				proxy_router_traffic: routerTraffic
 			});
 	} }, existing ? _('Update pending changes') : _('Add to pending changes'));
 	ui.showModal(existing ? _('Edit profile') : _('Create a profile'), [
@@ -553,7 +558,9 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			field(_('Transparent TCP ports'), profilePorts,
 				_('Example: 80,443,8080-8443.')),
 			field(_('Bypass China IP'), bypassChina,
-				_('Disabled: all intercepted traffic uses the proxy.'))
+				_('Disabled: all intercepted traffic uses the proxy.')),
+			field(_('Proxy router-originated TCP'), proxyRouterTraffic,
+				_('Includes TCP connections started by this router. UDP and DNS are not proxied.'))
 		]),
 		E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('DNS routing')),
@@ -650,7 +657,8 @@ return view.extend({
 			const china = isEnabled(row[8]) ? _('China IP direct') : _('All through proxy');
 			const v2rayDns = isEnabled(row[9]) ? _('V2Ray DNS default') : _('Direct DNS default');
 			const mosdns = isEnabled(row[10]) ? _('MosDNS on') : _('MosDNS off');
-			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${china} · ${v2rayDns} · ${mosdns}`;
+			const routerTraffic = isEnabled(row[12]) ? _('Router TCP on') : _('Router TCP off');
+			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
 		}
 		const activeProfileRow = appliedProfileRows[0] || null;
 		const activeProfileCard = card(_('Applied profile'),
@@ -842,14 +850,14 @@ return view.extend({
 							const node = nodes.find(item => item[0] === profile.node_id);
 							const index = profiles.findIndex(item => item[0] === row[0]);
 							if (index >= 0)
-								profiles[index] = [ row[0], profile.name, 'v2ray', node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules ];
+								profiles[index] = [ row[0], profile.name, 'v2ray', node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic ];
 							pageView.localProfileDetails[row[0]] = Object.assign({ id: row[0], enabled: row[4] }, profile);
 							if (!isTempId(row[0]))
 								queuePendingOperation(() => callUpdateProfile(
 									pageView.resolveProfileId(row[0]), profile.name, pageView.resolveNodeId(profile.node_id),
 									profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china,
 									profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains,
-									profile.mosdns_match_rules), 'profile-update:' + row[0]);
+									profile.mosdns_match_rules, profile.proxy_router_traffic), 'profile-update:' + row[0]);
 							refreshProfileTable();
 							refreshProfileCard();
 						}, nodes, {
@@ -1013,7 +1021,8 @@ return view.extend({
 				node ? node[1] : '', '1', profile.node_id, profile.direct_dns,
 				profile.transparent_proxy_ports, profile.bypass_china,
 				profile.use_v2ray_dns, profile.mosdns_enabled,
-				profile.mosdns_domains, profile.mosdns_match_rules
+				profile.mosdns_domains, profile.mosdns_match_rules,
+				profile.proxy_router_traffic
 			];
 			const id = row[0];
 			const index = profiles.findIndex(item => item[0] === id);
@@ -1027,7 +1036,7 @@ return view.extend({
 				profile.direct_dns, profile.transparent_proxy_ports,
 				profile.bypass_china, profile.use_v2ray_dns,
 				profile.mosdns_enabled, profile.mosdns_domains,
-				profile.mosdns_match_rules
+				profile.mosdns_match_rules, profile.proxy_router_traffic
 			).then(result => {
 				if (!result || !result.success)
 					return result;
@@ -1227,7 +1236,7 @@ return view.extend({
 		const diagnosticsPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Test a URL from this router')),
-				E('p', { class: 'cbi-value-description' }, _('The router queries local dnsmasq, then makes a real HTTP(S) request to the resolved address. The check runs in the background and this page polls for the result.')),
+				E('p', { class: 'cbi-value-description' }, _('The router queries local dnsmasq, then makes a real HTTP(S) request. Results reflect the router OUTPUT path; enable Proxy router-originated TCP in the active profile to test through V2Ray.')),
 				field(_('Target URL'), probeUrlInput, _('Use a full http:// or https:// URL. The request originates on the router itself.')),
 				E('p', { class: 'cbi-value-description' }, _('Important: v2rayB transparent redirect rules currently apply to LAN traffic in PREROUTING. A request generated by the router follows its own OUTPUT route and may not use the LAN client proxy path.')),
 				E('div', { class: 'v2rayb-toolbar' }, [ probeButton ]),

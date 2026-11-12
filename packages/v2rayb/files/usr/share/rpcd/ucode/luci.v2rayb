@@ -88,7 +88,7 @@ function valid_id(value) {
 	return match(value, /^[0-9]+$/);
 }
 
-function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules) {
+function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic) {
 	if (direct_dns == '' || length(direct_dns) > 255)
 		return 'Invalid direct DNS endpoint';
 	if (ports == '' || length(ports) > 255 ||
@@ -104,6 +104,8 @@ function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mo
 		return 'Invalid MosDNS domain list';
 	if (mosdns_match_rules != '' && length(mosdns_match_rules) > 16384)
 		return 'MosDNS match rules are too long';
+	if (!match(proxy_router_traffic, /^[01]$/))
+		return 'Invalid Proxy router-originated TCP value; expected 0 or 1';
 	return null;
 }
 
@@ -247,7 +249,8 @@ const methods = {
 					use_v2ray_dns: fields.use_v2ray_dns || '1',
 					mosdns_enabled: fields.mosdns_enabled || '1',
 					mosdns_domains: fields.mosdns_domains || '',
-					mosdns_match_rules: rules.output
+					mosdns_match_rules: rules.output,
+					proxy_router_traffic: fields.proxy_router_traffic || '0'
 				}
 			};
 		}
@@ -395,7 +398,7 @@ const methods = {
 	},
 
 	add_profile: {
-		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '' },
+		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0' },
 		call: function(request) {
 			let name = string_arg(request, 'name');
 			let node_id = string_arg(request, 'node_id');
@@ -406,12 +409,14 @@ const methods = {
 			let mosdns_enabled = string_arg(request, 'mosdns_enabled');
 			let mosdns_domains = string_arg(request, 'mosdns_domains');
 			let mosdns_match_rules = string_arg(request, 'mosdns_match_rules');
+			let proxy_router_traffic = string_arg(request, 'proxy_router_traffic');
 			if (length(name) > 64)
 				return { success: false, error: 'Profile name is too long' };
 			if (!match(node_id, /^[0-9]+$/))
 				return { success: false, error: 'Select a valid primary node' };
 			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china,
-				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules);
+				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
+				proxy_router_traffic);
 			if (policy_error != null)
 				return { success: false, error: policy_error };
 
@@ -426,7 +431,8 @@ const methods = {
 			}
 
 			let result = ctl([ 'add-profile', name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
-				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules ]);
+				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
+				proxy_router_traffic ]);
 			if (result.code != 0)
 				return failed(result);
 
@@ -477,7 +483,7 @@ const methods = {
 	},
 
 	update_profile: {
-		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '' },
+		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0' },
 		call: function(request) {
 			let profile_id = string_arg(request, 'profile_id');
 			let name = string_arg(request, 'name');
@@ -489,16 +495,19 @@ const methods = {
 			let mosdns_enabled = string_arg(request, 'mosdns_enabled');
 			let mosdns_domains = string_arg(request, 'mosdns_domains');
 			let mosdns_match_rules = string_arg(request, 'mosdns_match_rules');
+			let proxy_router_traffic = string_arg(request, 'proxy_router_traffic');
 			if (!valid_id(profile_id) || !valid_id(node_id))
 				return { success: false, error: 'Invalid profile or node id' };
 			if (name == '' || length(name) > 64)
 				return { success: false, error: 'Invalid profile name' };
 			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china,
-				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules);
+				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
+				proxy_router_traffic);
 			if (policy_error != null)
 				return { success: false, error: policy_error };
 			let result = ctl([ 'update-profile', profile_id, name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
-				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules ]);
+				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
+				proxy_router_traffic ]);
 			return result.code == 0 ? { success: true, profile_id: profile_id } : failed(result);
 		}
 	},

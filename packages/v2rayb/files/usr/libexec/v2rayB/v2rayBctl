@@ -144,11 +144,13 @@ validate_profile_policy() {
 	mosdns_enabled="${5:-1}"
 	mosdns_domains="${6:-xn--ngstr-lra8j.com}"
 	mosdns_match_rules="${7:-}"
+	proxy_router_traffic="${8:-0}"
 	validate_dns_endpoint "$direct_dns" || die "invalid profile DNS endpoint"
 	format_ports "$ports" >/dev/null || die "invalid profile transparent proxy port list"
 	case "$bypass_china" in 0|1) ;; *) die "profile bypass_china must be 0 or 1" ;; esac
 	case "$use_v2ray_dns" in 0|1) ;; *) die "profile use_v2ray_dns must be 0 or 1" ;; esac
 	case "$mosdns_enabled" in 0|1) ;; *) die "profile mosdns_enabled must be 0 or 1" ;; esac
+	case "$proxy_router_traffic" in 0|1) ;; *) die "profile proxy_router_traffic must be 0 or 1" ;; esac
 	validate_dns_domains "$mosdns_domains" || die "invalid MosDNS domain list"
 	if [ "$mosdns_enabled" = 1 ] && [ -z "$mosdns_domains" ]; then
 		die "MosDNS is enabled but no domains are configured"
@@ -198,7 +200,7 @@ begin_draft() {
 		DELETE FROM draft_profiles;
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
-		INSERT INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,created_at,updated_at FROM policies;
+		INSERT INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,created_at,updated_at FROM policies;
 		INSERT INTO draft_nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM nodes;
 		INSERT INTO draft_profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM profiles;
 		INSERT INTO draft_profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM profile_nodes;
@@ -279,7 +281,11 @@ ensure_db() {
 		db_sql "CREATE TABLE IF NOT EXISTS draft_nodes (id INTEGER PRIMARY KEY, source_id INTEGER, name TEXT NOT NULL, protocol TEXT NOT NULL, server TEXT NOT NULL, port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535), data_json TEXT NOT NULL DEFAULT '{}', enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)), last_latency_ms INTEGER, last_checked_at TEXT, last_error TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(source_id, name)); CREATE TABLE IF NOT EXISTS draft_policies (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, dns_policy_json TEXT NOT NULL DEFAULT '{}', routing_policy_json TEXT NOT NULL DEFAULT '{}', direct_dns TEXT, transparent_proxy_ports TEXT, bypass_china INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)), use_v2ray_dns INTEGER NOT NULL DEFAULT 1 CHECK (use_v2ray_dns IN (0, 1)), mosdns_enabled INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1)), mosdns_domains TEXT, mosdns_match_rules TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS draft_profiles (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, engine TEXT NOT NULL, policy_id INTEGER, engine_options_json TEXT NOT NULL DEFAULT '{}', enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS draft_profile_nodes (profile_id INTEGER NOT NULL, node_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'primary', priority INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(profile_id, node_id)); INSERT OR IGNORE INTO schema_migrations(version) VALUES (4); PRAGMA user_version=4;"
 		version=4
 	fi
-	[ "$version" = 4 ] || die "unsupported database schema version: $version"
+	if [ "$version" = 4 ]; then
+		db_sql "ALTER TABLE policies ADD COLUMN proxy_router_traffic INTEGER NOT NULL DEFAULT 0 CHECK (proxy_router_traffic IN (0, 1)); ALTER TABLE draft_policies ADD COLUMN proxy_router_traffic INTEGER NOT NULL DEFAULT 0 CHECK (proxy_router_traffic IN (0, 1)); INSERT OR IGNORE INTO schema_migrations(version) VALUES (5); PRAGMA user_version=5;"
+		version=5
+	fi
+	[ "$version" = 5 ] || die "unsupported database schema version: $version"
 	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
 	if [ "$(setting draft_pending)" != 1 ]; then
 		discard_drafts
@@ -398,9 +404,10 @@ cmd_set_profile_policy() {
 	mosdns_enabled="${6:-1}"
 	mosdns_domains="${7:-xn--ngstr-lra8j.com}"
 	mosdns_match_rules="${8:-}"
+	proxy_router_traffic="${9:-0}"
 	is_uint "$profile_id" || die "profile id must be numeric"
 	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
-		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules"
+		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic"
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
@@ -408,14 +415,14 @@ cmd_set_profile_policy() {
 	if is_uint "$policy_id" && [ "$policy_id" -gt 0 ] 2>/dev/null; then
 		count="$(db_sql "SELECT COUNT(*) FROM draft_policies WHERE id=$policy_id;" | tr -d '[:space:]')"
 		if [ "$count" = 0 ]; then
-			db_sql "INSERT OR IGNORE INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,created_at,updated_at FROM policies WHERE id=$policy_id;"
+			db_sql "INSERT OR IGNORE INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,created_at,updated_at FROM policies WHERE id=$policy_id;"
 			count="$(db_sql "SELECT COUNT(*) FROM draft_policies WHERE id=$policy_id;" | tr -d '[:space:]')"
 		fi
 		[ "$count" = 1 ] || die "profile policy is missing from both draft and applied configuration"
-		db_sql "UPDATE draft_policies SET direct_dns=$(sql_quote "$direct_dns"), transparent_proxy_ports=$(sql_quote "$transparent_proxy_ports"), bypass_china=$bypass_china, use_v2ray_dns=$use_v2ray_dns, mosdns_enabled=$mosdns_enabled, mosdns_domains=$(sql_quote "$mosdns_domains"), mosdns_match_rules=$(sql_quote "$mosdns_match_rules"), updated_at=CURRENT_TIMESTAMP WHERE id=$policy_id; UPDATE draft_profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
+		db_sql "UPDATE draft_policies SET direct_dns=$(sql_quote "$direct_dns"), transparent_proxy_ports=$(sql_quote "$transparent_proxy_ports"), bypass_china=$bypass_china, use_v2ray_dns=$use_v2ray_dns, mosdns_enabled=$mosdns_enabled, mosdns_domains=$(sql_quote "$mosdns_domains"), mosdns_match_rules=$(sql_quote "$mosdns_match_rules"), proxy_router_traffic=$proxy_router_traffic, updated_at=CURRENT_TIMESTAMP WHERE id=$policy_id; UPDATE draft_profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
 	else
 		policy_name="profile-$profile_id"
-		policy_id="$(db_sql "INSERT INTO draft_policies(name, direct_dns, transparent_proxy_ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, updated_at) VALUES($(sql_quote "$policy_name"), $(sql_quote "$direct_dns"), $(sql_quote "$transparent_proxy_ports"), $bypass_china, $use_v2ray_dns, $mosdns_enabled, $(sql_quote "$mosdns_domains"), $(sql_quote "$mosdns_match_rules"), CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET direct_dns=excluded.direct_dns, transparent_proxy_ports=excluded.transparent_proxy_ports, bypass_china=excluded.bypass_china, use_v2ray_dns=excluded.use_v2ray_dns, mosdns_enabled=excluded.mosdns_enabled, mosdns_domains=excluded.mosdns_domains, mosdns_match_rules=excluded.mosdns_match_rules, updated_at=CURRENT_TIMESTAMP; SELECT id FROM draft_policies WHERE name=$(sql_quote "$policy_name");" | sed -n '1p')"
+		policy_id="$(db_sql "INSERT INTO draft_policies(name, direct_dns, transparent_proxy_ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic, updated_at) VALUES($(sql_quote "$policy_name"), $(sql_quote "$direct_dns"), $(sql_quote "$transparent_proxy_ports"), $bypass_china, $use_v2ray_dns, $mosdns_enabled, $(sql_quote "$mosdns_domains"), $(sql_quote "$mosdns_match_rules"), $proxy_router_traffic, CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET direct_dns=excluded.direct_dns, transparent_proxy_ports=excluded.transparent_proxy_ports, bypass_china=excluded.bypass_china, use_v2ray_dns=excluded.use_v2ray_dns, mosdns_enabled=excluded.mosdns_enabled, mosdns_domains=excluded.mosdns_domains, mosdns_match_rules=excluded.mosdns_match_rules, proxy_router_traffic=excluded.proxy_router_traffic, updated_at=CURRENT_TIMESTAMP; SELECT id FROM draft_policies WHERE name=$(sql_quote "$policy_name");" | sed -n '1p')"
 		is_uint "$policy_id" || die "failed to create profile policy"
 		db_sql "UPDATE draft_profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
 	fi
@@ -433,10 +440,11 @@ cmd_add_profile() {
 	mosdns_enabled="${7:-1}"
 	mosdns_domains="${8:-xn--ngstr-lra8j.com}"
 	mosdns_match_rules="${9:-}"
+	proxy_router_traffic="${10:-0}"
 	is_name "$name" || die "invalid profile name"
 	is_uint "$node_id" || die "node id must be numeric"
 	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
-		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules"
+		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic"
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id AND enabled=1;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found or disabled: $node_id"
@@ -446,7 +454,7 @@ cmd_add_profile() {
 	profile_id="$(db_sql "SELECT id FROM draft_profiles WHERE name=$(sql_quote "$name");" | sed -n '1p')"
 	db_sql "DELETE FROM draft_profile_nodes WHERE profile_id=$profile_id; INSERT INTO draft_profile_nodes(profile_id, node_id, role, priority) VALUES($profile_id, $node_id, 'primary', 0);"
 	cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
-		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules"
+		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic"
 	set_draft_setting active_profile "$profile_id"
 	draft_change_commit
 	printf '%s\n' "$profile_id"
@@ -535,8 +543,9 @@ cmd_update_profile() {
 		mosdns_enabled="${8:-1}"
 		mosdns_domains="${9:-xn--ngstr-lra8j.com}"
 		mosdns_match_rules="${10:-}"
+		proxy_router_traffic="${11:-0}"
 		cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
-			"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules"
+			"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic"
 	fi
 	draft_change_commit
 	printf '%s\n' "$profile_id"
@@ -603,7 +612,7 @@ cmd_apply_draft() {
 		DELETE FROM profiles;
 		DELETE FROM nodes;
 		DELETE FROM policies;
-		INSERT INTO policies(id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules) SELECT id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules FROM draft_policies;
+		INSERT INTO policies(id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic) SELECT id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic FROM draft_policies;
 		INSERT INTO nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM draft_nodes;
 		INSERT INTO profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM draft_profiles;
 		INSERT INTO profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM draft_profile_nodes;
@@ -667,14 +676,14 @@ cmd_list_profiles() {
 		nodes_table=draft_nodes
 		policies_table=draft_policies
 	fi
-	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $nodes_table n ON n.id=pn.node_id LEFT JOIN $policies_table pol ON pol.id=p.policy_id ORDER BY p.id;"
+	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') || char(9) || COALESCE(pol.proxy_router_traffic, 0) FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $nodes_table n ON n.id=pn.node_id LEFT JOIN $policies_table pol ON pol.id=p.policy_id ORDER BY p.id;"
 }
 
 cmd_get_applied_profile() {
 	ensure_db
 	profile_id="$(setting active_profile)"
 	is_uint "$profile_id" || return 0
-	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;"
+	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') || char(9) || COALESCE(pol.proxy_router_traffic, 0) FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;"
 }
 
 cmd_get_profile() {
@@ -689,7 +698,7 @@ cmd_get_profile() {
 		profile_nodes_table=draft_profile_nodes
 		policies_table=draft_policies
 	fi
-	row="$(db_sql "SELECT 'name=' || p.name || char(10) || 'node_id=' || COALESCE(pn.node_id, '') || char(10) || 'enabled=' || p.enabled || char(10) || 'direct_dns=' || COALESCE(pol.direct_dns, '') || char(10) || 'transparent_proxy_ports=' || COALESCE(pol.transparent_proxy_ports, '') || char(10) || 'bypass_china=' || COALESCE(pol.bypass_china, 1) || char(10) || 'use_v2ray_dns=' || COALESCE(pol.use_v2ray_dns, 1) || char(10) || 'mosdns_enabled=' || COALESCE(pol.mosdns_enabled, 1) || char(10) || 'mosdns_domains=' || COALESCE(pol.mosdns_domains, '') FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $policies_table pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
+	row="$(db_sql "SELECT 'name=' || p.name || char(10) || 'node_id=' || COALESCE(pn.node_id, '') || char(10) || 'enabled=' || p.enabled || char(10) || 'direct_dns=' || COALESCE(pol.direct_dns, '') || char(10) || 'transparent_proxy_ports=' || COALESCE(pol.transparent_proxy_ports, '') || char(10) || 'bypass_china=' || COALESCE(pol.bypass_china, 1) || char(10) || 'use_v2ray_dns=' || COALESCE(pol.use_v2ray_dns, 1) || char(10) || 'mosdns_enabled=' || COALESCE(pol.mosdns_enabled, 1) || char(10) || 'mosdns_domains=' || COALESCE(pol.mosdns_domains, '') || char(10) || 'proxy_router_traffic=' || COALESCE(pol.proxy_router_traffic, 0) FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $policies_table pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
 	[ -n "$row" ] || die "profile not found: $profile_id"
 	printf '%s\n' "$row"
 }
@@ -712,7 +721,7 @@ cmd_get_profile_rules() {
 active_profile() {
 	profile_id="$(setting active_profile)"
 	is_uint "$profile_id" || die "no active profile selected"
-	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, '223.5.5.5:53') || char(9) || COALESCE(pol.transparent_proxy_ports, '80,443,8080,8443') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, 'xn--ngstr-lra8j.com') FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
+	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, '223.5.5.5:53') || char(9) || COALESCE(pol.transparent_proxy_ports, '80,443,8080,8443') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, 'xn--ngstr-lra8j.com') || char(9) || COALESCE(pol.proxy_router_traffic, 0) FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
 	[ -n "$row" ] || die "active profile has no enabled node"
 	printf '%s\n' "$row"
 }
@@ -729,7 +738,7 @@ cmd_render_v2ray() {
 	old_ifs="$IFS"
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
-		use_v2ray_dns mosdns_enabled mosdns_domains <<EOF
+		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -793,7 +802,7 @@ cmd_dns_settings() {
 	old_ifs="$IFS"
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
-		use_v2ray_dns mosdns_enabled mosdns_domains <<EOF
+		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -818,7 +827,7 @@ cmd_render_mosdns() {
 	old_ifs="$IFS"
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
-		use_v2ray_dns mosdns_enabled mosdns_domains <<EOF
+		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -904,10 +913,30 @@ cmd_render_nft() {
 	old_ifs="$IFS"
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns proxy_ports bypass_china \
-		use_v2ray_dns mosdns_enabled mosdns_domains <<EOF
+		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic <<EOF
 $row
 EOF
 	IFS="$old_ifs"
+	pass4_file="$ACTIVE_DIR/pass4.tmp.$$"
+	pass6_file="$ACTIVE_DIR/pass6.tmp.$$"
+	: > "$pass4_file"
+	: > "$pass6_file"
+	case "$server" in
+		*:*)
+			printf '%s\n' "$server" >> "$pass6_file"
+			;;
+		*[!0-9.]*)
+			dig +short +time=2 +tries=1 @127.0.0.1 "$server" A 2>/dev/null |
+				awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print }' >> "$pass4_file" || :
+			dig +short +time=2 +tries=1 @127.0.0.1 "$server" AAAA 2>/dev/null |
+				awk '/:/ { print }' >> "$pass6_file" || :
+			;;
+		*)
+			printf '%s\n' "$server" >> "$pass4_file"
+			;;
+	esac
+	sort -u "$pass4_file" -o "$pass4_file"
+	sort -u "$pass6_file" -o "$pass6_file"
 	proxy_port="$(setting transparent_proxy_port)"
 	force_proxy_port="$(setting force_proxy_port)"
 	is_uint "$proxy_port" || die "invalid transparent proxy port"
@@ -929,17 +958,23 @@ EOF
 		printf '%s\n' '  set direct6 { type ipv6_addr; flags timeout; timeout 12h; }'
 		printf '%s\n' '  set force_proxy4 { type ipv4_addr; flags timeout; timeout 12h; }'
 		printf '%s\n' '  set force_proxy6 { type ipv6_addr; flags timeout; timeout 12h; }'
-		printf '%s\n' '  set pass { type ipv4_addr; flags interval; }'
+		printf '%s\n' '  set pass { type ipv4_addr; flags interval;'
+		nft_elements "$pass4_file"
+		printf '%s\n' '  }'
+		printf '%s\n' '  set pass6 { type ipv6_addr; flags interval;'
+		nft_elements "$pass6_file"
+		printf '%s\n' '  }'
 		printf '%s\n' '  set force_proxy { type ipv4_addr; flags interval; }'
 		printf '%s\n' '  chain prerouting {'
 		printf '%s\n' '    type nat hook prerouting priority dstnat; policy accept;'
+		printf '%s\n' '    ip daddr @pass return'
+		printf '%s\n' '    ip6 daddr @pass6 return'
 		printf '    ip daddr @force_proxy4 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$force_proxy_port"
 		printf '    ip6 daddr @force_proxy6 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$force_proxy_port"
 		printf '    ip daddr @force_proxy tcp dport %s redirect to :%s\n' "$proxy_port_set" "$force_proxy_port"
 		printf '%s\n' '    ip daddr @force_proxy4 return'
 		printf '%s\n' '    ip6 daddr @force_proxy6 return'
 		printf '%s\n' '    ip daddr @force_proxy return'
-		printf '%s\n' '    ip daddr @pass return'
 		printf '%s\n' '    ip daddr @direct4 return'
 		printf '%s\n' '    ip6 daddr @direct6 return'
 		printf '%s\n' '    ip daddr @direct_static4 return'
@@ -948,8 +983,29 @@ EOF
 		printf '%s\n' '    ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } return'
 		printf '    tcp dport %s redirect to :%s\n' "$proxy_port_set" "$proxy_port"
 		printf '%s\n' '  }'
+		if [ "$proxy_router_traffic" = 1 ]; then
+			printf '%s\n' '  chain output {'
+			printf '%s\n' '    type nat hook output priority -100; policy accept;'
+			printf '%s\n' '    ip daddr @pass return'
+			printf '%s\n' '    ip6 daddr @pass6 return'
+			printf '    ip daddr @force_proxy4 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$force_proxy_port"
+			printf '    ip6 daddr @force_proxy6 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$force_proxy_port"
+			printf '    ip daddr @force_proxy tcp dport %s redirect to :%s\n' "$proxy_port_set" "$force_proxy_port"
+			printf '%s\n' '    ip daddr @force_proxy4 return'
+			printf '%s\n' '    ip6 daddr @force_proxy6 return'
+			printf '%s\n' '    ip daddr @force_proxy return'
+			printf '%s\n' '    ip daddr @direct4 return'
+			printf '%s\n' '    ip6 daddr @direct6 return'
+			printf '%s\n' '    ip daddr @direct_static4 return'
+			printf '%s\n' '    ip6 daddr @direct_static6 return'
+			printf '%s\n' '    ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } return'
+			printf '%s\n' '    ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } return'
+			printf '    tcp dport %s redirect to :%s\n' "$proxy_port_set" "$proxy_port"
+			printf '%s\n' '  }'
+		fi
 		printf '%s\n' '}'
 	} > "$tmp"
+	rm -f "$pass4_file" "$pass6_file"
 	mv "$tmp" "$ACTIVE_DIR/nftables.nft"
 }
 
@@ -1123,7 +1179,7 @@ cmd_network_probe() {
 		old_ifs="$IFS"
 		IFS="$(printf '\t')"
 		read -r _profile_protocol _profile_server _profile_port _profile_data _direct_dns _profile_proxy_ports _bypass_china \
-			use_v2ray_dns mosdns_enabled mosdns_domains <<EOF
+			use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic <<EOF
 $active_row
 EOF
 		IFS="$old_ifs"
@@ -1323,7 +1379,7 @@ cmd_dns_state() {
 	old_ifs="$IFS"
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json direct_dns profile_proxy_ports bypass_china \
-		use_v2ray_dns mosdns_enabled mosdns_domains <<EOF
+		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1352,6 +1408,7 @@ EOF
 	printf 'mosdns_listen=%s\n' "$(setting mosdns_listen)"
 	printf 'mosdns_route_suffix=%s\n' "$mosdns_domains"
 	printf 'direct_dns=%s\n' "$direct_dns"
+	printf 'proxy_router_traffic=%s\n' "$proxy_router_traffic"
 	printf 'direct_rule=%s\n' "$direct_rule"
 	printf 'nft_direct_sets=%s\n' 'direct4,direct6'
 	printf 'nft_direct_static_sets=%s\n' 'direct_static4,direct_static6'
@@ -1379,7 +1436,7 @@ cmd_status() {
 		IFS="$(printf '\t')"
 		read -r profile_protocol profile_server profile_port profile_data \
 			profile_direct_dns profile_proxy_ports profile_bypass_china \
-			profile_use_v2ray_dns profile_mosdns_enabled profile_mosdns_domains <<EOF
+			profile_use_v2ray_dns profile_mosdns_enabled profile_mosdns_domains profile_proxy_router_traffic <<EOF
 $row
 EOF
 		IFS="$old_ifs"
@@ -1389,6 +1446,7 @@ EOF
 		printf 'profile_use_v2ray_dns=%s\n' "$profile_use_v2ray_dns"
 		printf 'profile_mosdns_enabled=%s\n' "$profile_mosdns_enabled"
 		printf 'profile_mosdns_domains=%s\n' "$profile_mosdns_domains"
+		printf 'profile_proxy_router_traffic=%s\n' "$profile_proxy_router_traffic"
 	fi
 }
 
@@ -1405,9 +1463,9 @@ Usage:
   v2rayBctl update-node NODE_ID NAME PROTOCOL SERVER PORT DATA_JSON
   v2rayBctl set-node-enabled NODE_ID 0|1
   v2rayBctl delete-node NODE_ID
-  v2rayBctl add-profile NAME NODE_ID [DIRECT_DNS PORTS BYPASS_CHINA USE_V2RAY_DNS MOSDNS_ENABLED MOSDNS_DOMAINS MOSDNS_MATCH_RULES]
-  v2rayBctl update-profile PROFILE_ID NAME NODE_ID [DIRECT_DNS PORTS BYPASS_CHINA USE_V2RAY_DNS MOSDNS_ENABLED MOSDNS_DOMAINS MOSDNS_MATCH_RULES]
-  v2rayBctl set-profile-policy PROFILE_ID DIRECT_DNS PORTS BYPASS_CHINA [USE_V2RAY_DNS MOSDNS_ENABLED MOSDNS_DOMAINS MOSDNS_MATCH_RULES]
+  v2rayBctl add-profile NAME NODE_ID [DIRECT_DNS PORTS BYPASS_CHINA USE_V2RAY_DNS MOSDNS_ENABLED MOSDNS_DOMAINS MOSDNS_MATCH_RULES PROXY_ROUTER_TRAFFIC]
+  v2rayBctl update-profile PROFILE_ID NAME NODE_ID [DIRECT_DNS PORTS BYPASS_CHINA USE_V2RAY_DNS MOSDNS_ENABLED MOSDNS_DOMAINS MOSDNS_MATCH_RULES PROXY_ROUTER_TRAFFIC]
+  v2rayBctl set-profile-policy PROFILE_ID DIRECT_DNS PORTS BYPASS_CHINA [USE_V2RAY_DNS MOSDNS_ENABLED MOSDNS_DOMAINS MOSDNS_MATCH_RULES PROXY_ROUTER_TRAFFIC]
   v2rayBctl set-profile-enabled PROFILE_ID 0|1
   v2rayBctl delete-profile PROFILE_ID
   v2rayBctl select-profile PROFILE_ID
@@ -1453,9 +1511,9 @@ case "$command" in
 	update-node) [ "$#" -eq 6 ] || usage; cmd_update_node "$@" ;;
 	set-node-enabled) [ "$#" -eq 2 ] || usage; cmd_set_node_enabled "$@" ;;
 	delete-node) [ "$#" -eq 1 ] || usage; cmd_delete_node "$1" ;;
-	add-profile) { [ "$#" -eq 2 ] || [ "$#" -eq 5 ] || [ "$#" -eq 9 ]; } || usage; cmd_add_profile "$@" ;;
-	update-profile) { [ "$#" -eq 3 ] || [ "$#" -eq 6 ] || [ "$#" -eq 10 ]; } || usage; cmd_update_profile "$@" ;;
-	set-profile-policy) { [ "$#" -eq 4 ] || [ "$#" -eq 8 ]; } || usage; cmd_set_profile_policy "$@" ;;
+	add-profile) { [ "$#" -eq 2 ] || [ "$#" -eq 5 ] || [ "$#" -eq 9 ] || [ "$#" -eq 10 ]; } || usage; cmd_add_profile "$@" ;;
+	update-profile) { [ "$#" -eq 3 ] || [ "$#" -eq 6 ] || [ "$#" -eq 10 ] || [ "$#" -eq 11 ]; } || usage; cmd_update_profile "$@" ;;
+	set-profile-policy) { [ "$#" -eq 4 ] || [ "$#" -eq 8 ] || [ "$#" -eq 9 ]; } || usage; cmd_set_profile_policy "$@" ;;
 	set-profile-enabled) [ "$#" -eq 2 ] || usage; cmd_set_profile_enabled "$@" ;;
 	delete-profile) [ "$#" -eq 1 ] || usage; cmd_delete_profile "$1" ;;
 	select-profile) [ "$#" -eq 1 ] || usage; cmd_select_profile "$1" ;;

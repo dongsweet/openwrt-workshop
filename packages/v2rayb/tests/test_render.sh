@@ -34,13 +34,15 @@ grep -q 'set force_proxy4' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set direct_static4' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'elements = { *}' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'flags timeout; timeout 12h' "$TEST_DIR/runtime/active/nftables.nft"
-grep -q 'set pass { type ipv4_addr; flags interval; }' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'set pass { type ipv4_addr; flags interval;' "$TEST_DIR/runtime/active/nftables.nft"
+! grep -q 'hk2.example.com' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'set pass6 { type ipv6_addr; flags interval;' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set force_proxy { type ipv4_addr; flags interval; }' "$TEST_DIR/runtime/active/nftables.nft"
+! grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'ip daddr @force_proxy tcp dport { 80, 443, 8080, 8443 } redirect to :12346' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'ip daddr @pass return' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'tcp dport { 80, 443, 8080, 8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q '"force-proxy-in"' "$TEST_DIR/runtime/active/v2ray.json"
-! grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
 
 "$ctl" update-node 1 hk-updated vless hk3.example.com 8443 '{"settings":{"vnext":[{"address":"hk3.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"ws"}}' >/dev/null
@@ -71,13 +73,21 @@ grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.y
 grep -q 'regexp:\^cdn\\.example\\.com\$' "$TEST_DIR/runtime/active/mosdns-direct-domains.txt"
 grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'geoip:cn' "$TEST_DIR/runtime/active/v2ray.json"
-"$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$'
+"$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$' 1
 "$ctl" apply-draft
+"$ctl" render-all
+grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'type nat hook output priority -100' "$TEST_DIR/runtime/active/nftables.nft"
+output_chain="$(sed -n '/chain output {/,/^  }/p' "$TEST_DIR/runtime/active/nftables.nft")"
+printf '%s\n' "$output_chain" | grep -q 'ip daddr @pass return'
+printf '%s\n' "$output_chain" | grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345'
+"$ctl" status | grep -q '^profile_proxy_router_traffic=1$'
+grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
 "$ctl" dns-settings | grep -q '^dnsmasq_default=127.0.0.1#5353$'
 "$ctl" dns-settings | grep -q '^mosdns_enabled=0$'
 "$ctl" get-profile 1 | grep -q '^mosdns_domains=example.com$'
 "$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
-"$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 '' 'regexp:^cdn\.example\.com$'
+"$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 '' 'regexp:^cdn\.example\.com$' 0
 "$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
 if "$ctl" set-profile-enabled 1 0 >/dev/null 2>&1; then
 	echo "active profile unexpectedly disabled" >&2
