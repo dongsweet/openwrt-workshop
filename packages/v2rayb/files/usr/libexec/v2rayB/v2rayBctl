@@ -796,72 +796,6 @@ dnsmasq_endpoint() {
 	printf '%s\n' "$1" | sed 's/:\([0-9][0-9]*\)$/#\1/'
 }
 
-dnsmasq_domain_rule() {
-	host="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
-	host="${host%.}"
-	shift
-	set --
-	case "$host" in
-		''|*[!A-Za-z0-9._-]*) return 0 ;;
-		*[!0-9.]*) ;;
-		*) return 0 ;;
-	esac
-
-	candidate="$host"
-	while :; do
-		case "$candidate" in
-			*.*) ;;
-			*) break ;;
-		esac
-		set -- "$@" -e "server=/$candidate/"
-		candidate="${candidate#*.}"
-	done
-	[ "$#" -gt 0 ] || return 0
-
-	{
-		uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null || :
-		if [ -d "$DNSMASQ_CONFIG_DIR" ]; then
-			for dns_file in "$DNSMASQ_CONFIG_DIR"/*; do
-				[ -f "$dns_file" ] || continue
-				grep -hF "$@" "$dns_file" 2>/dev/null || :
-			done
-		fi
-	} | awk -v host="$host" '
-		{
-			line = $0
-			gsub(/\r/, "", line)
-			sub(/^[ \t]+/, "", line)
-			if (substr(line, 1, 7) != "server=")
-				next
-			sub(/^server=/, "", line)
-			split(line, fields, /[ \t]+/)
-			rule = fields[1]
-			if (substr(rule, 1, 1) != "/")
-				next
-			sub(/^\//, "", rule)
-			slash = index(rule, "/")
-			if (!slash)
-				next
-			domain = substr(rule, 1, slash - 1)
-			upstream = substr(rule, slash + 1)
-			suffix_start = length(host) - length(domain) + 1
-			if (domain == host ||
-			    (suffix_start > 1 && substr(host, suffix_start - 1, 1) == "." &&
-			     substr(host, suffix_start) == domain)) {
-				if (length(domain) > best_length) {
-					best_domain = domain
-					best_upstream = upstream
-					best_length = length(domain)
-				}
-			}
-		}
-		END {
-			if (best_domain != "")
-				printf "%s\t%s\n", best_domain, best_upstream
-		}
-	'
-}
-
 cmd_dns_settings() {
 	ensure_db
 	row="$(active_profile)"
@@ -1154,6 +1088,76 @@ cmd_test_dnsmasq() {
 	dig +short +time=3 +tries=1 @127.0.0.1 www.google.com A | grep -Eq '^[0-9]+(\.[0-9]+){3}$'
 }
 
+probe_dns_observer_stop() {
+	if [ -n "${probe_observer_table:-}" ]; then
+		nft delete table inet "$probe_observer_table" >/dev/null 2>&1 || :
+		probe_observer_table=''
+	fi
+}
+
+probe_cleanup() {
+	probe_dns_observer_stop
+	[ -n "${probe_dir:-}" ] && rm -rf "$probe_dir"
+}
+
+probe_dns_observer_start() {
+	probe_observer_table=''
+	probe_observer_token=''
+	command -v nft >/dev/null 2>&1 || return 1
+	command -v logread >/dev/null 2>&1 || return 1
+	probe_dnsmasq_uid="$(id -u dnsmasq 2>/dev/null || true)"
+	is_uint "$probe_dnsmasq_uid" || return 1
+
+	probe_observer_table="v2rayb_probe_$$"
+	probe_observer_token="v2rayb-probe-$$-$(date +%s)"
+	nft delete table inet "$probe_observer_table" >/dev/null 2>&1 || :
+	if ! nft -f - >/dev/null 2>&1 <<EOF
+table inet $probe_observer_table {
+	chain output {
+		type filter hook output priority -350; policy accept;
+		meta skuid $probe_dnsmasq_uid udp dport { 53, 5353, 5354 } counter log prefix "$probe_observer_token "
+		meta skuid $probe_dnsmasq_uid tcp dport { 53, 5353, 5354 } counter log prefix "$probe_observer_token "
+	}
+}
+EOF
+	then
+		probe_observer_table=''
+		probe_observer_token=''
+		return 1
+	fi
+	return 0
+}
+
+probe_dns_observer_results() {
+	[ -n "${probe_observer_token:-}" ] || return 0
+	logread 2>/dev/null | grep -F "$probe_observer_token " | awk '
+		{
+			dst = ""
+			port = ""
+			for (i = 1; i <= NF; i++) {
+				if ($i ~ /^DST=/)
+					dst = substr($i, 5)
+				else if ($i ~ /^DPT=/)
+					port = substr($i, 5)
+			}
+			if (dst == "" || port == "")
+				next
+			if (dst ~ /:/)
+				printf "[%s]:%s\n", dst, port
+			else
+				printf "%s:%s\n", dst, port
+		}
+	' | sort -u | awk '
+		BEGIN { out = "" }
+		{
+			if (out != "")
+				out = out ","
+			out = out $0
+		}
+		END { print out }
+	'
+}
+
 cmd_network_probe() {
 	ensure_db
 	probe_url="$1"
@@ -1206,10 +1210,15 @@ cmd_network_probe() {
 
 	probe_dir="$STATE_DIR/probe.$$"
 	mkdir -p "$probe_dir" || die "cannot create probe workspace"
-	trap 'rm -rf "$probe_dir"' EXIT HUP INT TERM
+	probe_observer_table=''
+	probe_observer_token=''
+	trap 'probe_cleanup' EXIT HUP INT TERM
 
 	command -v dig >/dev/null 2>&1 || die "dig is required"
 	command -v curl >/dev/null 2>&1 || die "curl is required"
+	dns_observation='not_applicable'
+	dns_observed_upstreams=''
+	dns_observation_query='-'
 	dns_a_file="$probe_dir/dns-a"
 	dns_aaaa_file="$probe_dir/dns-aaaa"
 	case "$probe_host" in
@@ -1222,6 +1231,12 @@ cmd_network_probe() {
 			dns_result='not_applicable'
 			;;
 		*[!0-9.]*)
+			if probe_dns_observer_start; then
+				dns_observation='observing'
+			else
+				dns_observation='unavailable'
+			fi
+			dns_observation_query='A,AAAA'
 			dig +noall +comments +answer +stats +time=3 +tries=1 @127.0.0.1 -p 53 "$probe_host" A >"$dns_a_file" 2>"$probe_dir/dns-a.err" || true
 			dig +noall +comments +answer +stats +time=3 +tries=1 @127.0.0.1 -p 53 "$probe_host" AAAA >"$dns_aaaa_file" 2>"$probe_dir/dns-aaaa.err" || true
 	dns_a="$(awk '$4 == "A" { if (out != "") out=out ","; out=out $5 } END { print out }' "$dns_a_file")"
@@ -1250,6 +1265,25 @@ cmd_network_probe() {
 			;;
 	esac
 
+	if [ "$dns_observation" = observing ]; then
+		sleep 1
+		dns_observed_upstreams="$(probe_dns_observer_results)"
+		if [ -z "$dns_observed_upstreams" ]; then
+			# A different RR type keeps the same queried name and dnsmasq routing,
+			# while avoiding a common A/AAAA cache hit.
+			dig +time=2 +tries=1 @127.0.0.1 -p 53 "$probe_host" TXT >/dev/null 2>&1 || true
+			dns_observation_query='A,AAAA,TXT'
+			sleep 1
+			dns_observed_upstreams="$(probe_dns_observer_results)"
+		fi
+		probe_dns_observer_stop
+		if [ -n "$dns_observed_upstreams" ]; then
+			dns_observation='observed'
+		else
+			dns_observation='not_observed'
+		fi
+	fi
+
 	runtime_state="$(get_state 2>/dev/null || printf normal)"
 	active_row=''
 	active_row="$(active_profile 2>/dev/null)" || active_row=''
@@ -1273,28 +1307,24 @@ EOF
 	fi
 	dnsmasq_servers="$(uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null | tr '\n' ',' | sed 's/,$//' || true)"
 	[ -n "$dnsmasq_servers" ] || dnsmasq_servers='WAN DHCP DNS'
-	dns_path="router -> dnsmasq 127.0.0.1#53 -> $dns_default"
-	dns_branch='default upstream (no matching domain rule)'
-	dns_matched_rule='-'
+	dns_path='router -> dnsmasq 127.0.0.1#53 -> upstream not observed'
+	dns_branch='upstream not observed'
 	dns_entry='127.0.0.1#53 (dnsmasq)'
 	if [ "$dns_status" = LITERAL_IP ]; then
+		dns_observation='not_applicable'
 		dns_entry='URL contains an IP literal; no DNS query'
 		dnsmasq_servers='not applicable'
 		dns_path='URL contains an IP literal; no DNS lookup'
 		dns_branch='not applicable'
-	else
-		matched_rule_row="$(dnsmasq_domain_rule "$probe_host")"
-		if [ -n "$matched_rule_row" ]; then
-			old_ifs="$IFS"
-			IFS="$(printf '\t')"
-			read -r matched_domain matched_upstream <<EOF
-$matched_rule_row
-EOF
-			IFS="$old_ifs"
-			dns_matched_rule="$matched_domain -> $matched_upstream"
-			dns_branch='domain-specific dnsmasq rule'
-			dns_path="router -> dnsmasq 127.0.0.1#53 -> $matched_upstream"
-		fi
+	elif [ "$dns_observation" = observed ]; then
+		dns_path="router -> dnsmasq 127.0.0.1#53 -> $dns_observed_upstreams"
+		dns_branch='observed dnsmasq upstream'
+	elif [ "$dns_observation" = not_observed ]; then
+		dns_path='DNS answer served without an observed dnsmasq upstream (cache or local answer)'
+		dns_branch='no upstream packet observed'
+	elif [ "$dns_observation" = unavailable ]; then
+		dns_path='actual dnsmasq upstream unavailable; runtime observation could not be started'
+		dns_branch='observation unavailable'
 	fi
 
 	curl_format='%{http_code}|%{remote_ip}|%{remote_port}|%{local_ip}|%{local_port}|%{time_connect}|%{time_appconnect}|%{time_starttransfer}|%{time_total}|%{ssl_verify_result}|%{http_version}'
@@ -1378,8 +1408,10 @@ EOF
 	[ -n "$route_dev" ] || route_dev='-'
 	[ -n "$route_via" ] || route_via='-'
 	[ -n "$route_src" ] || route_src='-'
-	if [ "$runtime_state" = proxy ]; then
-		https_path='router-originated curl -> kernel OUTPUT route; v2rayB transparent redirect applies to LAN PREROUTING, not this router-originated request'
+	if [ "$runtime_state" = proxy ] && [ "${proxy_router_traffic:-0}" = 1 ]; then
+		https_path='router-originated curl -> v2rayB OUTPUT redirect when ports and routing rules match'
+	elif [ "$runtime_state" = proxy ]; then
+		https_path='router-originated curl -> kernel OUTPUT route; router-originated TCP proxying is disabled for this profile'
 	else
 		https_path='router-originated curl -> kernel OUTPUT route; v2rayB is not in proxy mode'
 	fi
@@ -1397,12 +1429,18 @@ EOF
 	printf 'dns_query_ms=%s\n' "$dns_query_ms"
 	printf 'dnsmasq_servers=%s\n' "$dnsmasq_servers"
 	printf 'dns_branch=%s\n' "$dns_branch"
-	printf 'dns_matched_rule=%s\n' "$dns_matched_rule"
 	printf 'dns_path=%s\n' "$dns_path"
-	if [ "$dns_matched_rule" = '-' ]; then
-		printf '%s\n' 'dns_upstream_observation=no domain-specific rule matched; configured default upstream is reported'
+	printf 'dns_observation=%s\n' "$dns_observation"
+	printf 'dns_observed_upstreams=%s\n' "${dns_observed_upstreams:--}"
+	printf 'dns_observation_query=%s\n' "$dns_observation_query"
+	printf '%s\n' 'dns_observation_method=nftables output trace filtered to the dnsmasq process'
+	printf '%s\n' 'dns_observation_scope=dnsmasq outbound DNS packets during the probe window; correlation is best effort'
+	if [ "$dns_observation" = observed ]; then
+		printf '%s\n' 'dns_upstream_observation=actual outbound DNS packets observed during the probe window'
+	elif [ "$dns_observation" = not_observed ]; then
+		printf '%s\n' 'dns_upstream_observation=no outbound DNS packet observed; answer may be cached or local'
 	else
-		printf '%s\n' 'dns_upstream_observation=most-specific dnsmasq domain rule selected for this query'
+		printf '%s\n' 'dns_upstream_observation=actual upstream could not be observed'
 	fi
 	printf 'https_result=%s\n' "$https_result"
 	printf 'https_curl_code=%s\n' "$curl_code"

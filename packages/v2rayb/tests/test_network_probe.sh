@@ -14,6 +14,9 @@ export V2RAYB_RULE_DIR="$TEST_DIR/rules"
 export V2RAYB_DNSMASQ_DIR="$TEST_DIR/dnsmasq.d"
 export V2RAYB_SQLITE3="$ROOT/tests/sqlite3-wrapper.py"
 export PROBE_MOCK_CURL_ARGS="$TEST_DIR/curl.args"
+export PROBE_MOCK_NFT_INPUT="$TEST_DIR/nft.input"
+export PROBE_MOCK_NFT_TOKEN="$TEST_DIR/nft.token"
+export PROBE_MOCK_NFT_CALLS="$TEST_DIR/nft.calls"
 export PATH="$BIN:$PATH"
 
 cat >"$BIN/dig" <<'EOF'
@@ -60,7 +63,35 @@ case "$3" in
 	*) exit 1 ;;
 esac
 EOF
-chmod +x "$BIN/dig" "$BIN/curl" "$BIN/ip" "$BIN/uci"
+cat >"$BIN/id" <<'EOF'
+#!/bin/sh
+if [ "$1" = -u ] && [ "$2" = dnsmasq ]; then
+	printf '%s\n' 453
+	exit 0
+fi
+exit 1
+EOF
+cat >"$BIN/nft" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$PROBE_MOCK_NFT_CALLS"
+if [ "$1" = -f ] && [ "$2" = - ]; then
+	input="$(cat)"
+	printf '%s\n' "$input" >"$PROBE_MOCK_NFT_INPUT"
+	printf '%s\n' "$input" |
+		sed -n 's/.*log prefix "\([^"]*\) ".*/\1/p' |
+		sed -n '1p' >"$PROBE_MOCK_NFT_TOKEN"
+fi
+exit 0
+EOF
+cat >"$BIN/logread" <<'EOF'
+#!/bin/sh
+[ "${PROBE_LOGREAD_EMPTY:-0}" = 1 ] && exit 0
+token="$(cat "$PROBE_MOCK_NFT_TOKEN" 2>/dev/null || true)"
+[ -n "$token" ] || exit 0
+printf '%s IN= OUT=eth0 SRC=192.0.2.2 DST=223.5.5.5 LEN=78 PROTO=UDP SPT=53000 DPT=53 LEN=58\n' "$token"
+printf '%s IN= OUT=eth0 SRC=192.0.2.2 DST=61.139.2.69 LEN=78 PROTO=UDP SPT=53000 DPT=53 LEN=58\n' "$token"
+EOF
+chmod +x "$BIN/dig" "$BIN/curl" "$BIN/ip" "$BIN/uci" "$BIN/id" "$BIN/nft" "$BIN/logread"
 printf '%s\n' \
 	'# A less-specific rule must lose to the longest matching suffix.' \
 	'server=/com/1.1.1.1#53' \
@@ -88,18 +119,26 @@ done
 printf '%s\n' "$output" | grep -q '^dns_result=success$'
 printf '%s\n' "$output" | grep -q '^dns_a=198.51.100.10,198.51.100.11$'
 printf '%s\n' "$output" | grep -q '^dns_aaaa=2001:db8::10$'
-printf '%s\n' "$output" | grep -q '^dns_matched_rule=www.example.com -> 9.9.9.9#53$'
-printf '%s\n' "$output" | grep -q '^dns_branch=domain-specific dnsmasq rule$'
-printf '%s\n' "$output" | grep -q '^dns_path=router -> dnsmasq 127.0.0.1#53 -> 9.9.9.9#53$'
+printf '%s\n' "$output" | grep -q '^dns_observation=observed$'
+printf '%s\n' "$output" | grep -q '^dns_observed_upstreams=223.5.5.5:53,61.139.2.69:53$'
+printf '%s\n' "$output" | grep -q '^dns_observation_query=A,AAAA$'
+printf '%s\n' "$output" | grep -q '^dns_observation_scope=dnsmasq outbound DNS packets during the probe window; correlation is best effort$'
+printf '%s\n' "$output" | grep -q '^dns_branch=observed dnsmasq upstream$'
+printf '%s\n' "$output" | grep -q '^dns_path=router -> dnsmasq 127.0.0.1#53 -> 223.5.5.5:53,61.139.2.69:53$'
 printf '%s\n' "$output" | grep -q '^https_result=success$'
+grep -q 'meta skuid 453 udp dport { 53, 5353, 5354 }' "$PROBE_MOCK_NFT_INPUT"
+grep -q 'meta skuid 453 tcp dport { 53, 5353, 5354 }' "$PROBE_MOCK_NFT_INPUT"
+grep -q 'delete table inet v2rayb_probe_' "$PROBE_MOCK_NFT_CALLS"
 printf '%s\n' "$output" | grep -q '^https_remote=198.51.100.10:443$'
 printf '%s\n' "$output" | grep -q '^route_device=eth0$'
 grep -q -- '--resolve' "$PROBE_MOCK_CURL_ARGS"
 grep -q -- 'www.example.com:443:198.51.100.10,198.51.100.11,\[2001:db8::10\]' "$PROBE_MOCK_CURL_ARGS"
 
-fallback_output="$("$ctl" network-probe 'https://unmatched.example.net/')"
-printf '%s\n' "$fallback_output" | grep -q '^dns_matched_rule=-$'
-printf '%s\n' "$fallback_output" | grep -q '^dns_branch=default upstream (no matching domain rule)$'
+cached_output="$(PROBE_LOGREAD_EMPTY=1 "$ctl" network-probe 'https://unmatched.example.net/')"
+printf '%s\n' "$cached_output" | grep -q '^dns_observation=not_observed$'
+printf '%s\n' "$cached_output" | grep -q '^dns_observed_upstreams=-$'
+printf '%s\n' "$cached_output" | grep -q '^dns_branch=no upstream packet observed$'
+printf '%s\n' "$cached_output" | grep -q '^dns_observation_query=A,AAAA,TXT$'
 
 rm -f "$PROBE_MOCK_CURL_ARGS"
 failed_job="$(PROBE_DNS_FAIL=1 "$ctl" network-probe-start 'https://www.example.com/')"

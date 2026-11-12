@@ -118,9 +118,12 @@ def main():
     assert "method: 'dns_state'" in view_source
     assert "Use V2Ray DNS as dnsmasq default" in view_source
     assert "Only names not matched by a domain-specific dnsmasq rule" in view_source
-    assert "_('Matched domain rule')" in view_source
-    assert "_('No matching domain rule')" in view_source
-    assert "_('Matched dnsmasq rule')" in view_source
+    assert "_('Domain-rule files')" in view_source
+    assert "_('Default upstream')" in view_source
+    assert "_('Observed upstreams')" in view_source
+    assert "_('Observation status')" in view_source
+    assert "_('Observation scope')" in view_source
+    assert "nftables output trace filtered to the dnsmasq process" in ctl_source
     assert "Enable MosDNS branch" in view_source
     assert "MosDNS domains" in view_source
     assert "MosDNS match rules" in view_source
@@ -152,8 +155,9 @@ def main():
     assert "A-Za-z0-9._:[\\]-" not in rpc_source
     assert "network-probe" in ctl_source
     assert "Test a URL from this router" in view_source
-    assert "enable Proxy router-originated TCP" in view_source
-    assert "transparent redirect applies to LAN PREROUTING" in ctl_source
+    assert "records its actual outbound DNS targets" in view_source
+    assert "router-originated TCP proxying is disabled for this profile" in ctl_source
+    assert "router-originated curl -> v2rayB OUTPUT redirect" in ctl_source
     assert "rollbackAppliedChange" in rpc_source
     assert "Applied V2Ray configuration" in view_source
     assert "Contains credentials. Do not share." in view_source
