@@ -76,6 +76,9 @@ grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime
 "$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$' 1
 "$ctl" apply-draft
 "$ctl" render-all
+if command -v nft >/dev/null 2>&1; then
+	nft -c -f "$TEST_DIR/runtime/active/nftables.nft"
+fi
 grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'type nat hook output priority -100' "$TEST_DIR/runtime/active/nftables.nft"
 output_chain="$(sed -n '/chain output {/,/^  }/p' "$TEST_DIR/runtime/active/nftables.nft")"

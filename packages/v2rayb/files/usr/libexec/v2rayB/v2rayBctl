@@ -959,10 +959,14 @@ EOF
 		printf '%s\n' '  set force_proxy4 { type ipv4_addr; flags timeout; timeout 12h; }'
 		printf '%s\n' '  set force_proxy6 { type ipv6_addr; flags timeout; timeout 12h; }'
 		printf '%s\n' '  set pass { type ipv4_addr; flags interval;'
-		nft_elements "$pass4_file"
+		if [ -s "$pass4_file" ]; then
+			nft_elements "$pass4_file"
+		fi
 		printf '%s\n' '  }'
 		printf '%s\n' '  set pass6 { type ipv6_addr; flags interval;'
-		nft_elements "$pass6_file"
+		if [ -s "$pass6_file" ]; then
+			nft_elements "$pass6_file"
+		fi
 		printf '%s\n' '  }'
 		printf '%s\n' '  set force_proxy { type ipv4_addr; flags interval; }'
 		printf '%s\n' '  chain prerouting {'
