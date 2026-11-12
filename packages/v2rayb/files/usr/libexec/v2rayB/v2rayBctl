@@ -814,6 +814,8 @@ EOF
 	fi
 	printf 'runtime_state=%s\n' "$(get_state)"
 	printf 'dnsmasq_default=%s\n' "$dnsmasq_default"
+	printf 'dns_fallback=%s\n' "$(setting dns_fallback)"
+	printf 'dns_fallback_servers=%s\n' '1.1.1.1#53,1.0.0.1#53'
 	printf 'direct_dns=%s\n' "$profile_direct_dns"
 	printf 'use_v2ray_dns=%s\n' "$use_v2ray_dns"
 	printf 'mosdns_enabled=%s\n' "$mosdns_enabled"

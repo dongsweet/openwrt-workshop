@@ -99,6 +99,7 @@ set_proxy_dns() {
 	load_dns_policy || return 1
 	default_upstream="$(dns_policy_value dnsmasq_default)"
 	mosdns_enabled="$(dns_policy_value mosdns_enabled)"
+	dns_fallback="$(dns_policy_value dns_fallback)"
 	[ -n "$default_upstream" ] || return 1
 	uci -q show "$DNSMASQ_SECTION" >/dev/null 2>&1 || return 1
 	[ -d "$DNSMASQ_DIR" ] || return 1
@@ -130,6 +131,15 @@ set_proxy_dns() {
 	done < "$DNS_BACKUP/server"
 	uci -q add_list "${DNSMASQ_SECTION}.server=$default_upstream" || return 1
 	printf '%s\n' "$default_upstream" >> "$RUNTIME/proxy-server.expected"
+	if [ "$dns_fallback" = 1 ]; then
+		for fallback_server in 1.1.1.1#53 1.0.0.1#53; do
+			uci -q add_list "${DNSMASQ_SECTION}.server=$fallback_server" || return 1
+			printf '%s\n' "$fallback_server" >> "$RUNTIME/proxy-server.expected"
+		done
+		uci -q set "${DNSMASQ_SECTION}.allservers=1" || return 1
+	else
+		uci -q delete "${DNSMASQ_SECTION}.allservers" || true
+	fi
 	uci -q set "${DNSMASQ_SECTION}.noresolv=1" || return 1
 	uci -q get "${DNSMASQ_SECTION}.server" > "$RUNTIME/proxy-server" 2>/dev/null || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$RUNTIME/proxy-noresolv" 2>/dev/null || :

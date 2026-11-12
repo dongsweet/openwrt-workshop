@@ -129,6 +129,8 @@ def main():
     assert "_('Observed upstreams')" in view_source
     assert "_('Observation status')" in view_source
     assert "_('Observation scope')" in view_source
+    assert "_('Configured domain rules')" in view_source
+    assert "_('DNS fallback')" in view_source
     assert "nftables output trace filtered to the dnsmasq process" in ctl_source
     assert "Enable MosDNS branch" in view_source
     assert "MosDNS domains" in view_source
