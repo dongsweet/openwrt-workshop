@@ -164,7 +164,6 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
     ('fallback_on_failure', '1'),
     ('mosdns_listen', '127.0.0.1#5354'),
     ('v2ray_dns_listen', '127.0.0.1#5353'),
-    ('dns_fallback', '1'),
     ('transparent_proxy_port', '12345'),
     ('force_proxy_port', '12346');
 

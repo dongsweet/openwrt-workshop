@@ -80,12 +80,9 @@ capture_dnsmasq_baseline() {
 	mkdir -p "$DNS_BACKUP" || return 1
 	: > "$DNS_BACKUP/server" || { rm -rf "$DNS_BACKUP"; return 1; }
 	: > "$DNS_BACKUP/noresolv" || { rm -rf "$DNS_BACKUP"; return 1; }
-	: > "$DNS_BACKUP/allservers" || { rm -rf "$DNS_BACKUP"; return 1; }
 	uci -q get "${DNSMASQ_SECTION}.server" > "$DNS_BACKUP/server" 2>/dev/null || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$DNS_BACKUP/noresolv" 2>/dev/null || :
-	uci -q get "${DNSMASQ_SECTION}.allservers" > "$DNS_BACKUP/allservers" 2>/dev/null || :
-	[ -f "$DNS_BACKUP/server" ] && [ -f "$DNS_BACKUP/noresolv" ] &&
-		[ -f "$DNS_BACKUP/allservers" ] || {
+	[ -f "$DNS_BACKUP/server" ] && [ -f "$DNS_BACKUP/noresolv" ] || {
 		rm -rf "$DNS_BACKUP"
 		return 1
 	}
@@ -102,8 +99,6 @@ set_proxy_dns() {
 	load_dns_policy || return 1
 	default_upstream="$(dns_policy_value dnsmasq_default)"
 	mosdns_enabled="$(dns_policy_value mosdns_enabled)"
-	dns_fallback="$(dns_policy_value dns_fallback)"
-	[ -n "$dns_fallback" ] || dns_fallback=1
 	[ -n "$default_upstream" ] || return 1
 	uci -q show "$DNSMASQ_SECTION" >/dev/null 2>&1 || return 1
 	[ -d "$DNSMASQ_DIR" ] || return 1
@@ -135,19 +130,10 @@ set_proxy_dns() {
 	done < "$DNS_BACKUP/server"
 	uci -q add_list "${DNSMASQ_SECTION}.server=$default_upstream" || return 1
 	printf '%s\n' "$default_upstream" >> "$RUNTIME/proxy-server.expected"
-	if [ "$dns_fallback" = 1 ]; then
-		for fallback_server in 1.1.1.1#53 1.0.0.1#53; do
-			uci -q add_list "${DNSMASQ_SECTION}.server=$fallback_server" || return 1
-			printf '%s\n' "$fallback_server" >> "$RUNTIME/proxy-server.expected"
-		done
-		uci -q set "${DNSMASQ_SECTION}.allservers=1" || return 1
-	else
-		uci -q delete "${DNSMASQ_SECTION}.allservers" || true
-	fi
 	uci -q set "${DNSMASQ_SECTION}.noresolv=1" || return 1
+	uci -q get "${DNSMASQ_SECTION}.server" > "$RUNTIME/proxy-server" 2>/dev/null || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$RUNTIME/proxy-noresolv" 2>/dev/null || :
 	printf '%s\n' '1' > "$RUNTIME/proxy-noresolv.expected"
-	uci -q get "${DNSMASQ_SECTION}.server" 2>/dev/null | tr ' ' '\n' > "$RUNTIME/proxy-server" || :
 	cmp -s "$RUNTIME/proxy-server" "$RUNTIME/proxy-server.expected" || return 1
 	cmp -s "$RUNTIME/proxy-noresolv" "$RUNTIME/proxy-noresolv.expected" || return 1
 	dnsmasq_reload
@@ -171,9 +157,7 @@ restore_dnsmasq() {
 			printf '%s\n' "$server" >> "$RUNTIME/restore-server.expected"
 		done < "$DNS_BACKUP/server"
 		uci -q delete "${DNSMASQ_SECTION}.noresolv" || true
-		uci -q delete "${DNSMASQ_SECTION}.allservers" || true
 		: > "$RUNTIME/restore-noresolv.expected"
-		: > "$RUNTIME/restore-allservers.expected"
 	else
 		while IFS= read -r server; do
 			[ -n "$server" ] || continue
@@ -188,14 +172,6 @@ restore_dnsmasq() {
 			uci -q delete "${DNSMASQ_SECTION}.noresolv" || true
 			: > "$RUNTIME/restore-noresolv.expected"
 		fi
-	fi
-	if [ -s "$DNS_BACKUP/allservers" ]; then
-		allservers="$(sed -n '1p' "$DNS_BACKUP/allservers")"
-		uci -q set "${DNSMASQ_SECTION}.allservers=$allservers" || return 1
-		cp "$DNS_BACKUP/allservers" "$RUNTIME/restore-allservers.expected" || return 1
-	else
-		uci -q delete "${DNSMASQ_SECTION}.allservers" || true
-		: > "$RUNTIME/restore-allservers.expected"
 	fi
 	if [ -e "$MOSDNS_FORWARD_FILE" ]; then
 		if [ ! -f "$MOSDNS_FORWARD_EXPECTED" ] || ! cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"; then
@@ -212,10 +188,8 @@ restore_dnsmasq() {
 	uci -q show "$DNSMASQ_SECTION" >/dev/null 2>&1 || return 1
 	uci -q get "${DNSMASQ_SECTION}.server" > "$RUNTIME/restore-server" 2>/dev/null || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$RUNTIME/restore-noresolv" 2>/dev/null || :
-	uci -q get "${DNSMASQ_SECTION}.allservers" > "$RUNTIME/restore-allservers" 2>/dev/null || :
 	cmp -s "$RUNTIME/restore-server" "$RUNTIME/restore-server.expected" || return 1
 	cmp -s "$RUNTIME/restore-noresolv" "$RUNTIME/restore-noresolv.expected" || return 1
-	cmp -s "$RUNTIME/restore-allservers" "$RUNTIME/restore-allservers.expected" || return 1
 }
 
 cleanup_legacy_procd() {

@@ -17,9 +17,8 @@ uci() {
 		get)
 			case "$2" in
 				"${DNSMASQ_SECTION}.confdir") printf '%s\n' "$DNSMASQ_DIR" ;;
-				"${DNSMASQ_SECTION}.server") [ -n "$MOCK_SERVER" ] && printf '%s\n' "$MOCK_SERVER" | tr '\n' ' ' | sed 's/ $//' ;;
+				"${DNSMASQ_SECTION}.server") [ -n "$MOCK_SERVER" ] && printf '%s\n' "$MOCK_SERVER" ;;
 				"${DNSMASQ_SECTION}.noresolv") [ -n "$MOCK_NORESOLV" ] && printf '%s\n' "$MOCK_NORESOLV" ;;
-				"${DNSMASQ_SECTION}.allservers") [ -n "$MOCK_ALLSERVERS" ] && printf '%s\n' "$MOCK_ALLSERVERS" ;;
 				*) return 1 ;;
 			esac
 			;;
@@ -27,7 +26,6 @@ uci() {
 			case "$2" in
 				"${DNSMASQ_SECTION}.server") MOCK_SERVER="" ;;
 				"${DNSMASQ_SECTION}.noresolv") MOCK_NORESOLV="" ;;
-				"${DNSMASQ_SECTION}.allservers") MOCK_ALLSERVERS="" ;;
 			esac
 			;;
 		add_list)
@@ -41,7 +39,6 @@ ${2#*=}"
 		set)
 			case "$2" in
 				"${DNSMASQ_SECTION}.noresolv="*) MOCK_NORESOLV="${2#*=}" ;;
-				"${DNSMASQ_SECTION}.allservers="*) MOCK_ALLSERVERS="${2#*=}" ;;
 			esac
 			;;
 		*) return 2 ;;
@@ -70,18 +67,14 @@ setup_case() {
 	CTL="$TEST_DIR/ctl"
 	MOCK_SERVER=""
 	MOCK_NORESOLV=""
-	MOCK_ALLSERVERS=""
 	TEST_DNSMASQ_DEFAULT='127.0.0.1#5353'
-	TEST_DNS_FALLBACK=1
 	TEST_MOSDNS_ENABLED=1
 	TEST_MOSDNS_DOMAINS='xn--ngstr-lra8j.com'
 	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
-		MOCK_SERVER MOCK_NORESOLV MOCK_ALLSERVERS TEST_DNSMASQ_DEFAULT TEST_DNS_FALLBACK \
-		TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
+		MOCK_SERVER MOCK_NORESOLV TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
-	: > "$DNS_BACKUP/allservers"
 	printf '0\n' > "$DNS_BACKUP/stale"
 	printf 'proxy\n' > "$RUNTIME/state"
 }
@@ -95,7 +88,6 @@ case "$1" in
 	dns-settings)
 		printf '%s\n' 'runtime_state=starting' \
 			"dnsmasq_default=$TEST_DNSMASQ_DEFAULT" \
-			"dns_fallback=$TEST_DNS_FALLBACK" \
 			'direct_dns=223.5.5.5:53' 'use_v2ray_dns=1' \
 			"mosdns_enabled=$TEST_MOSDNS_ENABLED" \
 			"mosdns_domains=$TEST_MOSDNS_DOMAINS" \
@@ -166,14 +158,13 @@ MOCK_SERVER="$(cat "$DNS_BACKUP/server")"
 MOCK_NORESOLV=1
 set_proxy_dns
 cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
-[ "$MOCK_SERVER" = '/example.cn/223.5.5.5 127.0.0.1#5353 1.1.1.1#53 1.0.0.1#53' ]
+[ "$MOCK_SERVER" = '/example.cn/223.5.5.5
+127.0.0.1#5353' ]
 [ "$MOCK_NORESOLV" = 1 ]
-[ "$MOCK_ALLSERVERS" = 1 ]
 restore_dnsmasq
 [ ! -e "$MOSDNS_FORWARD_FILE" ]
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
 [ -z "$MOCK_NORESOLV" ]
-[ -z "$MOCK_ALLSERVERS" ]
 
 setup_case direct-dns-no-mosdns
 DNS_RELOAD_FAIL=0
@@ -185,14 +176,12 @@ export FAIL_NFT TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
 MOCK_SERVER=""
 MOCK_NORESOLV=""
 set_proxy_dns
-[ "$MOCK_SERVER" = '223.5.5.5#53 1.1.1.1#53 1.0.0.1#53' ]
+[ "$MOCK_SERVER" = '223.5.5.5#53' ]
 [ "$MOCK_NORESOLV" = 1 ]
-[ "$MOCK_ALLSERVERS" = 1 ]
 [ ! -e "$MOSDNS_FORWARD_FILE" ]
 restore_dnsmasq
 [ -z "$MOCK_SERVER" ]
 [ -z "$MOCK_NORESOLV" ]
-[ -z "$MOCK_ALLSERVERS" ]
 
 setup_case legacy-procd
 stop_instances
