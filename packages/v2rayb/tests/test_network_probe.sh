@@ -88,12 +88,18 @@ done
 printf '%s\n' "$output" | grep -q '^dns_result=success$'
 printf '%s\n' "$output" | grep -q '^dns_a=198.51.100.10,198.51.100.11$'
 printf '%s\n' "$output" | grep -q '^dns_aaaa=2001:db8::10$'
-! printf '%s\n' "$output" | grep -q '^dns_matched_rule='
+printf '%s\n' "$output" | grep -q '^dns_matched_rule=www.example.com -> 9.9.9.9#53$'
+printf '%s\n' "$output" | grep -q '^dns_branch=domain-specific dnsmasq rule$'
+printf '%s\n' "$output" | grep -q '^dns_path=router -> dnsmasq 127.0.0.1#53 -> 9.9.9.9#53$'
 printf '%s\n' "$output" | grep -q '^https_result=success$'
 printf '%s\n' "$output" | grep -q '^https_remote=198.51.100.10:443$'
 printf '%s\n' "$output" | grep -q '^route_device=eth0$'
 grep -q -- '--resolve' "$PROBE_MOCK_CURL_ARGS"
 grep -q -- 'www.example.com:443:198.51.100.10,198.51.100.11,\[2001:db8::10\]' "$PROBE_MOCK_CURL_ARGS"
+
+fallback_output="$("$ctl" network-probe 'https://unmatched.example.net/')"
+printf '%s\n' "$fallback_output" | grep -q '^dns_matched_rule=-$'
+printf '%s\n' "$fallback_output" | grep -q '^dns_branch=default upstream (no matching domain rule)$'
 
 rm -f "$PROBE_MOCK_CURL_ARGS"
 failed_job="$(PROBE_DNS_FAIL=1 "$ctl" network-probe-start 'https://www.example.com/')"

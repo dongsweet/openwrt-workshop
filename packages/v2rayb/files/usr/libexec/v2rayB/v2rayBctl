@@ -796,6 +796,72 @@ dnsmasq_endpoint() {
 	printf '%s\n' "$1" | sed 's/:\([0-9][0-9]*\)$/#\1/'
 }
 
+dnsmasq_domain_rule() {
+	host="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
+	host="${host%.}"
+	shift
+	set --
+	case "$host" in
+		''|*[!A-Za-z0-9._-]*) return 0 ;;
+		*[!0-9.]*) ;;
+		*) return 0 ;;
+	esac
+
+	candidate="$host"
+	while :; do
+		case "$candidate" in
+			*.*) ;;
+			*) break ;;
+		esac
+		set -- "$@" -e "server=/$candidate/"
+		candidate="${candidate#*.}"
+	done
+	[ "$#" -gt 0 ] || return 0
+
+	{
+		uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null || :
+		if [ -d "$DNSMASQ_CONFIG_DIR" ]; then
+			for dns_file in "$DNSMASQ_CONFIG_DIR"/*; do
+				[ -f "$dns_file" ] || continue
+				grep -hF "$@" "$dns_file" 2>/dev/null || :
+			done
+		fi
+	} | awk -v host="$host" '
+		{
+			line = $0
+			gsub(/\r/, "", line)
+			sub(/^[ \t]+/, "", line)
+			if (substr(line, 1, 7) != "server=")
+				next
+			sub(/^server=/, "", line)
+			split(line, fields, /[ \t]+/)
+			rule = fields[1]
+			if (substr(rule, 1, 1) != "/")
+				next
+			sub(/^\//, "", rule)
+			slash = index(rule, "/")
+			if (!slash)
+				next
+			domain = substr(rule, 1, slash - 1)
+			upstream = substr(rule, slash + 1)
+			suffix_start = length(host) - length(domain) + 1
+			if (domain == host ||
+			    (suffix_start > 1 && substr(host, suffix_start - 1, 1) == "." &&
+			     substr(host, suffix_start) == domain)) {
+				if (length(domain) > best_length) {
+					best_domain = domain
+					best_upstream = upstream
+					best_length = length(domain)
+				}
+			}
+		}
+		END {
+			if (best_domain != "")
+				printf "%s\t%s\n", best_domain, best_upstream
+		}
+	'
+}
+
 cmd_dns_settings() {
 	ensure_db
 	row="$(active_profile)"
@@ -1208,13 +1274,27 @@ EOF
 	dnsmasq_servers="$(uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null | tr '\n' ',' | sed 's/,$//' || true)"
 	[ -n "$dnsmasq_servers" ] || dnsmasq_servers='WAN DHCP DNS'
 	dns_path="router -> dnsmasq 127.0.0.1#53 -> $dns_default"
-	dns_branch='local dnsmasq'
+	dns_branch='default upstream (no matching domain rule)'
+	dns_matched_rule='-'
 	dns_entry='127.0.0.1#53 (dnsmasq)'
 	if [ "$dns_status" = LITERAL_IP ]; then
 		dns_entry='URL contains an IP literal; no DNS query'
 		dnsmasq_servers='not applicable'
 		dns_path='URL contains an IP literal; no DNS lookup'
 		dns_branch='not applicable'
+	else
+		matched_rule_row="$(dnsmasq_domain_rule "$probe_host")"
+		if [ -n "$matched_rule_row" ]; then
+			old_ifs="$IFS"
+			IFS="$(printf '\t')"
+			read -r matched_domain matched_upstream <<EOF
+$matched_rule_row
+EOF
+			IFS="$old_ifs"
+			dns_matched_rule="$matched_domain -> $matched_upstream"
+			dns_branch='domain-specific dnsmasq rule'
+			dns_path="router -> dnsmasq 127.0.0.1#53 -> $matched_upstream"
+		fi
 	fi
 
 	curl_format='%{http_code}|%{remote_ip}|%{remote_port}|%{local_ip}|%{local_port}|%{time_connect}|%{time_appconnect}|%{time_starttransfer}|%{time_total}|%{ssl_verify_result}|%{http_version}'
@@ -1317,8 +1397,13 @@ EOF
 	printf 'dns_query_ms=%s\n' "$dns_query_ms"
 	printf 'dnsmasq_servers=%s\n' "$dnsmasq_servers"
 	printf 'dns_branch=%s\n' "$dns_branch"
+	printf 'dns_matched_rule=%s\n' "$dns_matched_rule"
 	printf 'dns_path=%s\n' "$dns_path"
-	printf '%s\n' 'dns_upstream_observation=configured default path; the actual dnsmasq forwarding rule is not inferred'
+	if [ "$dns_matched_rule" = '-' ]; then
+		printf '%s\n' 'dns_upstream_observation=no domain-specific rule matched; configured default upstream is reported'
+	else
+		printf '%s\n' 'dns_upstream_observation=most-specific dnsmasq domain rule selected for this query'
+	fi
 	printf 'https_result=%s\n' "$https_result"
 	printf 'https_curl_code=%s\n' "$curl_code"
 	printf 'https_http_code=%s\n' "$http_code"

@@ -117,6 +117,10 @@ def main():
     assert "profilePolicyText(row)" in view_source
     assert "method: 'dns_state'" in view_source
     assert "Use V2Ray DNS as dnsmasq default" in view_source
+    assert "Only names not matched by a domain-specific dnsmasq rule" in view_source
+    assert "_('Matched domain rule')" in view_source
+    assert "_('No matching domain rule')" in view_source
+    assert "_('Matched dnsmasq rule')" in view_source
     assert "Enable MosDNS branch" in view_source
     assert "MosDNS domains" in view_source
     assert "MosDNS match rules" in view_source

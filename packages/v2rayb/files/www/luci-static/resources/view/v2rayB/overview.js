@@ -565,7 +565,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('DNS routing')),
 			field(_('Use V2Ray DNS as dnsmasq default'), useV2rayDns,
-				_('Disabled: default DNS uses Direct DNS.')),
+				_('Only names not matched by a domain-specific dnsmasq rule use the V2Ray resolver. China domain rules still use Direct DNS.')),
 			field(_('Enable MosDNS branch'), mosdnsEnabled,
 				_('Disabled: domains and rules are inactive but retained.')),
 			mosdnsDomainsField,
@@ -1102,11 +1102,11 @@ return view.extend({
 
 		const dnsPipeline = table([ _('Order'), _('Component'), _('Listener / upstream') ], [
 			[ '1', _('LAN client'), 'dnsmasq :53' ],
-			[ '2', _('dnsmasq main resolver'), dnsmasqDefault ],
-			[ '3', _('China acceleration'), `${dnsState.dnsmasq_confdir || '/etc/dnsmasq.d'} (${accelFiles})` ],
+			[ '2', _('Matched domain rule'), `${dnsState.dnsmasq_confdir || '/etc/dnsmasq.d'} (${accelFiles})` ],
+			[ '3', _('No matching domain rule'), dnsmasqDefault ],
 			[ '4', _('MosDNS narrow branch'), `${mosDns} ← *.${dnsSuffix}` ],
-			[ '5', _('Direct match + nftset'), effectiveDns ],
-			[ '6', _('Fallback'), v2rayDns ]
+			[ '5', _('Direct DNS'), effectiveDns ],
+			[ '6', _('Proxy DNS'), v2rayDns ]
 		], _('No DNS state data available.'));
 
 		const runtimePane = [
@@ -1197,7 +1197,8 @@ return view.extend({
 						[ _('DNS entry'), probe.dns_entry || '-' ],
 						[ _('DNS route'), probe.dns_path || '-' ],
 						[ _('DNS branch'), probe.dns_branch || '-' ],
-						[ _('Configured default upstreams'), probe.dnsmasq_servers || '-' ],
+						[ _('Matched dnsmasq rule'), probe.dns_matched_rule || '-' ],
+						[ _('Configured upstreams'), probe.dnsmasq_servers || '-' ],
 						[ _('DNS result'), (probe.dns_result || '-') + ' (' + (probe.dns_status || '-') + ')' ],
 						[ _('A answers'), probe.dns_a || '-' ],
 						[ _('AAAA answers'), probe.dns_aaaa || '-' ],
