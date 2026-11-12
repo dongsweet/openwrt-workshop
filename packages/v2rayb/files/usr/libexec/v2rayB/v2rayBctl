@@ -896,12 +896,17 @@ nft_elements() {
 	[ -s "$file" ] || return 0
 	awk '
 		BEGIN { n = 0 }
-		/^[[:space:]]*#/ { next }
-		/^[[:space:]]*$/ { next }
 		{
+			gsub(/\r/, "", $0)
+			gsub(/^[ \t]+|[ \t]+$/, "", $0)
+			if ($0 == "" || $0 ~ /^#/)
+				next
+			element = $1
+			if (element !~ /^[0-9A-Fa-f:.\/]+$/)
+				next
 			if (n == 0) print "    elements = {"
 			else print ","
-			if (n++) printf "      %s", $1
+			if (n++) printf "      %s", element
 		}
 		END { if (n) print "\n    };" }
 	' "$file"

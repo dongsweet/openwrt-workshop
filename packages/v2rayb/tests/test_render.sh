@@ -79,6 +79,8 @@ grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime
 if command -v nft >/dev/null 2>&1; then
 	nft -c -f "$TEST_DIR/runtime/active/nftables.nft"
 fi
+! grep -q 'elements = {[[:space:]]*}' "$TEST_DIR/runtime/active/nftables.nft"
+! sed -n '/elements = {/,/};/p' "$TEST_DIR/runtime/active/nftables.nft" | grep -q '^[[:space:]]*$'
 grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'type nat hook output priority -100' "$TEST_DIR/runtime/active/nftables.nft"
 output_chain="$(sed -n '/chain output {/,/^  }/p' "$TEST_DIR/runtime/active/nftables.nft")"
