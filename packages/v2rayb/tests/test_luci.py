@@ -117,7 +117,8 @@ def main():
     assert 'V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"' in init_source
     assert 'ulimit -n "$max_fd"' in init_source
     assert 'start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP"' in init_source
-    assert 'chown "$V2RAY_USER:$V2RAY_GROUP" "$RUNTIME/v2ray-error.log"' in init_source
+    assert 'for log_name in v2ray.log v2ray-error.log; do' in init_source
+    assert 'chown "$V2RAY_USER:$V2RAY_GROUP" "$RUNTIME/$log_name"' in init_source
     assert "8080-8443" in view_source
     assert "profilePolicyText(row)" in view_source
     assert "method: 'dns_state'" in view_source

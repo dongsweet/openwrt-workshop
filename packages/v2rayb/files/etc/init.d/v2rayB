@@ -254,9 +254,11 @@ start_engine() {
 	mkdir -p "$PID_DIR" || return 1
 	max_fd="$(ulimit -Hn 2>/dev/null || true)"
 	is_pid "$max_fd" && ulimit -n "$max_fd" 2>/dev/null || true
-	touch "$RUNTIME/v2ray-error.log" || return 1
-	chown "$V2RAY_USER:$V2RAY_GROUP" "$RUNTIME/v2ray-error.log" || return 1
-	chmod 600 "$RUNTIME/v2ray-error.log" || return 1
+	for log_name in v2ray.log v2ray-error.log; do
+		touch "$RUNTIME/$log_name" || return 1
+		chown "$V2RAY_USER:$V2RAY_GROUP" "$RUNTIME/$log_name" || return 1
+		chmod 600 "$RUNTIME/$log_name" || return 1
+	done
 	rm -f "$PID_DIR/v2ray.pid"
 	env 'v2ray.local.asset=/usr/share/v2ray' V2RAY_CONF_GEOLOADER=memconservative \
 		start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP" \
