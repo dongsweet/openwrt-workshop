@@ -891,7 +891,7 @@ EOF
 	mv "$tmp" "$ACTIVE_DIR/mosdns.yaml"
 }
 
-nft_elements() {
+nft_element_list() {
 	file="$1"
 	[ -s "$file" ] || return 0
 	awk '
@@ -904,11 +904,10 @@ nft_elements() {
 			element = $1
 			if (element !~ /^[0-9A-Fa-f:.\/]+$/)
 				next
-			if (n == 0) print "    elements = {"
-			else print ","
-			if (n++) printf "      %s", element
+			if (n++)
+				printf ", "
+			printf "%s", element
 		}
-		END { if (n) print "\n    };" }
 	' "$file"
 }
 
@@ -942,6 +941,10 @@ EOF
 	esac
 	sort -u "$pass4_file" -o "$pass4_file"
 	sort -u "$pass6_file" -o "$pass6_file"
+	direct4_static_elements="$(nft_element_list "$RULE_DIR/direct_ipv4.txt")"
+	direct6_static_elements="$(nft_element_list "$RULE_DIR/direct_ipv6.txt")"
+	pass4_elements="$(nft_element_list "$pass4_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+	pass6_elements="$(nft_element_list "$pass6_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 	proxy_port="$(setting transparent_proxy_port)"
 	force_proxy_port="$(setting force_proxy_port)"
 	is_uint "$proxy_port" || die "invalid transparent proxy port"
@@ -953,26 +956,30 @@ EOF
 	tmp="$ACTIVE_DIR/nftables.nft.tmp.$$"
 	{
 		printf '%s\n' 'table inet v2rayB {'
-		printf '%s\n' '  set direct_static4 { type ipv4_addr; flags interval;'
-		nft_elements "$RULE_DIR/direct_ipv4.txt"
-		printf '%s\n' '  }'
+		if [ -n "$direct4_static_elements" ]; then
+			printf '  set direct_static4 { type ipv4_addr; flags interval; elements = { %s }; }\n' "$direct4_static_elements"
+		else
+			printf '%s\n' '  set direct_static4 { type ipv4_addr; flags interval; }'
+		fi
 		printf '%s\n' '  set direct4 { type ipv4_addr; flags timeout; timeout 12h; }'
-		printf '%s\n' '  set direct_static6 { type ipv6_addr; flags interval;'
-		nft_elements "$RULE_DIR/direct_ipv6.txt"
-		printf '%s\n' '  }'
+		if [ -n "$direct6_static_elements" ]; then
+			printf '  set direct_static6 { type ipv6_addr; flags interval; elements = { %s }; }\n' "$direct6_static_elements"
+		else
+			printf '%s\n' '  set direct_static6 { type ipv6_addr; flags interval; }'
+		fi
 		printf '%s\n' '  set direct6 { type ipv6_addr; flags timeout; timeout 12h; }'
 		printf '%s\n' '  set force_proxy4 { type ipv4_addr; flags timeout; timeout 12h; }'
 		printf '%s\n' '  set force_proxy6 { type ipv6_addr; flags timeout; timeout 12h; }'
-		printf '%s\n' '  set pass { type ipv4_addr; flags interval;'
-		if [ -s "$pass4_file" ]; then
-			nft_elements "$pass4_file"
+		if [ -n "$pass4_elements" ]; then
+			printf '  set pass { type ipv4_addr; flags interval; elements = { %s }; }\n' "$pass4_elements"
+		else
+			printf '%s\n' '  set pass { type ipv4_addr; flags interval; }'
 		fi
-		printf '%s\n' '  }'
-		printf '%s\n' '  set pass6 { type ipv6_addr; flags interval;'
-		if [ -s "$pass6_file" ]; then
-			nft_elements "$pass6_file"
+		if [ -n "$pass6_elements" ]; then
+			printf '  set pass6 { type ipv6_addr; flags interval; elements = { %s }; }\n' "$pass6_elements"
+		else
+			printf '%s\n' '  set pass6 { type ipv6_addr; flags interval; }'
 		fi
-		printf '%s\n' '  }'
 		printf '%s\n' '  set force_proxy { type ipv4_addr; flags interval; }'
 		printf '%s\n' '  chain prerouting {'
 		printf '%s\n' '    type nat hook prerouting priority dstnat; policy accept;'
