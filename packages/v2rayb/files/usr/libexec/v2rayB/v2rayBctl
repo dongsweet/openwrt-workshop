@@ -18,6 +18,7 @@ DNSMASQ_CONFIG_DIR="${V2RAYB_DNSMASQ_DIR:-/etc/dnsmasq.d}"
 MOSDNS_ROUTE_SUFFIX="xn--ngstr-lra8j.com"
 APPLY_BACKUP="$STATE_DIR/db-before-apply"
 CTL_LOCK_DIR="${V2RAYB_LOCK_DIR:-$STATE_DIR/lock}"
+PROBE_ROOT="$STATE_DIR/probes"
 CTL_LOCK_ACQUIRED=0
 
 die() {
@@ -1135,88 +1136,13 @@ EOF
 	dnsmasq_servers="$(uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null | tr '\n' ',' | sed 's/,$//' || true)"
 	[ -n "$dnsmasq_servers" ] || dnsmasq_servers='WAN DHCP DNS'
 	dns_path="router -> dnsmasq 127.0.0.1#53 -> $dns_default"
-	dns_branch='default upstream'
-	matched_rule=''
-	matched_rule_len=0
+	dns_branch='local dnsmasq'
 	dns_entry='127.0.0.1#53 (dnsmasq)'
 	if [ "$dns_status" = LITERAL_IP ]; then
 		dns_entry='URL contains an IP literal; no DNS query'
 		dnsmasq_servers='not applicable'
 		dns_path='URL contains an IP literal; no DNS lookup'
 		dns_branch='not applicable'
-	fi
-	if [ "$dns_result" != not_applicable ]; then
-		matched_rule_row="$(
-			{
-				uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null || :
-				if [ -d "$DNSMASQ_CONFIG_DIR" ]; then
-					for dns_file in "$DNSMASQ_CONFIG_DIR"/*; do
-						[ -f "$dns_file" ] && cat "$dns_file"
-					done
-				fi
-			} | awk -v host="$probe_host" '
-				function consider(domain, upstream, suffix_start) {
-					if (domain == "" || upstream == "")
-						return
-					suffix_start = length(host) - length(domain) + 1
-					if (host == domain ||
-					    (suffix_start > 1 && substr(host, suffix_start - 1, 1) == "." &&
-					     substr(host, suffix_start) == domain)) {
-						if (length(domain) > best_length) {
-							best_domain = domain
-							best_upstream = upstream
-							best_length = length(domain)
-						}
-					}
-				}
-				{
-					line = $0
-					sub(/^[ \t]+/, "", line)
-					if (line !~ /^server=/)
-						next
-					sub(/^server=/, "", line)
-					split(line, args, /[ \t]+/)
-					rule = args[1]
-					if (substr(rule, 1, 1) != "/")
-						next
-					sub(/^\//, "", rule)
-					slash = index(rule, "/")
-					if (!slash)
-						next
-					consider(substr(rule, 1, slash - 1), substr(rule, slash + 1))
-				}
-				END {
-					if (best_domain != "")
-						printf "%s\t%s\n", best_domain, best_upstream
-				}
-			'
-		)"
-		if [ -n "$matched_rule_row" ]; then
-			old_ifs="$IFS"
-			IFS="$(printf '\t')"
-			read -r matched_domain matched_upstream <<EOF
-$matched_rule_row
-EOF
-			IFS="$old_ifs"
-			matched_rule="$matched_domain -> $matched_upstream"
-			dns_branch="dnsmasq domain rule: $matched_rule"
-			dns_path="router -> dnsmasq 127.0.0.1#53 -> $matched_rule"
-		fi
-	fi
-	if [ -z "$matched_rule" ] && [ "$runtime_state" = proxy ] && [ "$mosdns_enabled" = 1 ] && [ -n "$mosdns_domains" ]; then
-		old_ifs="$IFS"
-		IFS=,
-		for suffix in $mosdns_domains; do
-			[ -n "$suffix" ] || continue
-			case "$probe_host" in
-				"$suffix"|*."$suffix")
-					dns_branch="MosDNS for $suffix"
-					dns_path="router -> dnsmasq 127.0.0.1#53 -> $(setting mosdns_listen)"
-					break
-					;;
-			esac
-		done
-		IFS="$old_ifs"
 	fi
 
 	curl_format='%{http_code}|%{remote_ip}|%{remote_port}|%{local_ip}|%{local_port}|%{time_connect}|%{time_appconnect}|%{time_starttransfer}|%{time_total}|%{ssl_verify_result}|%{http_version}'
@@ -1319,9 +1245,8 @@ EOF
 	printf 'dns_query_ms=%s\n' "$dns_query_ms"
 	printf 'dnsmasq_servers=%s\n' "$dnsmasq_servers"
 	printf 'dns_branch=%s\n' "$dns_branch"
-	printf 'dns_matched_rule=%s\n' "${matched_rule:--}"
 	printf 'dns_path=%s\n' "$dns_path"
-	printf '%s\n' 'dns_upstream_observation=configured path inferred from dnsmasq rules; upstream packets are not captured'
+	printf '%s\n' 'dns_upstream_observation=configured default path; the actual dnsmasq forwarding rule is not inferred'
 	printf 'https_result=%s\n' "$https_result"
 	printf 'https_curl_code=%s\n' "$curl_code"
 	printf 'https_http_code=%s\n' "$http_code"
@@ -1340,6 +1265,55 @@ EOF
 	printf 'route_source=%s\n' "$route_src"
 	printf 'route_kernel=%s\n' "$route_line"
 	printf 'https_path=%s\n' "$https_path"
+}
+
+cmd_network_probe_start() {
+	ensure_db
+	probe_url="$1"
+	[ ${#probe_url} -le 2048 ] || die "URL is too long"
+	case "$probe_url" in
+		http://*|https://*) ;;
+		*) die "URL must start with http:// or https://" ;;
+	esac
+
+	mkdir -p "$PROBE_ROOT" || die "cannot create probe workspace"
+	# Keep only recent completed jobs; a probe result is transient.
+	find "$PROBE_ROOT" -mindepth 1 -maxdepth 1 -type d -mmin +60 -exec rm -rf {} + 2>/dev/null || :
+	job_id="$(date +%s)-$$"
+	job_dir="$PROBE_ROOT/$job_id"
+	mkdir "$job_dir" || die "cannot create probe job"
+	printf 'running\n' > "$job_dir/status" || die "cannot record probe job"
+	printf '%s\n' "$job_id"
+
+	(
+		probe_rc=0
+		cmd_network_probe "$probe_url" > "$job_dir/output" 2> "$job_dir/error" || probe_rc=$?
+		printf '%s\n' "$probe_rc" > "$job_dir/rc.tmp"
+		mv "$job_dir/rc.tmp" "$job_dir/rc"
+		if [ "$probe_rc" -eq 0 ]; then
+			printf 'done\n' > "$job_dir/status.tmp"
+		else
+			printf 'failed\n' > "$job_dir/status.tmp"
+		fi
+		mv "$job_dir/status.tmp" "$job_dir/status"
+	) >/dev/null 2>&1 &
+}
+
+cmd_network_probe_status() {
+	job_id="$1"
+	case "$job_id" in
+		''|*[!0-9-]*) die "invalid probe job id" ;;
+	esac
+	job_dir="$PROBE_ROOT/$job_id"
+	[ -d "$job_dir" ] || die "probe job not found"
+	job_status="$(sed -n '1p' "$job_dir/status" 2>/dev/null || printf running)"
+	job_rc="$(sed -n '1p' "$job_dir/rc" 2>/dev/null || printf '%s\n' '-')"
+	printf 'status=%s\n' "$job_status"
+	printf 'rc=%s\n' "$job_rc"
+	printf '%s\n' '--output--'
+	cat "$job_dir/output" 2>/dev/null || :
+	printf '%s\n' '--error--'
+	cat "$job_dir/error" 2>/dev/null || :
 }
 
 cmd_dns_state() {
@@ -1451,6 +1425,8 @@ Usage:
   v2rayBctl get-v2ray-config
   v2rayBctl apply-nft|delete-nft|test-v2ray|test-dns|test-dnsmasq
   v2rayBctl network-probe URL
+  v2rayBctl network-probe-start URL
+  v2rayBctl network-probe-status JOB_ID
 EOF
 	exit 2
 }
@@ -1504,5 +1480,7 @@ case "$command" in
 	test-dns) [ "$#" -eq 0 ] || usage; ensure_db; cmd_test_dns ;;
 	test-dnsmasq) [ "$#" -eq 0 ] || usage; cmd_test_dnsmasq ;;
 	network-probe) [ "$#" -eq 1 ] || usage; cmd_network_probe "$1" ;;
+	network-probe-start) [ "$#" -eq 1 ] || usage; cmd_network_probe_start "$1" ;;
+	network-probe-status) [ "$#" -eq 1 ] || usage; cmd_network_probe_status "$1" ;;
 	*) usage ;;
 esac

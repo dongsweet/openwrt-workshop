@@ -69,11 +69,26 @@ printf '%s\n' \
 
 ctl="$ROOT/files/usr/libexec/v2rayB/v2rayBctl"
 "$ctl" init-db
-output="$("$ctl" network-probe 'https://www.example.com/path?q=1')"
+job="$("$ctl" network-probe-start 'https://www.example.com/path?q=1')"
+case "$job" in
+	[0-9]*-[0-9]*) ;;
+	*) echo "invalid probe job id: $job" >&2; exit 1 ;;
+esac
+status=running
+output=''
+i=0
+while [ "$i" -lt 50 ] && [ "$status" = running ]; do
+	output="$("$ctl" network-probe-status "$job")"
+	status="$(printf '%s\n' "$output" | sed -n 's/^status=//p' | sed -n '1p')"
+	[ "$status" = running ] || break
+	i=$((i + 1))
+	sleep 0.1
+done
+[ "$status" = done ]
 printf '%s\n' "$output" | grep -q '^dns_result=success$'
 printf '%s\n' "$output" | grep -q '^dns_a=198.51.100.10,198.51.100.11$'
 printf '%s\n' "$output" | grep -q '^dns_aaaa=2001:db8::10$'
-printf '%s\n' "$output" | grep -q '^dns_matched_rule=www.example.com -> 9.9.9.9#53$'
+! printf '%s\n' "$output" | grep -q '^dns_matched_rule='
 printf '%s\n' "$output" | grep -q '^https_result=success$'
 printf '%s\n' "$output" | grep -q '^https_remote=198.51.100.10:443$'
 printf '%s\n' "$output" | grep -q '^route_device=eth0$'
@@ -81,11 +96,22 @@ grep -q -- '--resolve' "$PROBE_MOCK_CURL_ARGS"
 grep -q -- 'www.example.com:443:198.51.100.10,198.51.100.11,\[2001:db8::10\]' "$PROBE_MOCK_CURL_ARGS"
 
 rm -f "$PROBE_MOCK_CURL_ARGS"
-failed_output="$(PROBE_DNS_FAIL=1 "$ctl" network-probe 'https://www.example.com/')"
+failed_job="$(PROBE_DNS_FAIL=1 "$ctl" network-probe-start 'https://www.example.com/')"
+failed_status=running
+failed_output=''
+i=0
+while [ "$i" -lt 50 ] && [ "$failed_status" = running ]; do
+	failed_output="$(PROBE_DNS_FAIL=1 "$ctl" network-probe-status "$failed_job")"
+	failed_status="$(printf '%s\n' "$failed_output" | sed -n 's/^status=//p' | sed -n '1p')"
+	[ "$failed_status" = running ] || break
+	i=$((i + 1))
+	sleep 0.1
+done
+[ "$failed_status" = done ]
 printf '%s\n' "$failed_output" | grep -q '^dns_result=failed$'
 [ ! -e "$PROBE_MOCK_CURL_ARGS" ]
 
-if "$ctl" network-probe 'ftp://www.example.com/' 2>/dev/null; then
+if "$ctl" network-probe-start 'ftp://www.example.com/' 2>/dev/null; then
 	echo "unsupported scheme unexpectedly passed validation" >&2
 	exit 1
 fi

@@ -44,12 +44,43 @@ function failed(result) {
 	};
 }
 
-function probe_result(result) {
+function probe_status_result(result) {
 	if (result.code != 0)
 		return failed(result);
+
+	let values = {};
+	let output_lines = [];
+	let error_lines = [];
+	let section = 'meta';
+	let lines = split(result.output || '', '\n');
+	for (let i = 0; i < length(lines); i++) {
+		let line = lines[i];
+		if (line == '--output--') {
+			section = 'output';
+			continue;
+		}
+		if (line == '--error--') {
+			section = 'error';
+			continue;
+		}
+		if (section == 'meta') {
+			let sep = index(line, '=');
+			if (sep > 0)
+				values[substr(line, 0, sep)] = substr(line, sep + 1);
+		}
+		else if (section == 'output') {
+			push(output_lines, line);
+		}
+		else {
+			push(error_lines, line);
+		}
+	}
 	return {
 		success: true,
-		output: result.output || ''
+		status: values.status || 'running',
+		rc: values.rc || '-',
+		output: replace(join('\n', output_lines), /^\s+|\s+$/g, ''),
+		error: replace(join('\n', error_lines), /^\s+|\s+$/g, '')
 	};
 }
 
@@ -109,7 +140,7 @@ const methods = {
 		}
 	},
 
-	network_probe: {
+	network_probe_start: {
 		args: { url: '' },
 		call: function(request) {
 			let url = string_arg(request, 'url');
@@ -117,7 +148,23 @@ const methods = {
 			    (substr(url, 0, 7) != 'http://' &&
 			     substr(url, 0, 8) != 'https://'))
 				return { success: false, error: 'Enter a valid http:// or https:// URL' };
-			return probe_result(ctl([ 'network-probe', url ]));
+			let result = ctl([ 'network-probe-start', url ]);
+			if (result.code != 0)
+				return failed(result);
+			let job_id = replace(result.output || '', /^\s+|\s+$/g, '');
+			if (!match(job_id, /^[0-9]+-[0-9]+$/))
+				return { success: false, error: 'Probe job id could not be read' };
+			return { success: true, job_id: job_id };
+		}
+	},
+
+	network_probe_status: {
+		args: { job_id: '' },
+		call: function(request) {
+			let job_id = string_arg(request, 'job_id');
+			if (!match(job_id, /^[0-9]+-[0-9]+$/))
+				return { success: false, error: 'Invalid probe job id' };
+			return probe_status_result(ctl([ 'network-probe-status', job_id ]));
 		}
 	},
 

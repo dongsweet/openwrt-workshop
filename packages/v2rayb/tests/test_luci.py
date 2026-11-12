@@ -130,8 +130,13 @@ def main():
     assert "mosdnsRulesHelp" in view_source
     assert "mosdns_enabled == '1' && mosdns_domains == ''" in rpc_source
     assert "method: 'get_v2ray_config'" in view_source
-    assert "method: 'network_probe'" in view_source
-    assert "network_probe" in rpc_source
+    assert "method: 'network_probe_start'" in view_source
+    assert "method: 'network_probe_status'" in view_source
+    assert "callNetworkProbeStatus(started.job_id)" in view_source
+    assert "network_probe_start" in rpc_source
+    assert "network_probe_status" in rpc_source
+    assert "network_probe_status" in acl["read"]["ubus"]["luci.v2rayb"]
+    assert "network_probe_start" in acl["write"]["ubus"]["luci.v2rayb"]
     assert "substr(url, 0, 7) != 'http://'" in rpc_source
     assert "substr(url, 0, 8) != 'https://'" in rpc_source
     assert "A-Za-z0-9._:[\\]-" not in rpc_source
