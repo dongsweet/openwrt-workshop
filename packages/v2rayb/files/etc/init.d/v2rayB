@@ -145,9 +145,9 @@ set_proxy_dns() {
 		uci -q delete "${DNSMASQ_SECTION}.allservers" || true
 	fi
 	uci -q set "${DNSMASQ_SECTION}.noresolv=1" || return 1
-	uci -q get "${DNSMASQ_SECTION}.server" > "$RUNTIME/proxy-server" 2>/dev/null || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$RUNTIME/proxy-noresolv" 2>/dev/null || :
 	printf '%s\n' '1' > "$RUNTIME/proxy-noresolv.expected"
+	uci -q get "${DNSMASQ_SECTION}.server" 2>/dev/null | tr ' ' '\n' > "$RUNTIME/proxy-server" || :
 	cmp -s "$RUNTIME/proxy-server" "$RUNTIME/proxy-server.expected" || return 1
 	cmp -s "$RUNTIME/proxy-noresolv" "$RUNTIME/proxy-noresolv.expected" || return 1
 	dnsmasq_reload

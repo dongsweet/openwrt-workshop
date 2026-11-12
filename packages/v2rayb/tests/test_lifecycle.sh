@@ -17,7 +17,7 @@ uci() {
 		get)
 			case "$2" in
 				"${DNSMASQ_SECTION}.confdir") printf '%s\n' "$DNSMASQ_DIR" ;;
-				"${DNSMASQ_SECTION}.server") [ -n "$MOCK_SERVER" ] && printf '%s\n' "$MOCK_SERVER" ;;
+				"${DNSMASQ_SECTION}.server") [ -n "$MOCK_SERVER" ] && printf '%s\n' "$MOCK_SERVER" | tr '\n' ' ' | sed 's/ $//' ;;
 				"${DNSMASQ_SECTION}.noresolv") [ -n "$MOCK_NORESOLV" ] && printf '%s\n' "$MOCK_NORESOLV" ;;
 				"${DNSMASQ_SECTION}.allservers") [ -n "$MOCK_ALLSERVERS" ] && printf '%s\n' "$MOCK_ALLSERVERS" ;;
 				*) return 1 ;;
@@ -166,10 +166,7 @@ MOCK_SERVER="$(cat "$DNS_BACKUP/server")"
 MOCK_NORESOLV=1
 set_proxy_dns
 cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
-[ "$MOCK_SERVER" = '/example.cn/223.5.5.5
-127.0.0.1#5353
-1.1.1.1#53
-1.0.0.1#53' ]
+[ "$MOCK_SERVER" = '/example.cn/223.5.5.5 127.0.0.1#5353 1.1.1.1#53 1.0.0.1#53' ]
 [ "$MOCK_NORESOLV" = 1 ]
 [ "$MOCK_ALLSERVERS" = 1 ]
 restore_dnsmasq
@@ -188,9 +185,7 @@ export FAIL_NFT TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
 MOCK_SERVER=""
 MOCK_NORESOLV=""
 set_proxy_dns
-[ "$MOCK_SERVER" = '223.5.5.5#53
-1.1.1.1#53
-1.0.0.1#53' ]
+[ "$MOCK_SERVER" = '223.5.5.5#53 1.1.1.1#53 1.0.0.1#53' ]
 [ "$MOCK_NORESOLV" = 1 ]
 [ "$MOCK_ALLSERVERS" = 1 ]
 [ ! -e "$MOSDNS_FORWARD_FILE" ]
