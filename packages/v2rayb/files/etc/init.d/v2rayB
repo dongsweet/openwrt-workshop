@@ -272,6 +272,15 @@ start_engine() {
 	is_pid "$(sed -n '1p' "$PID_DIR/v2ray.pid" 2>/dev/null || true)"
 }
 
+prepare_engine_config_access() {
+	[ -d "$RUNTIME/active" ] || return 1
+	chown root:"$V2RAY_GROUP" "$RUNTIME/active" || return 1
+	chmod 750 "$RUNTIME/active" || return 1
+	[ -f "$RUNTIME/active/v2ray.json" ] || return 1
+	chown root:"$V2RAY_GROUP" "$RUNTIME/active/v2ray.json" || return 1
+	chmod 640 "$RUNTIME/active/v2ray.json" || return 1
+}
+
 start_mosdns() {
 	mkdir -p "$PID_DIR" || return 1
 	/usr/bin/mosdns start -c "$RUNTIME/active/mosdns.yaml" \
@@ -342,6 +351,7 @@ start_service() {
 	fi
 	"$CTL" set-state starting >/dev/null 2>&1 || { release_lock; return 1; }
 	"$CTL" render-all || { rollback_start; return 1; }
+	prepare_engine_config_access || { rollback_start; return 1; }
 	"$CTL" test-v2ray || { rollback_start; return 1; }
 	capture_dnsmasq_baseline || { rollback_start; return 1; }
 	start_engine
