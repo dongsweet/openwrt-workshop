@@ -40,6 +40,8 @@ cut -f5 "$TEST_DIR/vmess.nodes" | python3 -c 'import json,sys; json.load(sys.std
 "$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" 'PRAGMA user_version;' >/dev/null
 "$CTL" init-db
 "$CTL" add-source subscription demo http://example.test/sub uri
+"$CTL" add-source subscription '跨境订阅' http://example.test/cn uri
+"$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" "SELECT name FROM sources WHERE type='subscription' AND name='跨境订阅';" | grep -Fx '跨境订阅' >/dev/null
 cat > "$TEST_DIR/bin/curl" <<'EOF'
 #!/bin/sh
 if [ "${FAKE_CURL_FAIL:-0}" = 1 ]; then

@@ -29,6 +29,12 @@ def main():
         encoding="utf-8"
     )
     assert "function isEnabled(value)" in view_source
+    assert "function valid_source_name(value)" in rpc_source
+    assert "订阅名称无效：编码长度不得超过 256 字节" in rpc_source
+    assert "is_source_name() {" in ctl_source
+    assert "订阅名称无效：编码长度不得超过 256 字节" in ctl_source
+    assert "const sourceName = name.value.trim();" in view_source
+    assert "callAddSource(sourceName, url.value, format.value)" in view_source
     translation_block = view_source.split("const _zh = {", 1)[1].split("};", 1)[0]
     translated_keys = set(re.findall(r"^\s*'([^']*)':", translation_block, re.MULTILINE))
     message_keys = set(re.findall(r"_\('([^']*)'\)", view_source))

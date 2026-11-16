@@ -89,7 +89,7 @@ function valid_id(value) {
 }
 
 function valid_source_name(value) {
-	return match(value, /^[A-Za-z0-9._-]{1,64}$/);
+	return length(value) > 0 && length(value) <= 256 && !match(value, /[\t\r\n]/);
 }
 
 function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic) {
@@ -193,7 +193,7 @@ const methods = {
 			let url = string_arg(request, 'url');
 			let format = string_arg(request, 'format') || 'auto';
 			if (!valid_source_name(name))
-				return { success: false, error: 'Invalid subscription name' };
+				return { success: false, error: '订阅名称无效：编码长度不得超过 256 字节，且不能包含控制字符。' };
 			if (length(url) > 2048 || (substr(url, 0, 7) != 'http://' && substr(url, 0, 8) != 'https://'))
 				return { success: false, error: 'Subscription URL must use http:// or https://' };
 			if (!match(format, /^(auto|uri|base64)$/))

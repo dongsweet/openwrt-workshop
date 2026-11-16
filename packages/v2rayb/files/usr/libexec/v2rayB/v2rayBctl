@@ -51,6 +51,15 @@ is_name() {
 	esac
 }
 
+is_source_name() {
+	[ -n "$1" ] || return 1
+	[ "${#1}" -le 256 ] || return 1
+	if printf '%s' "$1" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+		return 1
+	fi
+	return 0
+}
+
 is_server() {
 	case "$1" in
 		''|*[!A-Za-z0-9._:\[\]-]*) return 1 ;;
@@ -387,7 +396,7 @@ cmd_add_source() {
 	name="$2"
 	url="${3:-}"
 	format="${4:-}"
-	is_name "$name" || die "invalid source name"
+	is_source_name "$name" || die "订阅名称无效：编码长度不得超过 256 字节，且不能包含控制字符"
 	case "$type" in
 		manual|imported) ;;
 		subscription)

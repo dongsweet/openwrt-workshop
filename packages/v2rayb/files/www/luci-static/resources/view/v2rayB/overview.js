@@ -743,12 +743,13 @@ function showSourceModal(existing) {
 	const format = E('select', { class: 'cbi-input-select' }, [ 'auto', 'uri', 'base64' ].map(value => E('option', { value }, value)));
 	format.value = existing ? (existing[4] || 'auto') : 'auto';
 	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: async () => {
-		if (!name.value || !url.value) {
+		const sourceName = name.value.trim();
+		if (!sourceName || !url.value) {
 			ui.addNotification(null, E('p', {}, _('Name and URL are required.')), 'warning');
 			return;
 		}
 		try {
-			const added = await callAddSource(name.value, url.value, format.value);
+			const added = await callAddSource(sourceName, url.value, format.value);
 			if (!added || !added.success) {
 				showRequestError(added);
 				return;
