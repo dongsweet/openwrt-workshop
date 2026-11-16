@@ -95,7 +95,7 @@ decode_base64() {
 	else
 		value="$(cat)"
 	fi
-	value="$(printf '%s' "$value" | tr '_-' '/+' | tr -d '[:space:]')"
+	value="$(printf '%s' "$value" | tr '_-' '/+' | tr -d '[:space:]' | sed 's/=*$//')"
 	case $(( ${#value} % 4 )) in
 		1) return 1 ;;
 		2) value="${value}==" ;;

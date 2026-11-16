@@ -42,6 +42,9 @@ printf '%s\n' 'vless://00000000-0000-0000-0000-000000000000@example.com:443?secu
 sh "$PARSER" "$TEST_DIR/unpadded" auto demo > "$TEST_DIR/unpadded.nodes"
 grep -q 'Unpadded-Test.*vless.*example.com.*443' "$TEST_DIR/unpadded.nodes"
 cut -f5 "$TEST_DIR/unpadded.nodes" | python3 -c 'import json,sys; json.load(sys.stdin)'
+printf '===' >> "$TEST_DIR/unpadded"
+sh "$PARSER" "$TEST_DIR/unpadded" auto demo > "$TEST_DIR/excess-padding.nodes"
+grep -q 'Unpadded-Test.*vless.*example.com.*443' "$TEST_DIR/excess-padding.nodes"
 
 "$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" 'PRAGMA user_version;' >/dev/null
 "$CTL" init-db
