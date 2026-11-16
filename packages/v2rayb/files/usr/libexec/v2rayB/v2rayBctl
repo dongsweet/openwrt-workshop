@@ -22,6 +22,7 @@ V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 APPLY_BACKUP="$STATE_DIR/db-before-apply"
 CTL_LOCK_DIR="${V2RAYB_LOCK_DIR:-$STATE_DIR/lock}"
 PROBE_ROOT="$STATE_DIR/probes"
+NODE_PROBE_ROOT="$STATE_DIR/node-probes"
 SUBSCRIPTION_JOB_ROOT="$STATE_DIR/subscription-jobs"
 CTL_LOCK_ACQUIRED=0
 
@@ -843,7 +844,7 @@ cmd_list_nodes() {
 	ensure_db
 	nodes_table=nodes
 	draft_pending && nodes_table=draft_nodes
-	db_sql "SELECT n.id || char(9) || n.name || char(9) || n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.enabled || char(9) || COALESCE(s.type, 'manual') || char(9) || COALESCE(s.name, '') FROM $nodes_table n LEFT JOIN sources s ON s.id=n.source_id ORDER BY n.id;"
+	db_sql "SELECT n.id || char(9) || n.name || char(9) || n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.enabled || char(9) || COALESCE(s.type, 'manual') || char(9) || COALESCE(s.name, '') || char(9) || COALESCE(n.last_latency_ms, '') || char(9) || COALESCE(n.last_checked_at, '') || char(9) || COALESCE(n.last_error, '') FROM $nodes_table n LEFT JOIN sources s ON s.id=n.source_id ORDER BY n.id;"
 }
 
 cmd_get_node() {
@@ -1354,6 +1355,142 @@ probe_dns_observer_results() {
 	'
 }
 
+node_probe_measure() {
+	node_id="$1"
+	server="$2"
+	port="$3"
+	result_file="$4"
+	host="$server"
+	case "$host" in
+		\[*\]) ;;
+		*:* ) host="[$host]" ;;
+	esac
+	if [ "$port" = 80 ]; then
+		scheme=http
+	else
+		scheme=https
+	fi
+	curl_output="$result_file.curl"
+	curl_error="$result_file.error"
+	curl_rc=0
+	curl --noproxy '*' --silent --show-error --insecure --connect-timeout 5 --max-time 8 \
+		--output /dev/null --write-out '%{time_connect}|%{time_appconnect}|%{http_code}' \
+		"$scheme://$host:$port/" >"$curl_output" 2>"$curl_error" || curl_rc=$?
+	IFS='|' read -r time_connect time_appconnect http_code <"$curl_output" || :
+	latency_ms="$(awk -v value="${time_connect:-}" 'BEGIN { if (value ~ /^[0-9]+(\.[0-9]+)?$/) printf "%d", value * 1000 + 0.5 }')"
+	error_text="$(tr '\n\t' '  ' <"$curl_error" 2>/dev/null | cut -c1-160)"
+	if [ -n "$latency_ms" ] && [ "$latency_ms" -gt 0 ] 2>/dev/null; then
+		if [ "$curl_rc" -eq 0 ]; then
+			probe_status=ok
+		else
+			probe_status=connected
+			[ -n "$error_text" ] || error_text="TLS/HTTP check returned curl code $curl_rc"
+		fi
+	else
+		probe_status=failed
+		[ -n "$error_text" ] || error_text="node connection failed (curl code $curl_rc)"
+		latency_ms=''
+	fi
+	printf '%s\t%s\t%s\t%s\n' "$node_id" "$latency_ms" "$probe_status" "$error_text" >"$result_file"
+}
+
+cmd_node_probe() {
+	ensure_db
+	source_filter="$1"
+	nodes_table=nodes
+	draft_pending && nodes_table=draft_nodes
+	case "$source_filter" in
+		all) source_where='' ;;
+		manual) source_where="AND (s.type='manual' OR n.source_id IS NULL)" ;;
+		''|*[!0-9]*) die "invalid node source filter" ;;
+		*) source_where="AND n.source_id=$source_filter" ;;
+	esac
+	probe_dir="$STATE_DIR/node-probe.$$"
+	mkdir -p "$probe_dir" || die "cannot create node probe workspace"
+	trap 'rm -rf "$probe_dir"' EXIT HUP INT TERM
+	node_rows="$(db_sql "SELECT n.id || char(9) || n.server || char(9) || n.port FROM $nodes_table n LEFT JOIN sources s ON s.id=n.source_id WHERE n.enabled=1 $source_where ORDER BY n.id;")"
+	[ -n "$node_rows" ] || die "no enabled nodes in selected group"
+	worker_pids=''
+	worker_count=0
+	while read -r node_id server port; do
+		[ -n "$node_id" ] || continue
+		node_probe_measure "$node_id" "$server" "$port" "$probe_dir/$node_id.result" &
+		worker_pids="$worker_pids $!"
+		worker_count=$((worker_count + 1))
+		if [ "$worker_count" -ge 8 ]; then
+			for worker_pid in $worker_pids; do wait "$worker_pid" 2>/dev/null || :; done
+			worker_pids=''
+			worker_count=0
+		fi
+	done <<EOF
+$node_rows
+EOF
+	for worker_pid in $worker_pids; do wait "$worker_pid" 2>/dev/null || :; done
+	checked_at="$(date '+%Y-%m-%d %H:%M:%S')"
+	for result_file in "$probe_dir"/*.result; do
+		[ -f "$result_file" ] || continue
+		IFS="$(printf '\t')" read -r node_id latency_ms probe_status error_text <"$result_file" || :
+		if [ -n "$latency_ms" ]; then
+			latency_sql="$latency_ms"
+		else
+			latency_sql=NULL
+		fi
+		if [ "$probe_status" = ok ]; then
+			error_sql=NULL
+		else
+			error_sql=$(sql_quote "$error_text")
+		fi
+		db_sql "UPDATE nodes SET last_latency_ms=$latency_sql, last_checked_at=$(sql_quote "$checked_at"), last_error=$error_sql WHERE id=$node_id; UPDATE draft_nodes SET last_latency_ms=$latency_sql, last_checked_at=$(sql_quote "$checked_at"), last_error=$error_sql WHERE id=$node_id;"
+		printf '%s\t%s\t%s\t%s\t%s\n' "$node_id" "$latency_ms" "$probe_status" "$error_text" "$checked_at"
+	done
+}
+
+cmd_node_probe_start() {
+	ensure_db
+	source_filter="$1"
+	case "$source_filter" in
+		all|manual) ;;
+		''|*[!0-9]*) die "invalid node source filter" ;;
+		*)
+			count="$(db_sql "SELECT COUNT(*) FROM sources WHERE id=$source_filter;" | tr -d '[:space:]')"
+			[ "$count" = 1 ] || die "node source not found: $source_filter"
+			;;
+	esac
+	mkdir -p "$NODE_PROBE_ROOT" || die "cannot create node probe directory"
+	find "$NODE_PROBE_ROOT" -mindepth 1 -maxdepth 1 -type d -mmin +60 -exec rm -rf {} + 2>/dev/null || :
+	job_id="$(date +%s)-$$"
+	job_dir="$NODE_PROBE_ROOT/$job_id"
+	mkdir "$job_dir" || die "cannot create node probe job"
+	printf 'running\n' >"$job_dir/status"
+	printf '%s\n' "$job_id"
+	(
+		probe_rc=0
+		cmd_node_probe "$source_filter" >"$job_dir/output" 2>"$job_dir/error" || probe_rc=$?
+		printf '%s\n' "$probe_rc" >"$job_dir/rc.tmp"
+		mv "$job_dir/rc.tmp" "$job_dir/rc"
+		if [ "$probe_rc" -eq 0 ]; then
+			printf 'done\n' >"$job_dir/status.tmp"
+		else
+			printf 'failed\n' >"$job_dir/status.tmp"
+		fi
+		mv "$job_dir/status.tmp" "$job_dir/status"
+	) </dev/null >/dev/null 2>&1 &
+}
+
+cmd_node_probe_status() {
+	job_id="$1"
+	case "$job_id" in ''|*[!0-9-]*) die "invalid node probe job id" ;; esac
+	job_dir="$NODE_PROBE_ROOT/$job_id"
+	[ -d "$job_dir" ] || die "node probe job not found"
+	job_status="$(sed -n '1p' "$job_dir/status" 2>/dev/null || printf running)"
+	job_rc="$(sed -n '1p' "$job_dir/rc" 2>/dev/null || printf '%s\n' '-')"
+	printf 'status=%s\nrc=%s\n' "$job_status" "$job_rc"
+	printf '%s\n' '--output--'
+	cat "$job_dir/output" 2>/dev/null || :
+	printf '%s\n' '--error--'
+	cat "$job_dir/error" 2>/dev/null || :
+}
+
 cmd_network_probe() {
 	ensure_db
 	probe_url="$1"
@@ -1812,6 +1949,9 @@ Usage:
   v2rayBctl apply-draft|revert-draft
   v2rayBctl rollback-apply|clear-apply-backup
   v2rayBctl list-nodes
+  v2rayBctl node-probe-start all|manual|SOURCE_ID
+  v2rayBctl node-probe-status JOB_ID
+  v2rayBctl node-probe all|manual|SOURCE_ID
   v2rayBctl get-node NODE_ID
   v2rayBctl list-profiles
   v2rayBctl get-applied-profile
@@ -1833,7 +1973,7 @@ EOF
 command="$1"
 shift
 case "$command" in
-init-db|set-setting|set-state|add-source|update-subscription|delete-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft)
+init-db|set-setting|set-state|add-source|update-subscription|delete-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft|node-probe-start)
 		acquire_ctl_lock
 		;;
 esac
@@ -1885,5 +2025,8 @@ case "$command" in
 	network-probe) [ "$#" -eq 1 ] || usage; cmd_network_probe "$1" ;;
 	network-probe-start) [ "$#" -eq 1 ] || usage; cmd_network_probe_start "$1" ;;
 	network-probe-status) [ "$#" -eq 1 ] || usage; cmd_network_probe_status "$1" ;;
+	node-probe-start) [ "$#" -eq 1 ] || usage; cmd_node_probe_start "$1" ;;
+	node-probe-status) [ "$#" -eq 1 ] || usage; cmd_node_probe_status "$1" ;;
+	node-probe) [ "$#" -eq 1 ] || usage; cmd_node_probe "$1" ;;
 	*) usage ;;
 esac

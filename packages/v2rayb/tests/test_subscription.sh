@@ -46,7 +46,7 @@ printf '===' >> "$TEST_DIR/unpadded"
 sh "$PARSER" "$TEST_DIR/unpadded" auto demo > "$TEST_DIR/excess-padding.nodes"
 grep -q 'Unpadded-Test.*vless.*example.com.*443' "$TEST_DIR/excess-padding.nodes"
 
-printf '%s\n' 'vless://00000000-0000-0000-0000-000000000000@example.com:443?security=tls#香港 AWS 01' > "$TEST_DIR/unicode-name"
+printf '%s\n' 'vless://00000000-0000-0000-0000-000000000000@example.com:443?security=tls#香港__AWS|01' > "$TEST_DIR/unicode-name"
 sh "$PARSER" "$TEST_DIR/unicode-name" uri demo > "$TEST_DIR/unicode-name.nodes"
 grep -q '香港_AWS_01.*vless.*example.com.*443' "$TEST_DIR/unicode-name.nodes"
 

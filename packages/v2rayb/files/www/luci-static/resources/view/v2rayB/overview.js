@@ -174,6 +174,19 @@ const _zh = {
 	'Node is referenced by a profile; delete or move that profile before disabling the node.': '该节点正被配置方案引用，请先修改配置方案再停用节点。',
 	'Node is referenced by a profile; delete or move that profile first.': '该节点正被配置方案引用，请先修改配置方案再删除节点。',
 	'Nodes': '节点',
+	'Node group': '节点分组',
+	'All nodes': '全部节点',
+	'Test current group': '测速当前分组',
+	'Node latency': '节点延迟',
+	'Not tested': '未测速',
+	'Testing node group...': '正在测速当前分组……',
+	'Node speed test started.': '节点测速已在后台开始。',
+	'Node speed test completed.': '节点测速完成。',
+	'Node speed test failed: %s': '节点测速失败：%s',
+	'TLS/HTTP success': 'TLS/HTTP 成功',
+	'TCP connected': 'TCP 已连通',
+	'Connection failed': '连接失败',
+	'Tests TCP and TLS connection from the router; it does not change the active profile.': '从路由器测试节点的 TCP 和 TLS 建连，不会切换当前应用配置。',
 	'None': '无',
 	'none': '无',
 	'Normal mode': '普通模式',
@@ -292,6 +305,12 @@ const callSubscriptionUpdateStart = rpc.declare({
 });
 const callSubscriptionUpdateStatus = rpc.declare({
 	object: 'luci.v2rayb', method: 'subscription_update_status', params: [ 'job_id' ], expect: { '': {} }, reject: true
+});
+const callNodeProbeStart = rpc.declare({
+	object: 'luci.v2rayb', method: 'node_probe_start', params: [ 'source_id' ], expect: { '': {} }, reject: true
+});
+const callNodeProbeStatus = rpc.declare({
+	object: 'luci.v2rayb', method: 'node_probe_status', params: [ 'job_id' ], expect: { '': {} }, reject: true
 });
 const callDeleteSource = rpc.declare({
 	object: 'luci.v2rayb', method: 'delete_source', params: [ 'source_id' ], expect: { '': {} }, reject: true
@@ -1015,6 +1034,8 @@ return view.extend({
 		pageView.pendingOperations = [];
 		pageView.subscriptionJobs = {};
 		pageView.subscriptionJobErrors = {};
+		pageView.nodeProbeResults = {};
+		pageView.nodeProbeJob = null;
 		pageView.tempSequence = 0;
 		pageView.nodeIdMap = {};
 		pageView.profileIdMap = {};
@@ -1124,9 +1145,9 @@ return view.extend({
 			], _('No status data available.'))
 		];
 
-		let profileTable, nodeTable, sourceTable, profileAddButton;
+		let profileTable, nodeTable, sourceTable, profileAddButton, nodeGroupFilter, nodeProbeButton, nodeProbeHint;
 		const profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ];
-		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Source'), _('Enabled'), _('Actions') ];
+		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Source'), _('Node latency'), _('Enabled'), _('Actions') ];
 		const sourceTableHeaders = [ _('Name'), _('Nodes'), _('Format'), _('Last update'), _('Status'), _('Actions') ];
 
 		function enabledToggle(enabled, change) {
@@ -1217,6 +1238,88 @@ return view.extend({
 			];
 			});
 		}
+		function nodeGroupOptions() {
+			const options = [ [ 'all', _('All nodes') ], [ 'manual', _('Manual') ] ];
+			for (const row of sources.filter(item => item[1] === 'subscription'))
+				options.push([ row[0], row[2] ]);
+			return options.map(item => E('option', { value: item[0] }, item[1]));
+		}
+		function refreshNodeGroupOptions() {
+			if (!nodeGroupFilter)
+				return;
+			const selected = nodeGroupFilter.value || 'all';
+			nodeGroupFilter.replaceChildren(...nodeGroupOptions());
+			nodeGroupFilter.value = Array.from(nodeGroupFilter.options).some(option => option.value === selected) ? selected : 'all';
+		}
+		function nodeMatchesGroup(row) {
+			const selected = nodeGroupFilter ? nodeGroupFilter.value : 'all';
+			if (selected === 'all')
+				return true;
+			if (selected === 'manual')
+				return row[6] === 'manual' || !row[6];
+			const source = sources.find(item => item[0] === selected);
+			return row[6] === 'subscription' && source && row[7] === source[2];
+		}
+		function nodeLatencyCell(row) {
+			const probe = pageView.nodeProbeResults[row[0]] || {};
+			const latency = probe.latency_ms || row[8];
+			const status = probe.status || (row[8] ? 'ok' : '');
+			const label = latency ? latency + ' ms' : _('Not tested');
+			if (status === 'ok')
+				return E('span', { class: 'v2rayb-status v2rayb-status-ok', title: probe.checked_at || row[9] || '' }, label + ' · ' + _('TLS/HTTP success'));
+			if (status === 'connected')
+				return E('span', { class: 'v2rayb-status v2rayb-status-warn', title: probe.error || row[10] || '' }, label + ' · ' + _('TCP connected'));
+			if (status === 'failed')
+				return E('span', { class: 'v2rayb-status v2rayb-status-warn', title: probe.error || row[10] || '' }, _('Connection failed'));
+			return E('span', { class: 'v2rayb-muted' }, label);
+		}
+		function applyNodeProbeOutput(output) {
+			for (const row of parseRows(output)) {
+				if (row.length < 5)
+					continue;
+				pageView.nodeProbeResults[row[0]] = {
+					latency_ms: row[1], status: row[2], error: row[3], checked_at: row[4]
+				};
+			}
+		}
+		async function startNodeProbe() {
+			if (!nodeGroupFilter || pageView.nodeProbeJob)
+				return;
+			const started = await callNodeProbeStart(nodeGroupFilter.value).catch(error => ({ success: false, error }));
+			if (!started || !started.success) {
+				showRequestError(started);
+				return;
+			}
+			pageView.nodeProbeJob = started.job_id;
+			nodeProbeButton.disabled = true;
+			nodeProbeButton.textContent = _('Testing node group...');
+			const poll = async () => {
+				try {
+					const result = await callNodeProbeStatus(started.job_id);
+					if (!result || !result.success)
+						throw result || new Error(_('The URL probe status could not be read.'));
+					if (result.status === 'running') {
+						window.setTimeout(poll, 1000);
+						return;
+					}
+					pageView.nodeProbeJob = null;
+					nodeProbeButton.disabled = false;
+					nodeProbeButton.textContent = _('Test current group');
+					if (result.status === 'done') {
+						applyNodeProbeOutput(result.output || '');
+						nodeProbeHint.textContent = _('Node speed test completed.');
+						refreshNodeTable();
+						return;
+					}
+					nodeProbeHint.textContent = _('Node speed test failed: %s').format(result.error || result.output || _('Unknown'));
+				} catch (error) {
+					if (pageView.nodeProbeJob === started.job_id)
+						window.setTimeout(poll, 1500);
+				}
+			};
+			nodeProbeHint.textContent = _('Node speed test started.');
+			poll();
+		}
 		function nodeTableRows() {
 			function nodeSourceLabel(row) {
 				if (row[6] === 'subscription')
@@ -1225,8 +1328,8 @@ return view.extend({
 					return _('Imported: ') + (row[7] || '');
 				return _('Manual');
 			}
-			return nodes.map(row => [
-				displayId(row[0]), row[1], row[2].toUpperCase(), row[3], row[4], nodeSourceLabel(row),
+			return nodes.filter(nodeMatchesGroup).map(row => [
+				displayId(row[0]), row[1], row[2].toUpperCase(), row[3], row[4], nodeSourceLabel(row), nodeLatencyCell(row),
 				enabledToggle(row[5], enabled => {
 					if (enabled === '0' && profiles.some(profile => profile[5] === row[0])) {
 						ui.addNotification(null, E('p', {}, _('Node is referenced by a profile; delete or move that profile before disabling the node.')), 'warning');
@@ -1315,6 +1418,7 @@ return view.extend({
 			return callSources().then(result => {
 				if (result && result.code === 0) {
 					sources.splice(0, sources.length, ...parseRows(outputOf(result)));
+					refreshNodeGroupOptions();
 					refreshSourceTable();
 				}
 				return startSubscriptionUpdate(sourceId);
@@ -1345,6 +1449,7 @@ return view.extend({
 						if (index >= 0)
 							sources.splice(index, 1);
 						queuePendingOperation(() => callDeleteSource(row[0]), 'source-delete:' + row[0]);
+						refreshNodeGroupOptions();
 						refreshSourceTable();
 						updateLocalChangesNotice();
 					})
@@ -1385,7 +1490,7 @@ return view.extend({
 				const id = String(node.id);
 				const index = nodes.findIndex(item => item[0] === id);
 				if (index >= 0)
-								nodes[index] = [ id, node.name, node.protocol, node.server, node.port, nodes[index][5], nodes[index][6], nodes[index][7] ];
+						nodes[index] = [ id, node.name, node.protocol, node.server, node.port, nodes[index][5], nodes[index][6], nodes[index][7], nodes[index][8] || '', nodes[index][9] || '', nodes[index][10] || '' ];
 				pageView.localNodeDetails[id] = {
 					id: id, name: node.name, protocol: node.protocol,
 					server: node.server, port: node.port,
@@ -1403,7 +1508,7 @@ return view.extend({
 			}
 
 			const tempId = pageView.nextTempId('node');
-			const row = [ tempId, node.name, node.protocol, node.server, node.port, '1', 'manual', '' ];
+			const row = [ tempId, node.name, node.protocol, node.server, node.port, '1', 'manual', '', '', '', '' ];
 			nodes.push(row);
 			pageView.localNodeDetails[tempId] = {
 				id: tempId, name: node.name, protocol: node.protocol,
@@ -1493,6 +1598,10 @@ return view.extend({
 			});
 		};
 		refreshProfileAddButton();
+		nodeGroupFilter = E('select', { class: 'cbi-input-select' }, nodeGroupOptions());
+		nodeGroupFilter.addEventListener('change', () => refreshNodeTable());
+		nodeProbeButton = E('button', { class: 'cbi-button cbi-button-action', type: 'button', click: startNodeProbe }, _('Test current group'));
+		nodeProbeHint = E('span', { class: 'v2rayb-help' }, _('Tests TCP and TLS connection from the router; it does not change the active profile.'));
 		const nodesPane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Subscriptions')),
@@ -1503,6 +1612,9 @@ return view.extend({
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
+				E('div', { class: 'v2rayb-toolbar' }, [
+					field(_('Node group'), nodeGroupFilter), nodeProbeButton, nodeProbeHint
+				]),
 				nodeTable,
 				E('div', { class: 'v2rayb-create' }, [
 					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showNodeModal(pageView, onNodeSaved) }, _('Add'))

@@ -164,9 +164,13 @@ def main():
     assert "method: 'get_v2ray_config'" in view_source
     assert "method: 'network_probe_start'" in view_source
     assert "method: 'network_probe_status'" in view_source
+    assert "method: 'node_probe_start'" in view_source
+    assert "method: 'node_probe_status'" in view_source
     assert "callNetworkProbeStatus(started.job_id)" in view_source
     assert "network_probe_start" in rpc_source
     assert "network_probe_status" in rpc_source
+    assert "node-probe-start" in ctl_source
+    assert "node-probe-status" in ctl_source
     assert "subscription_update_start" in rpc_source
     assert "subscription_update_status" in rpc_source
     assert "network_probe_status" in acl["read"]["ubus"]["luci.v2rayb"]
