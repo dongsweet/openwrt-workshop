@@ -37,6 +37,12 @@ sh "$PARSER" "$TEST_DIR/vmess" uri demo > "$TEST_DIR/vmess.nodes" 2> "$TEST_DIR/
 grep -q 'VMess-Test.*vmess.*vmess.example.com.*8443' "$TEST_DIR/vmess.nodes"
 cut -f5 "$TEST_DIR/vmess.nodes" | python3 -c 'import json,sys; json.load(sys.stdin)'
 
+printf '%s\n' 'vless://00000000-0000-0000-0000-000000000000@example.com:443?security=tls#Unpadded-Test' \
+	| base64 -w0 | tr -d '=' > "$TEST_DIR/unpadded"
+sh "$PARSER" "$TEST_DIR/unpadded" auto demo > "$TEST_DIR/unpadded.nodes"
+grep -q 'Unpadded-Test.*vless.*example.com.*443' "$TEST_DIR/unpadded.nodes"
+cut -f5 "$TEST_DIR/unpadded.nodes" | python3 -c 'import json,sys; json.load(sys.stdin)'
+
 "$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" 'PRAGMA user_version;' >/dev/null
 "$CTL" init-db
 "$CTL" add-source subscription demo http://example.test/sub uri

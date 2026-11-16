@@ -90,7 +90,12 @@ safe_name() {
 }
 
 decode_base64() {
-	value="$(printf '%s' "$1" | tr '_-' '/+' | tr -d '[:space:]')"
+	if [ "$#" -gt 0 ]; then
+		value="$1"
+	else
+		value="$(cat)"
+	fi
+	value="$(printf '%s' "$value" | tr '_-' '/+' | tr -d '[:space:]')"
 	case $(( ${#value} % 4 )) in
 		1) return 1 ;;
 		2) value="${value}==" ;;
@@ -225,10 +230,10 @@ parse_ss() {
 case "$format" in auto|uri|base64) ;; *) die "unsupported format: $format" ;; esac
 case "$format" in
 	uri) sed 's/\r$//' "$payload" > "$work/list" ;;
-	base64) tr -d '[:space:]' < "$payload" | base64 -d > "$work/list" 2>/dev/null || die 'invalid base64 payload' ;;
+	base64) decode_base64 < "$payload" > "$work/list" 2>/dev/null || die 'invalid base64 payload' ;;
 	auto)
 		if grep -q 'vless://' "$payload" || grep -q 'vmess://' "$payload" || grep -q 'trojan://' "$payload" || grep -q 'ss://' "$payload"; then sed 's/\r$//' "$payload" > "$work/list"
-		else tr -d '[:space:]' < "$payload" | base64 -d > "$work/list" 2>/dev/null || die 'not URI text or base64'
+		else decode_base64 < "$payload" > "$work/list" 2>/dev/null || die 'not URI text or base64'
 		fi
 		;;
 esac
