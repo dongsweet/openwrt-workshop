@@ -61,6 +61,20 @@ export PATH="$TEST_DIR/bin:$PATH"
 
 "$CTL" update-subscription 1 | grep -q '^nodes=1$'
 "$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" 'SELECT COUNT(*) FROM nodes WHERE source_id=1;' | grep -q '^1$'
+job_id="$("$CTL" subscription-update-start 1)"
+job_status=""
+for attempt in $(seq 1 50); do
+	job_status="$("$CTL" subscription-update-status "$job_id")"
+	if echo "$job_status" | grep -q '^status=done$'; then
+		break
+	fi
+	if echo "$job_status" | grep -q '^status=failed$'; then
+		echo "background subscription update failed: $job_status" >&2
+		exit 1
+	fi
+	sleep 0.1
+done
+echo "$job_status" | grep -q '^status=done$'
 
 if FAKE_CURL_FAIL=1 "$CTL" update-subscription 1 >/dev/null 2>&1; then
 	echo "failed subscription download unexpectedly succeeded" >&2

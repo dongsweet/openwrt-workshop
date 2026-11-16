@@ -165,6 +165,8 @@ def main():
     assert "callNetworkProbeStatus(started.job_id)" in view_source
     assert "network_probe_start" in rpc_source
     assert "network_probe_status" in rpc_source
+    assert "subscription_update_start" in rpc_source
+    assert "subscription_update_status" in rpc_source
     assert "network_probe_status" in acl["read"]["ubus"]["luci.v2rayb"]
     assert "network_probe_start" in acl["write"]["ubus"]["luci.v2rayb"]
     assert "substr(url, 0, 7) != 'http://'" in rpc_source
@@ -268,6 +270,7 @@ def main():
     for method in methods:
         assert f"\n\t{method}: {{" in rpc_source
     makefile_source = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "+coreutils-base64" in makefile_source
     assert "/etc/init.d/v2rayB enable" in makefile_source
     assert "/etc/init.d/v2rayB start" in makefile_source
     assert "v2rayBctl get-setting service_enabled" not in makefile_source

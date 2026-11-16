@@ -22,6 +22,7 @@ V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 APPLY_BACKUP="$STATE_DIR/db-before-apply"
 CTL_LOCK_DIR="${V2RAYB_LOCK_DIR:-$STATE_DIR/lock}"
 PROBE_ROOT="$STATE_DIR/probes"
+SUBSCRIPTION_JOB_ROOT="$STATE_DIR/subscription-jobs"
 CTL_LOCK_ACQUIRED=0
 
 die() {
@@ -474,6 +475,50 @@ EOF
 	fi
 	mv "$raw_tmp" "$SUBSCRIPTION_DIR/$source_id.raw" || die "could not replace subscription cache"
 	printf 'source_id=%s\nnodes=%s\ncache=%s\n' "$source_id" "$node_count" "$SUBSCRIPTION_DIR/$source_id.raw"
+}
+
+cmd_subscription_update_start() {
+	ensure_db
+	source_id="$1"
+	is_uint "$source_id" || die "source id must be numeric"
+	source_type="$(db_sql "SELECT type FROM sources WHERE id=$source_id;")"
+	[ "$source_type" = subscription ] || die "subscription source not found: $source_id"
+	draft_pending && die "apply or revert pending changes before updating a subscription"
+
+	mkdir -p "$SUBSCRIPTION_JOB_ROOT" || die "cannot create subscription job directory"
+	find "$SUBSCRIPTION_JOB_ROOT" -mindepth 1 -maxdepth 1 -type d -mmin +60 -exec rm -rf {} + 2>/dev/null || :
+	job_id="$(date +%s)-$$"
+	job_dir="$SUBSCRIPTION_JOB_ROOT/$job_id"
+	mkdir "$job_dir" || die "cannot create subscription job"
+	printf 'running\n' > "$job_dir/status"
+	printf '%s\n' "$job_id"
+
+	(
+		job_rc=0
+		"$0" update-subscription "$source_id" > "$job_dir/output" 2> "$job_dir/error" || job_rc=$?
+		printf '%s\n' "$job_rc" > "$job_dir/rc.tmp"
+		mv "$job_dir/rc.tmp" "$job_dir/rc"
+		if [ "$job_rc" -eq 0 ]; then
+			printf 'done\n' > "$job_dir/status.tmp"
+		else
+			printf 'failed\n' > "$job_dir/status.tmp"
+		fi
+		mv "$job_dir/status.tmp" "$job_dir/status"
+	) </dev/null >/dev/null 2>&1 &
+}
+
+cmd_subscription_update_status() {
+	job_id="$1"
+	case "$job_id" in ''|*[!0-9-]*) die "invalid subscription job id" ;; esac
+	job_dir="$SUBSCRIPTION_JOB_ROOT/$job_id"
+	[ -d "$job_dir" ] || die "subscription job not found"
+	job_status="$(sed -n '1p' "$job_dir/status" 2>/dev/null || printf running)"
+	job_rc="$(sed -n '1p' "$job_dir/rc" 2>/dev/null || printf '%s\n' '-')"
+	printf 'status=%s\nrc=%s\n' "$job_status" "$job_rc"
+	printf '%s\n' '--output--'
+	cat "$job_dir/output" 2>/dev/null || :
+	printf '%s\n' '--error--'
+	cat "$job_dir/error" 2>/dev/null || :
 }
 
 cmd_delete_source() {
@@ -1729,6 +1774,8 @@ Usage:
   v2rayBctl add-source manual|subscription|imported NAME [URL] [FORMAT]
   v2rayBctl list-sources
   v2rayBctl update-subscription SOURCE_ID
+  v2rayBctl subscription-update-start SOURCE_ID
+  v2rayBctl subscription-update-status JOB_ID
   v2rayBctl delete-source SOURCE_ID
   v2rayBctl add-node NAME PROTOCOL SERVER PORT DATA_JSON
   v2rayBctl update-node NODE_ID NAME PROTOCOL SERVER PORT DATA_JSON
@@ -1764,7 +1811,7 @@ EOF
 command="$1"
 shift
 case "$command" in
-init-db|set-setting|set-state|add-source|update-subscription|delete-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft)
+init-db|set-setting|set-state|add-source|update-subscription|subscription-update-start|delete-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft)
 		acquire_ctl_lock
 		;;
 esac
@@ -1780,6 +1827,8 @@ case "$command" in
 	add-source) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage; cmd_add_source "$@" ;;
 	list-sources) [ "$#" -eq 0 ] || usage; cmd_list_sources ;;
 	update-subscription) [ "$#" -eq 1 ] || usage; cmd_update_subscription "$1" ;;
+	subscription-update-start) [ "$#" -eq 1 ] || usage; cmd_subscription_update_start "$1" ;;
+	subscription-update-status) [ "$#" -eq 1 ] || usage; cmd_subscription_update_status "$1" ;;
 	delete-source) [ "$#" -eq 1 ] || usage; cmd_delete_source "$1" ;;
 	add-node) [ "$#" -eq 5 ] || usage; cmd_add_manual_node "$@" ;;
 	update-node) [ "$#" -eq 6 ] || usage; cmd_update_node "$@" ;;

@@ -18,8 +18,13 @@ const _zh = {
 	'Name': '名称',
 	'URL': 'URL',
 	'Format': '格式',
-	'Add and fetch': '添加并获取',
-	'Save and refresh': '保存并刷新',
+	'Add and fetch': '添加订阅',
+	'Save and refresh': '保存订阅并更新',
+	'Subscription update started.': '订阅更新已在后台开始。',
+	'Subscription update completed.': '订阅更新完成。',
+	'Fetching...': '获取中……',
+	'Subscription update failed: %s': '订阅更新失败：%s',
+	'Subscription status could not be read.': '无法读取订阅状态。',
 	'Cancel': '取消',
 	'The router downloads this URL directly.': '路由器会直接下载此 URL。',
 	'Auto detects plain URI lines or Base64-encoded URI lines.': '自动识别普通 URI 行或 Base64 编码的 URI 行。',
@@ -282,8 +287,11 @@ const callSources = rpc.declare({
 const callAddSource = rpc.declare({
 	object: 'luci.v2rayb', method: 'add_source', params: [ 'name', 'url', 'format' ], expect: { '': {} }, reject: true
 });
-const callUpdateSubscription = rpc.declare({
-	object: 'luci.v2rayb', method: 'update_subscription', params: [ 'source_id' ], expect: { '': {} }, reject: true
+const callSubscriptionUpdateStart = rpc.declare({
+	object: 'luci.v2rayb', method: 'subscription_update_start', params: [ 'source_id' ], expect: { '': {} }, reject: true
+});
+const callSubscriptionUpdateStatus = rpc.declare({
+	object: 'luci.v2rayb', method: 'subscription_update_status', params: [ 'job_id' ], expect: { '': {} }, reject: true
 });
 const callDeleteSource = rpc.declare({
 	object: 'luci.v2rayb', method: 'delete_source', params: [ 'source_id' ], expect: { '': {} }, reject: true
@@ -734,7 +742,7 @@ function showNodeModal(view, onSaved, existing) {
 	refresh();
 }
 
-function showSourceModal(existing) {
+function showSourceModal(existing, onUpdate) {
 	const nameAttributes = { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true, value: existing ? existing[2] : '' };
 	if (existing)
 		nameAttributes.disabled = true;
@@ -754,9 +762,15 @@ function showSourceModal(existing) {
 				showRequestError(added);
 				return;
 			}
-			const updated = await callUpdateSubscription(added.source_id);
+			const updated = await (onUpdate ? onUpdate(added.source_id) : callSubscriptionUpdateStart(added.source_id));
+			if (!updated || !updated.success) {
+				if (!onUpdate)
+					showRequestError(updated);
+				return;
+			}
 			ui.hideModal();
-			notify(updated, _('Subscription saved and nodes updated.'), true);
+			if (!onUpdate)
+				ui.addNotification(null, E('p', {}, _('Subscription update started.')), 'info');
 		}
 		catch (error) {
 			showRequestError(error);
@@ -999,6 +1013,8 @@ return view.extend({
 		pageView.serviceEnabledDesired = configuredServiceEnabled;
 		pageView.serviceEnabledDirty = false;
 		pageView.pendingOperations = [];
+		pageView.subscriptionJobs = {};
+		pageView.subscriptionJobErrors = {};
 		pageView.tempSequence = 0;
 		pageView.nodeIdMap = {};
 		pageView.profileIdMap = {};
@@ -1261,18 +1277,66 @@ return view.extend({
 					].filter(Boolean))
 			]);
 		}
+		function startSubscriptionUpdate(sourceId) {
+			const id = String(sourceId);
+			return callSubscriptionUpdateStart(id).then(result => {
+				if (!result || !result.success) {
+					showRequestError(result);
+					return result;
+				}
+				pageView.subscriptionJobs[id] = result.job_id;
+				delete pageView.subscriptionJobErrors[id];
+				refreshSourceTable();
+				ui.addNotification(null, E('p', {}, _('Subscription update started.')), 'info');
+				const poll = () => callSubscriptionUpdateStatus(result.job_id).then(status => {
+					if (!status || !status.success)
+						throw status || new Error(_('Subscription status could not be read.'));
+					if (status.status === 'running') {
+						window.setTimeout(poll, 1000);
+						return;
+					}
+					delete pageView.subscriptionJobs[id];
+					if (status.status === 'done')
+						ui.addNotification(null, E('p', {}, _('Subscription update completed.')), 'info');
+					else {
+						pageView.subscriptionJobErrors[id] = status.error || status.output || _('Unknown');
+						ui.addNotification(null, E('p', {}, _('Subscription update failed: %s').format(pageView.subscriptionJobErrors[id])), 'error');
+					}
+					window.setTimeout(reloadPage, 700);
+				}).catch(() => {
+					if (pageView.subscriptionJobs[id] === result.job_id)
+						window.setTimeout(poll, 1500);
+				});
+				poll();
+				return result;
+			}).catch(error => { showRequestError(error); return { success: false, error: error }; });
+		}
+		function saveSubscriptionAndStart(sourceId) {
+			return callSources().then(result => {
+				if (result && result.code === 0) {
+					sources.splice(0, sources.length, ...parseRows(outputOf(result)));
+					refreshSourceTable();
+				}
+				return startSubscriptionUpdate(sourceId);
+			});
+		}
+		function sourceStatus(row) {
+			if (pageView.subscriptionJobs[row[0]])
+				return E('span', { class: 'v2rayb-status v2rayb-status-warn' }, _('Fetching...'));
+			if (pageView.subscriptionJobErrors[row[0]])
+				return E('span', { class: 'v2rayb-status v2rayb-status-warn' }, _('Subscription update failed: %s').format(pageView.subscriptionJobErrors[row[0]]));
+			if (row[7])
+				return E('span', { class: 'v2rayb-status v2rayb-status-warn' }, _('Update failed: %s').format(row[7]));
+			return E('span', { class: 'v2rayb-status v2rayb-status-ok' }, _('Ready'));
+		}
 		function sourceTableRows() {
 			return sources.filter(row => row[1] === 'subscription').map(row => [
 				row[2], row[8] || '0', row[4] || 'auto', row[6] || '-',
-				row[7] ? E('span', { class: 'v2rayb-status v2rayb-status-warn' }, _('Update failed: %s').format(row[7])) : E('span', { class: 'v2rayb-status v2rayb-status-ok' }, _('Ready')),
+				sourceStatus(row),
 				actionCell([
-					editButton(() => showSourceModal(row)),
+					editButton(() => showSourceModal(row, startSubscriptionUpdate)),
 					E('button', { class: 'btn cbi-button cbi-button-action', type: 'button', click: async () => {
-						try {
-							const result = await callUpdateSubscription(row[0]);
-							notify(result, _('Subscription nodes updated.'), true);
-						}
-						catch (error) { showRequestError(error); }
+						await startSubscriptionUpdate(row[0]);
 					} }, _('Update')),
 					removeButton(async () => {
 						if (!await confirmDelete(_('Delete subscription "%s" and its unreferenced nodes?').format(row[2])))
@@ -1433,7 +1497,7 @@ return view.extend({
 				E('h3', {}, _('Subscriptions')),
 				sourceTable,
 				E('div', { class: 'v2rayb-create' }, [
-					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showSourceModal() }, _('Add subscription'))
+					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showSourceModal(null, saveSubscriptionAndStart) }, _('Add subscription'))
 				])
 			]),
 			E('div', { class: 'cbi-section' }, [
