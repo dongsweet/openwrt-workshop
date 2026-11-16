@@ -2,6 +2,7 @@
 
 import json
 import pathlib
+import re
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -28,6 +29,10 @@ def main():
         encoding="utf-8"
     )
     assert "function isEnabled(value)" in view_source
+    translation_block = view_source.split("const _zh = {", 1)[1].split("};", 1)[0]
+    translated_keys = set(re.findall(r"^\s*'([^']*)':", translation_block, re.MULTILINE))
+    message_keys = set(re.findall(r"_\('([^']*)'\)", view_source))
+    assert message_keys <= translated_keys, sorted(message_keys - translated_keys)
     assert "function checkbox(attributes, checked)" in view_source
     assert "input.checked = checked === true" in view_source
     assert "checked: configuredServiceEnabled" not in view_source

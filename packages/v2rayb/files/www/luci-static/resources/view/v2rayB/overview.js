@@ -3,8 +3,15 @@
 'require ui';
 'require view';
 
-const _globalTranslate = typeof globalThis !== 'undefined' && typeof globalThis._ === 'function' ? globalThis._ : null;
 const _zh = {
+	'Engine': '引擎',
+	'New': '新建',
+	'Testing...': '正在测试……',
+	'V2Ray + MosDNS': 'V2Ray + MosDNS',
+	'v2rayB unified proxy': 'v2rayB 统一代理',
+	'Open this tab to load the active configuration.': '打开此标签页加载当前配置。',
+	'Loading configuration...': '正在加载配置……',
+	'Loading DNS status...': '正在加载 DNS 状态……',
 	'Add subscription': '添加订阅',
 	'Edit subscription': '编辑订阅',
 	'Subscription source': '订阅来源',
@@ -163,6 +170,7 @@ const _zh = {
 	'Node is referenced by a profile; delete or move that profile first.': '该节点正被配置方案引用，请先修改配置方案再删除节点。',
 	'Nodes': '节点',
 	'None': '无',
+	'none': '无',
 	'Normal mode': '普通模式',
 	'not applicable': '不适用',
 	'Not selected': '未选择',
@@ -248,7 +256,7 @@ const _zh = {
 	'WebSocket path': 'WebSocket 路径',
 	'Your changes are saved as a draft. Use Save & Apply to make them active.': '变更已保存为草稿，请点击“保存并应用”使其生效。',
 };
-const _ = value => Object.prototype.hasOwnProperty.call(_zh, value) ? _zh[value] : (_globalTranslate ? _globalTranslate(value) : value);
+const _ = value => Object.prototype.hasOwnProperty.call(_zh, value) ? _zh[value] : value;
 
 const callStatus = rpc.declare({
 	object: 'luci.v2rayb', method: 'status', expect: { '': {} }
