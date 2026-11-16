@@ -1341,11 +1341,12 @@ return view.extend({
 					removeButton(async () => {
 						if (!await confirmDelete(_('Delete subscription "%s" and its unreferenced nodes?').format(row[2])))
 							return;
-						try {
-							const result = await callDeleteSource(row[0]);
-							notify(result, _('Subscription deleted.'), true);
-						}
-						catch (error) { showRequestError(error); }
+						const index = sources.findIndex(item => item[0] === row[0]);
+						if (index >= 0)
+							sources.splice(index, 1);
+						queuePendingOperation(() => callDeleteSource(row[0]), 'source-delete:' + row[0]);
+						refreshSourceTable();
+						updateLocalChangesNotice();
 					})
 				])
 			]);

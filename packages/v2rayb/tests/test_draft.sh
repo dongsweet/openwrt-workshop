@@ -23,6 +23,22 @@ sqlite="$ROOT/tests/sqlite3-wrapper.py"
 "$ctl" status | grep -q '^draft_pending=0$'
 applied_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key='applied_config_version';")"
 
+# Subscription deletion follows the draft lifecycle and is reversible until apply.
+"$ctl" add-source subscription staged https://sub.example.test/sub uri >/dev/null
+staged_source_id="$("$sqlite" "$V2RAYB_DB" "SELECT id FROM sources WHERE type='subscription' AND name='staged';")"
+"$sqlite" "$V2RAYB_DB" "INSERT INTO nodes(source_id,name,protocol,server,port,data_json) VALUES($staged_source_id,'staged-node','vless','staged.example.com',443,'{}');"
+"$ctl" delete-source "$staged_source_id"
+"$ctl" status | grep -q '^draft_pending=1$'
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT COUNT(*) FROM sources WHERE id=$staged_source_id;")" = 1 ]
+! "$ctl" list-sources | grep -q 'staged'
+"$ctl" revert-draft
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT COUNT(*) FROM sources WHERE id=$staged_source_id;")" = 1 ]
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT COUNT(*) FROM nodes WHERE source_id=$staged_source_id;")" = 1 ]
+"$ctl" delete-source "$staged_source_id"
+"$ctl" apply-draft
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT COUNT(*) FROM sources WHERE id=$staged_source_id;")" = 0 ]
+[ "$("$sqlite" "$V2RAYB_DB" "SELECT COUNT(*) FROM nodes WHERE source_id=$staged_source_id;")" = 0 ]
+
 # A saved edit must remain a draft and not affect applied runtime data.
 "$ctl" update-node 1 draft-name vless draft.example.com 8443 \
 	'{"settings":{"vnext":[{"address":"draft.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null

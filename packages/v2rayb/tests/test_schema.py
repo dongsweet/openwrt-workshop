@@ -34,10 +34,10 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
         assert {
             "draft_nodes", "draft_policies", "draft_profiles",
-            "draft_profile_nodes",
+            "draft_profile_nodes", "draft_source_deletions",
         } <= tables
         profile_columns = {
             row[1]

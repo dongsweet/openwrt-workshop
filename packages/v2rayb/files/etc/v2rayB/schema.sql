@@ -141,6 +141,10 @@ CREATE TABLE IF NOT EXISTS draft_profile_nodes (
     PRIMARY KEY (profile_id, node_id)
 );
 
+CREATE TABLE IF NOT EXISTS draft_source_deletions (
+    source_id INTEGER PRIMARY KEY
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version    INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -172,6 +176,7 @@ INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (4);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (5);
-PRAGMA user_version = 5;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (6);
+PRAGMA user_version = 6;
 
 COMMIT;

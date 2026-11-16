@@ -54,6 +54,8 @@ def main():
     assert "queuePendingOperation(() => callSelectProfile" not in view_source
     assert "queuePendingOperation(() => callDeleteNode" in view_source
     assert "queuePendingOperation(() => callDeleteProfile" in view_source
+    assert "queuePendingOperation(() => callDeleteSource" in view_source
+    assert "notify(result, _('Subscription deleted.'), true)" not in view_source
     assert "field(_('Profile to activate'), activeProfileSelect" in view_source
     assert "card(_('Applied profile')" in view_source
     assert "activeProfileRows = parseRows(outputOf(data[5]))" not in view_source

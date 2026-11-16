@@ -216,7 +216,7 @@ setting() {
 
 draft_pending() {
 	[ "$(setting draft_pending)" = 1 ] || return 1
-	count="$(db_sql "SELECT (SELECT COUNT(*) FROM draft_nodes) + (SELECT COUNT(*) FROM draft_profiles) + (SELECT COUNT(*) FROM draft_policies);" | tr -d '[:space:]')"
+	count="$(db_sql "SELECT (SELECT COUNT(*) FROM draft_nodes) + (SELECT COUNT(*) FROM draft_profiles) + (SELECT COUNT(*) FROM draft_policies) + (SELECT COUNT(*) FROM draft_source_deletions);" | tr -d '[:space:]')"
 	[ "$count" -gt 0 ] || return 1
 }
 
@@ -227,6 +227,7 @@ begin_draft() {
 		DELETE FROM draft_profiles;
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
+		DELETE FROM draft_source_deletions;
 		INSERT INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,created_at,updated_at FROM policies;
 		INSERT INTO draft_nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM nodes;
 		INSERT INTO draft_profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM profiles;
@@ -272,6 +273,7 @@ discard_drafts() {
 		DELETE FROM draft_profiles;
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
+		DELETE FROM draft_source_deletions;
 		DELETE FROM sources WHERE type='manual' AND name='manual' AND NOT EXISTS (SELECT 1 FROM nodes WHERE source_id=sources.id);
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='active_profile'),''),updated_at=CURRENT_TIMESTAMP WHERE key='draft_active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='service_enabled'),'0'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_service_enabled';
@@ -321,7 +323,11 @@ ensure_db() {
 		db_sql "INSERT OR IGNORE INTO schema_migrations(version) VALUES (5); PRAGMA user_version=5;"
 		version=5
 	fi
-	[ "$version" = 5 ] || die "unsupported database schema version: $version"
+	if [ "$version" = 5 ]; then
+		db_sql "CREATE TABLE IF NOT EXISTS draft_source_deletions (source_id INTEGER PRIMARY KEY); INSERT OR IGNORE INTO schema_migrations(version) VALUES (6); PRAGMA user_version=6;"
+		version=6
+	fi
+	[ "$version" = 6 ] || die "unsupported database schema version: $version"
 	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
 	if [ "$(setting draft_pending)" != 1 ]; then
 		discard_drafts
@@ -411,7 +417,11 @@ cmd_add_source() {
 
 cmd_list_sources() {
 	ensure_db
-	db_sql "SELECT s.id || char(9) || s.type || char(9) || s.name || char(9) || COALESCE(s.url, '') || char(9) || COALESCE(s.format, 'auto') || char(9) || s.enabled || char(9) || COALESCE(s.last_updated, '') || char(9) || COALESCE(s.last_error, '') || char(9) || (SELECT COUNT(*) FROM nodes n WHERE n.source_id=s.id) FROM sources s ORDER BY s.type, s.name;"
+	source_filter=""
+	if draft_pending; then
+		source_filter="WHERE NOT EXISTS (SELECT 1 FROM draft_source_deletions dsd WHERE dsd.source_id=s.id)"
+	fi
+	db_sql "SELECT s.id || char(9) || s.type || char(9) || s.name || char(9) || COALESCE(s.url, '') || char(9) || COALESCE(s.format, 'auto') || char(9) || s.enabled || char(9) || COALESCE(s.last_updated, '') || char(9) || COALESCE(s.last_error, '') || char(9) || (SELECT COUNT(*) FROM nodes n WHERE n.source_id=s.id) FROM sources s $source_filter ORDER BY s.type, s.name;"
 }
 
 set_source_error() {
@@ -525,13 +535,19 @@ cmd_delete_source() {
 	ensure_db
 	source_id="$1"
 	is_uint "$source_id" || die "source id must be numeric"
-	draft_pending && die "apply or revert pending changes before deleting a subscription"
 	type="$(db_sql "SELECT type FROM sources WHERE id=$source_id;" | sed -n '1p')"
 	[ "$type" = subscription ] || die "source is not a subscription"
-	refs="$(db_sql "SELECT COUNT(*) FROM profile_nodes pn JOIN nodes n ON n.id=pn.node_id WHERE n.source_id=$source_id;" | tr -d '[:space:]')"
+	nodes_table=nodes
+	profile_nodes_table=profile_nodes
+	if draft_pending; then
+		nodes_table=draft_nodes
+		profile_nodes_table=draft_profile_nodes
+	fi
+	refs="$(db_sql "SELECT COUNT(*) FROM $profile_nodes_table pn JOIN $nodes_table n ON n.id=pn.node_id WHERE n.source_id=$source_id;" | tr -d '[:space:]')"
 	[ "$refs" = 0 ] || die "subscription has nodes referenced by a profile"
-	db_sql "BEGIN; DELETE FROM nodes WHERE source_id=$source_id; DELETE FROM sources WHERE id=$source_id; COMMIT;"
-	rm -f "$SUBSCRIPTION_DIR/$source_id.raw"
+	draft_change_begin
+	db_sql "DELETE FROM draft_nodes WHERE source_id=$source_id; INSERT OR IGNORE INTO draft_source_deletions(source_id) VALUES($source_id);"
+	draft_change_commit
 }
 
 cmd_add_manual_node() {
@@ -774,6 +790,7 @@ cmd_apply_draft() {
 	is_uint "$active_id" || die "draft has no active profile"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles p JOIN draft_profile_nodes pn ON pn.profile_id=p.id JOIN draft_nodes n ON n.id=pn.node_id WHERE p.id=$active_id AND p.enabled=1 AND n.enabled=1;" | tr -d '[:space:]')"
 	[ "$count" -gt 0 ] || die "draft active profile has no enabled node"
+	deleted_sources="$(db_sql 'SELECT source_id FROM draft_source_deletions;')"
 	tmp_backup="$APPLY_BACKUP.tmp.$$"
 	cp "$DB" "$tmp_backup" || die "could not save the applied database"
 	chmod 600 "$tmp_backup" 2>/dev/null || :
@@ -783,6 +800,7 @@ cmd_apply_draft() {
 		DELETE FROM profiles;
 		DELETE FROM nodes;
 		DELETE FROM policies;
+		DELETE FROM sources WHERE id IN (SELECT source_id FROM draft_source_deletions);
 		INSERT INTO policies(id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic) SELECT id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic FROM draft_policies;
 		INSERT INTO nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM draft_nodes;
 		INSERT INTO profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM draft_profiles;
@@ -794,9 +812,13 @@ cmd_apply_draft() {
 		DELETE FROM draft_profiles;
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
+		DELETE FROM draft_source_deletions;
 		INSERT INTO settings(key,value,updated_at) VALUES('draft_pending','0',CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value='0',updated_at=CURRENT_TIMESTAMP;
 		DELETE FROM sources WHERE type='manual' AND name='manual' AND NOT EXISTS (SELECT 1 FROM nodes WHERE source_id=sources.id) AND NOT EXISTS (SELECT 1 FROM draft_nodes WHERE source_id=sources.id);
 		COMMIT;"
+	for source_id in $deleted_sources; do
+		rm -f "$SUBSCRIPTION_DIR/$source_id.raw"
+	done
 }
 
 cmd_rollback_apply() {
