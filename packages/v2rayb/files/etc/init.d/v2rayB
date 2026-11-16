@@ -53,6 +53,10 @@ dnsmasq_reload() {
 		/etc/init.d/dnsmasq restart >/dev/null 2>&1
 }
 
+uci_list_lines() {
+	tr ' \t' '\n\n' | awk 'NF { print }'
+}
+
 load_dns_policy() {
 	"$CTL" dns-settings > "$RUNTIME/dns-policy" || return 1
 	[ -s "$RUNTIME/dns-policy" ]
@@ -80,7 +84,7 @@ capture_dnsmasq_baseline() {
 	mkdir -p "$DNS_BACKUP" || return 1
 	: > "$DNS_BACKUP/server" || { rm -rf "$DNS_BACKUP"; return 1; }
 	: > "$DNS_BACKUP/noresolv" || { rm -rf "$DNS_BACKUP"; return 1; }
-	uci -q get "${DNSMASQ_SECTION}.server" > "$DNS_BACKUP/server" 2>/dev/null || :
+	uci -q get "${DNSMASQ_SECTION}.server" 2>/dev/null | uci_list_lines > "$DNS_BACKUP/server" || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$DNS_BACKUP/noresolv" 2>/dev/null || :
 	[ -f "$DNS_BACKUP/server" ] && [ -f "$DNS_BACKUP/noresolv" ] || {
 		rm -rf "$DNS_BACKUP"
@@ -131,7 +135,7 @@ set_proxy_dns() {
 	uci -q add_list "${DNSMASQ_SECTION}.server=$default_upstream" || return 1
 	printf '%s\n' "$default_upstream" >> "$RUNTIME/proxy-server.expected"
 	uci -q set "${DNSMASQ_SECTION}.noresolv=1" || return 1
-	uci -q get "${DNSMASQ_SECTION}.server" > "$RUNTIME/proxy-server" 2>/dev/null || :
+	uci -q get "${DNSMASQ_SECTION}.server" 2>/dev/null | uci_list_lines > "$RUNTIME/proxy-server" || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$RUNTIME/proxy-noresolv" 2>/dev/null || :
 	printf '%s\n' '1' > "$RUNTIME/proxy-noresolv.expected"
 	cmp -s "$RUNTIME/proxy-server" "$RUNTIME/proxy-server.expected" || return 1
@@ -186,7 +190,7 @@ restore_dnsmasq() {
 		return 1
 	}
 	uci -q show "$DNSMASQ_SECTION" >/dev/null 2>&1 || return 1
-	uci -q get "${DNSMASQ_SECTION}.server" > "$RUNTIME/restore-server" 2>/dev/null || :
+	uci -q get "${DNSMASQ_SECTION}.server" 2>/dev/null | uci_list_lines > "$RUNTIME/restore-server" || :
 	uci -q get "${DNSMASQ_SECTION}.noresolv" > "$RUNTIME/restore-noresolv" 2>/dev/null || :
 	cmp -s "$RUNTIME/restore-server" "$RUNTIME/restore-server.expected" || return 1
 	cmp -s "$RUNTIME/restore-noresolv" "$RUNTIME/restore-noresolv.expected" || return 1

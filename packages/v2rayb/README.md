@@ -4,9 +4,10 @@ v2rayB is an OpenWrt control plane for a V2Ray-based transparent proxy. It
 combines a SQLite application database, generated V2Ray/MosDNS/nftables
 configuration, dnsmasq integration, LuCI management, and a DNS watchdog.
 
-The implementation is an installable test build. Manual nodes and profiles,
-runtime proxy switching, rollback, and basic LuCI management are implemented.
-Subscriptions and the full policy-management workflow are not.
+The implementation is an installable test build. Manual and subscription
+nodes/profiles, runtime proxy switching, rollback, and basic LuCI management
+are implemented. JSON subscription formats and periodic automatic refresh are
+not.
 
 The target architecture is documented in [docs/design.md](docs/design.md).
 The implementation boundary and test notes are in

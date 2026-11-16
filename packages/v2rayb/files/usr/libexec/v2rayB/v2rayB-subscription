@@ -1,0 +1,255 @@
+#!/bin/sh
+
+set -eu
+
+payload="$1"
+format="${2:-auto}"
+source_name="$3"
+work="${TMPDIR:-/tmp}/v2rayb-subscription-$$"
+mkdir -m 700 "$work"
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+
+die() {
+	echo "v2rayB-subscription: $*" >&2
+	exit 1
+}
+
+json_quote() {
+	printf '%s' "$1" | tr -d '\r\n\t' | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+json_array_from_csv() {
+	value="$1"
+	result="["
+	old_ifs="$IFS"
+	set -f
+	IFS=','
+	set -- $value
+	IFS="$old_ifs"
+	set +f
+	[ "$#" -gt 0 ] || return 1
+	for item in "$@"; do
+		case "$item" in
+			''|*[!A-Za-z0-9._/-]*) return 1 ;;
+		esac
+		[ "$result" = "[" ] || result="$result,"
+		result="$result\"$(json_quote "$item")\""
+	done
+	JSON_ARRAY="$result]"
+}
+
+url_decode() {
+	printf '%s\n' "$1" | awk '
+	function hex(c) { return index("0123456789ABCDEF", toupper(c)) - 1 }
+	{
+		s = $0; gsub(/\+/, " ", s); out = ""
+		for (i = 1; i <= length(s); i++) {
+			c = substr(s, i, 1)
+			if (c == "%" && i + 2 <= length(s)) {
+				h = substr(s, i + 1, 2)
+				if (h ~ /^[0-9A-Fa-f][0-9A-Fa-f]$/) {
+					out = out sprintf("%c", hex(substr(h, 1, 1)) * 16 + hex(substr(h, 2, 1)))
+					i += 2
+				} else out = out c
+			} else out = out c
+		}
+		gsub(/[[:cntrl:]]/, "", out)
+		printf "%s", out
+	}'
+}
+
+query_value() {
+	value="$(printf '%s\n' "$1" | tr '&' '\n' | sed -n "s/^$2=//p" | sed -n '1p')"
+	[ -n "$value" ] && url_decode "$value" || :
+}
+
+split_authority() {
+	case "$1" in
+		\[*\]:*) host="${1#\[}"; host="${host%%\]*}"; port="${1#*\]}"; port="${port#:}" ;;
+		\[*\]) host="${1#\[}"; host="${host%\]}"; port="" ;;
+		*:*:*) return 1 ;;
+		*:*) host="${1%:*}"; port="${1##*:}" ;;
+		*) host="$1"; port="" ;;
+	esac
+	case "$port" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null && [ -n "$host" ]
+	case "$host" in ''|*[!A-Za-z0-9._:-]*) return 1 ;; esac
+}
+
+safe_name() {
+	name="$(printf '%s' "$1" | sed 's/[[:space:]]\+/_/g; s/[^A-Za-z0-9._-]/_/g; s/^_*//; s/_*$//' | cut -c1-56)"
+	[ -n "$name" ] || name="${source_name}-${line_no}"
+	base="$name"
+	n=1
+	while grep -Fqx "$name" "$work/names" 2>/dev/null; do
+		n=$((n + 1))
+		name="$(printf '%s-%s' "$base" "$n" | cut -c1-64)"
+	done
+	printf '%s\n' "$name" >> "$work/names"
+	printf '%s' "$name"
+}
+
+decode_base64() {
+	value="$(printf '%s' "$1" | tr '_-' '/+' | tr -d '[:space:]')"
+	case $(( ${#value} % 4 )) in
+		1) return 1 ;;
+		2) value="${value}==" ;;
+		3) value="${value}=" ;;
+	esac
+	printf '%s' "$value" | base64 -d 2>/dev/null
+}
+
+stream_json() {
+	alpn_json=""
+	if [ -n "$alpn" ]; then
+		json_array_from_csv "$alpn" || return 1
+		alpn_json="$JSON_ARRAY"
+	fi
+	stream="{\"network\":\"$(json_quote "$network")\",\"security\":\"$(json_quote "$security")\""
+	case "$security" in
+		tls)
+			insecure=false
+			case "$allow_insecure" in 1|true) insecure=true ;; esac
+			stream="$stream,\"tlsSettings\":{\"serverName\":\"$(json_quote "$sni")\",\"allowInsecure\":$insecure}"
+			;;
+		reality)
+			stream="$stream,\"realitySettings\":{\"show\":false,\"fingerprint\":\"$(json_quote "$fingerprint")\",\"serverName\":\"$(json_quote "$sni")\""
+			[ -n "$public_key" ] && stream="$stream,\"publicKey\":\"$(json_quote "$public_key")\""
+			[ -n "$short_id" ] && stream="$stream,\"shortId\":\"$(json_quote "$short_id")\""
+			stream="$stream}"
+			;;
+	esac
+	if [ -n "$alpn_json" ]; then
+		case "$security" in
+			tls|reality)
+				stream="${stream%?}"
+				stream="$stream,\"alpn\":$alpn_json}"
+				;;
+		esac
+	fi
+	case "$network" in
+		ws)
+			stream="$stream,\"wsSettings\":{\"path\":\"$(json_quote "$path")\""
+			[ -n "$host_header" ] && stream="$stream,\"headers\":{\"Host\":\"$(json_quote "$host_header")\"}"
+			stream="$stream}"
+			;;
+		h2|http)
+			stream="$stream,\"httpSettings\":{\"path\":\"$(json_quote "$path")\""
+			[ -n "$host_header" ] && stream="$stream,\"host\":[\"$(json_quote "$host_header")\"]"
+			stream="$stream}"
+			;;
+		grpc)
+			[ -n "$service_name" ] && stream="$stream,\"grpcSettings\":{\"serviceName\":\"$(json_quote "$service_name")\"}"
+			;;
+	esac
+	STREAM_JSON="$stream}"
+}
+
+parse_vless_trojan() {
+	proto="$1"
+	rest="${2#*://}"
+	fragment=""
+	case "$rest" in *#*) fragment="${rest#*#}"; rest="${rest%%#*}" ;; esac
+	query=""
+	case "$rest" in *\?*) query="${rest#*\?}"; rest="${rest%%\?*}" ;; esac
+	case "$rest" in *@*) user="$(url_decode "${rest%@*}")"; authority="${rest#*@}" ;; *) return 1 ;; esac
+	split_authority "$authority" || return 1
+
+	network="$(query_value "$query" type)"; [ -n "$network" ] || network="$(query_value "$query" network)"; [ -n "$network" ] || network=tcp
+	security="$(query_value "$query" security)"; [ -n "$security" ] || security=none
+	sni="$(query_value "$query" sni)"; [ -n "$sni" ] || sni="$host"
+	path="$(query_value "$query" path)"; [ -n "$path" ] || path=/
+	host_header="$(query_value "$query" host)"
+	service_name="$(query_value "$query" serviceName)"
+	allow_insecure="$(query_value "$query" allowInsecure)"
+	fingerprint="$(query_value "$query" fp)"; [ -n "$fingerprint" ] || fingerprint=chrome
+	public_key="$(query_value "$query" pbk)"
+	short_id="$(query_value "$query" sid)"
+	alpn="$(query_value "$query" alpn)"
+	flow="$(query_value "$query" flow)"
+	encryption="$(query_value "$query" encryption)"; [ -n "$encryption" ] || encryption=none
+	stream_json || return 1
+	name="$(safe_name "$(url_decode "$fragment")")"
+
+	if [ "$proto" = vless ]; then
+		user_json="{\"id\":\"$(json_quote "$user")\",\"encryption\":\"$(json_quote "$encryption")\",\"level\":1"
+		[ -n "$flow" ] && user_json="$user_json,\"flow\":\"$(json_quote "$flow")\""
+		user_json="$user_json}"
+		data="{\"settings\":{\"vnext\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"users\":[$user_json]}]},\"streamSettings\":$STREAM_JSON,\"mux\":{\"enabled\":true,\"concurrency\":8}}"
+	else
+		data="{\"settings\":{\"servers\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"password\":\"$(json_quote "$user")\",\"level\":1}]},\"streamSettings\":$STREAM_JSON,\"mux\":{\"enabled\":true,\"concurrency\":8}}"
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$proto" "$host" "$port" "$data"
+}
+
+parse_vmess() {
+	decoded="$(decode_base64 "${1#vmess://}")" || return 1
+	printf '%s' "$decoded" > "$work/vmess.json"
+	field() { sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$work/vmess.json" | sed -n '1p'; }
+	host="$(field add)"; port="$(field port)"; id="$(field id)"; aid="$(field aid)"
+	network="$(field net)"; [ -n "$network" ] || network=tcp
+	case "$port" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null && [ -n "$host" ] && [ -n "$id" ] || return 1
+	security=none; [ "$(field tls)" = tls ] && security=tls
+	sni="$(field sni)"; [ -n "$sni" ] || sni="$host"
+	path="$(field path)"; [ -n "$path" ] || path=/
+	host_header="$(field host)"
+	alpn="$(field alpn)"
+	service_name=""
+	allow_insecure=false; fingerprint=chrome; public_key=""; short_id=""
+	stream_json || return 1
+	name="$(safe_name "$(field ps)")"
+	[ -n "$aid" ] || aid=0
+	scy="$(field scy)"; [ -n "$scy" ] || scy=auto
+	data="{\"settings\":{\"vnext\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"users\":[{\"id\":\"$(json_quote "$id")\",\"alterId\":$aid,\"security\":\"$(json_quote "$scy")\"}]}]},\"streamSettings\":$STREAM_JSON,\"mux\":{\"enabled\":true,\"concurrency\":8}}"
+	printf '%s\tvmess\t%s\t%s\t%s\n' "$name" "$host" "$port" "$data"
+}
+
+parse_ss() {
+	rest="${1#ss://}"; fragment=""
+	case "$rest" in *#*) fragment="${rest#*#}"; rest="${rest%%#*}" ;; esac
+	case "$rest" in *\?*) rest="${rest%%\?*}" ;; esac
+	case "$rest" in *@*) credentials="${rest%@*}"; authority="${rest#*@}" ;;
+		*) decoded="$(decode_base64 "$rest")" || return 1; credentials="${decoded%@*}"; authority="${decoded#*@}" ;;
+	esac
+	split_authority "$authority" || return 1
+	credentials="$(decode_base64 "$credentials" 2>/dev/null || printf '%s' "$credentials")"
+	method="${credentials%%:*}"; password="${credentials#*:}"
+	[ -n "$method" ] && [ "$password" != "$credentials" ] || return 1
+	name="$(safe_name "$(url_decode "$fragment")")"
+	data="{\"settings\":{\"servers\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"password\":\"$(json_quote "$password")\",\"method\":\"$(json_quote "$method")\",\"level\":1}]},\"streamSettings\":{\"network\":\"tcp\",\"security\":\"none\"},\"mux\":{\"enabled\":true,\"concurrency\":8}}"
+	printf '%s\tshadowsocks\t%s\t%s\t%s\n' "$name" "$host" "$port" "$data"
+}
+
+[ -r "$payload" ] || die 'payload is not readable'
+case "$format" in auto|uri|base64) ;; *) die "unsupported format: $format" ;; esac
+case "$format" in
+	uri) sed 's/\r$//' "$payload" > "$work/list" ;;
+	base64) tr -d '[:space:]' < "$payload" | base64 -d > "$work/list" 2>/dev/null || die 'invalid base64 payload' ;;
+	auto)
+		if grep -q 'vless://' "$payload" || grep -q 'vmess://' "$payload" || grep -q 'trojan://' "$payload" || grep -q 'ss://' "$payload"; then sed 's/\r$//' "$payload" > "$work/list"
+		else tr -d '[:space:]' < "$payload" | base64 -d > "$work/list" 2>/dev/null || die 'not URI text or base64'
+		fi
+		;;
+esac
+
+line_no=0
+count=0
+: > "$work/names"
+while IFS= read -r line || [ -n "$line" ]; do
+	line_no=$((line_no + 1))
+	line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+	[ -n "$line" ] || continue
+	case "$line" in \#*) continue ;; esac
+	: > "$work/current"
+	case "$line" in
+		vless://*) parse_vless_trojan vless "$line" > "$work/current" 2>/dev/null || : ;;
+		trojan://*) parse_vless_trojan trojan "$line" > "$work/current" 2>/dev/null || : ;;
+		vmess://*) parse_vmess "$line" > "$work/current" 2>/dev/null || : ;;
+		ss://*) parse_ss "$line" > "$work/current" 2>/dev/null || : ;;
+		*) : ;;
+	esac
+	if [ -s "$work/current" ]; then cat "$work/current"; count=$((count + 1)); fi
+done < "$work/list"
+[ "$count" -gt 0 ] || die 'no supported VLESS/VMess/Trojan/Shadowsocks nodes found'
+

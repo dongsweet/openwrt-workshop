@@ -21,6 +21,18 @@ const callNetworkProbeStatus = rpc.declare({
 const callNodes = rpc.declare({
 	object: 'luci.v2rayb', method: 'list_nodes', expect: { '': {} }
 });
+const callSources = rpc.declare({
+	object: 'luci.v2rayb', method: 'list_sources', expect: { '': {} }
+});
+const callAddSource = rpc.declare({
+	object: 'luci.v2rayb', method: 'add_source', params: [ 'name', 'url', 'format' ], expect: { '': {} }, reject: true
+});
+const callUpdateSubscription = rpc.declare({
+	object: 'luci.v2rayb', method: 'update_subscription', params: [ 'source_id' ], expect: { '': {} }, reject: true
+});
+const callDeleteSource = rpc.declare({
+	object: 'luci.v2rayb', method: 'delete_source', params: [ 'source_id' ], expect: { '': {} }, reject: true
+});
 const callProfiles = rpc.declare({
 	object: 'luci.v2rayb', method: 'list_profiles', expect: { '': {} }
 });
@@ -463,6 +475,42 @@ function showNodeModal(view, onSaved, existing) {
 	refresh();
 }
 
+function showSourceModal(existing) {
+	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true, value: existing ? existing[2] : '', disabled: !!existing });
+	const url = E('input', { class: 'cbi-input-text', type: 'url', maxlength: '2048', required: true, value: existing ? existing[3] : '' });
+	const format = E('select', { class: 'cbi-input-select' }, [ 'auto', 'uri', 'base64' ].map(value => E('option', { value }, value)));
+	format.value = existing ? (existing[4] || 'auto') : 'auto';
+	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: async () => {
+		if (!name.value || !url.value) {
+			ui.addNotification(null, E('p', {}, _('Name and URL are required.')), 'warning');
+			return;
+		}
+		try {
+			const added = await callAddSource(name.value, url.value, format.value);
+			if (!added || !added.success) {
+				showRequestError(added);
+				return;
+			}
+			const updated = await callUpdateSubscription(added.source_id);
+			ui.hideModal();
+			notify(updated, _('Subscription saved and nodes updated.'), true);
+		}
+		catch (error) {
+			showRequestError(error);
+		}
+	}}, existing ? _('Save and refresh') : _('Add and fetch'));
+	const cancel = E('button', { class: 'cbi-button', type: 'button', click: () => ui.hideModal() }, _('Cancel'));
+	ui.showModal(existing ? _('Edit subscription') : _('Add subscription'), [
+		E('div', { class: 'cbi-section' }, [
+			E('h3', {}, _('Subscription source')),
+			field(_('Name'), name),
+			field(_('URL'), url, _('The router downloads this URL directly.')),
+			field(_('Format'), format, _('Auto detects plain URI lines or Base64-encoded URI lines.'))
+		]),
+		E('div', { class: 'cbi-page-actions' }, [ cancel, save ])
+	]);
+}
+
 function showProfileModal(onSaved, nodes, defaults, existing) {
 	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true, value: existing ? existing.name : '' });
 	const nodeOptions = [
@@ -626,6 +674,7 @@ return view.extend({
 	load() {
 		return Promise.all([
 			L.resolveDefault(callStatus(), { output: '' }), L.resolveDefault(callNodes(), { output: '' }),
+			L.resolveDefault(callSources(), { output: '' }),
 			L.resolveDefault(callProfiles(), { output: '' }),
 			L.resolveDefault(callDnsState(), { output: '' }), L.resolveDefault(callGetV2rayConfig(), { output: '' }),
 			L.resolveDefault(callAppliedProfile(), { output: '' })
@@ -638,9 +687,10 @@ return view.extend({
 		const draftPending = status.draft_pending === '1';
 		pageView.draftPending = draftPending;
 		const nodes = parseRows(outputOf(data[1]));
-		const profiles = parseRows(outputOf(data[2]));
-		const dnsState = parseKeyValues(outputOf(data[3]));
-		const appliedProfileRows = parseRows(outputOf(data[5]));
+		const sources = parseRows(outputOf(data[2]));
+		const profiles = parseRows(outputOf(data[3]));
+		const dnsState = parseKeyValues(outputOf(data[4]));
+		const appliedProfileRows = parseRows(outputOf(data[6]));
 		const appliedProfile = status.active_profile || '';
 		let activeProfile = draftPending
 			? (status.draft_active_profile || appliedProfile)
@@ -796,9 +846,10 @@ return view.extend({
 			], _('No status data available.'))
 		];
 
-		let profileTable, nodeTable, profileAddButton;
+		let profileTable, nodeTable, sourceTable, profileAddButton;
 		const profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ];
-		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Enabled'), _('Actions') ];
+		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Source'), _('Enabled'), _('Actions') ];
+		const sourceTableHeaders = [ _('Name'), _('Nodes'), _('Format'), _('Last update'), _('Status'), _('Actions') ];
 
 		function enabledToggle(enabled, change) {
 			const input = checkbox({}, isEnabled(enabled));
@@ -889,8 +940,15 @@ return view.extend({
 			});
 		}
 		function nodeTableRows() {
+			function nodeSourceLabel(row) {
+				if (row[6] === 'subscription')
+					return _('Subscription: ') + (row[7] || '');
+				if (row[6] === 'imported')
+					return _('Imported: ') + (row[7] || '');
+				return _('Manual');
+			}
 			return nodes.map(row => [
-				displayId(row[0]), row[1], row[2].toUpperCase(), row[3], row[4],
+				displayId(row[0]), row[1], row[2].toUpperCase(), row[3], row[4], nodeSourceLabel(row),
 				enabledToggle(row[5], enabled => {
 					if (enabled === '0' && profiles.some(profile => profile[5] === row[0])) {
 						ui.addNotification(null, E('p', {}, _('Node is referenced by a profile; delete or move that profile before disabling the node.')), 'warning');
@@ -906,8 +964,8 @@ return view.extend({
 					refreshNodeCard();
 					refreshProfileAddButton();
 				}),
-				actionCell([
-					editButton(async () => {
+					actionCell([
+					row[6] === 'subscription' ? null : editButton(async () => {
 						let details;
 						if (pageView.localNodeDetails[row[0]])
 							details = { success: true, node: pageView.localNodeDetails[row[0]] };
@@ -919,7 +977,7 @@ return view.extend({
 						}
 						showNodeModal(pageView, onNodeSaved, details.node);
 					}),
-					removeButton(async () => {
+					row[6] === 'subscription' ? null : removeButton(async () => {
 						if (profiles.some(profile => profile[5] === row[0])) {
 							ui.addNotification(null, E('p', {}, _('Node is referenced by a profile; delete or move that profile first.')), 'warning');
 							return;
@@ -937,9 +995,39 @@ return view.extend({
 						refreshNodeCard();
 						refreshProfileTable();
 						refreshProfileAddButton();
+						})
+					].filter(Boolean))
+			]);
+		}
+		function sourceTableRows() {
+			return sources.filter(row => row[1] === 'subscription').map(row => [
+				row[2], row[8] || '0', row[4] || 'auto', row[6] || '-',
+				row[7] ? E('span', { class: 'v2rayb-status v2rayb-status-warn' }, _('Update failed: %s').format(row[7])) : E('span', { class: 'v2rayb-status v2rayb-status-ok' }, _('Ready')),
+				actionCell([
+					editButton(() => showSourceModal(row)),
+					E('button', { class: 'btn cbi-button cbi-button-action', type: 'button', click: async () => {
+						try {
+							const result = await callUpdateSubscription(row[0]);
+							notify(result, _('Subscription nodes updated.'), true);
+						}
+						catch (error) { showRequestError(error); }
+					} }, _('Update')),
+					removeButton(async () => {
+						if (!await confirmDelete(_('Delete subscription "%s" and its unreferenced nodes?').format(row[2])))
+							return;
+						try {
+							const result = await callDeleteSource(row[0]);
+							notify(result, _('Subscription deleted.'), true);
+						}
+						catch (error) { showRequestError(error); }
 					})
 				])
 			]);
+		}
+		function refreshSourceTable() {
+			const next = table(sourceTableHeaders, sourceTableRows(), _('No subscriptions configured.'), true);
+			sourceTable.replaceWith(next);
+			sourceTable = next;
 		}
 		function refreshNodeTable() {
 			const next = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'), true);
@@ -970,7 +1058,7 @@ return view.extend({
 				const id = String(node.id);
 				const index = nodes.findIndex(item => item[0] === id);
 				if (index >= 0)
-					nodes[index] = [ id, node.name, node.protocol, node.server, node.port, nodes[index][5] ];
+								nodes[index] = [ id, node.name, node.protocol, node.server, node.port, nodes[index][5], nodes[index][6], nodes[index][7] ];
 				pageView.localNodeDetails[id] = {
 					id: id, name: node.name, protocol: node.protocol,
 					server: node.server, port: node.port,
@@ -988,7 +1076,7 @@ return view.extend({
 			}
 
 			const tempId = pageView.nextTempId('node');
-			const row = [ tempId, node.name, node.protocol, node.server, node.port, '1' ];
+			const row = [ tempId, node.name, node.protocol, node.server, node.port, '1', 'manual', '' ];
 			nodes.push(row);
 			pageView.localNodeDetails[tempId] = {
 				id: tempId, name: node.name, protocol: node.protocol,
@@ -1047,6 +1135,7 @@ return view.extend({
 			refreshProfileCard();
 		}
 		nodeTable = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'), true);
+		sourceTable = table(sourceTableHeaders, sourceTableRows(), _('No subscriptions configured.'), true);
 		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true);
 		profileAddButton = E('button', {
 			class: 'cbi-button cbi-button-add', type: 'button',
@@ -1078,6 +1167,13 @@ return view.extend({
 		};
 		refreshProfileAddButton();
 		const nodesPane = [
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('Subscriptions')),
+				sourceTable,
+				E('div', { class: 'v2rayb-create' }, [
+					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showSourceModal() }, _('Add subscription'))
+				])
+			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
 				nodeTable,
@@ -1249,7 +1345,7 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Applied V2Ray configuration')),
 				E('p', { class: 'cbi-value-description' }, _('Contains credentials. Do not share.')),
-				E('pre', { class: 'v2rayb-code' }, outputOf(data[4]) || _('No V2Ray configuration available.'))
+				E('pre', { class: 'v2rayb-code' }, outputOf(data[5]) || _('No V2Ray configuration available.'))
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Runtime status')),

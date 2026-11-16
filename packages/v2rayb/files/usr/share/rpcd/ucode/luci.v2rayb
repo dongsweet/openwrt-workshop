@@ -88,6 +88,10 @@ function valid_id(value) {
 	return match(value, /^[0-9]+$/);
 }
 
+function valid_source_name(value) {
+	return match(value, /^[A-Za-z0-9._-]{1,64}$/);
+}
+
 function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic) {
 	if (direct_dns == '' || length(direct_dns) > 255)
 		return 'Invalid direct DNS endpoint';
@@ -173,6 +177,62 @@ const methods = {
 	list_nodes: {
 		call: function() {
 			return ctl([ 'list-nodes' ]);
+		}
+	},
+
+	list_sources: {
+		call: function() {
+			return ctl([ 'list-sources' ]);
+		}
+	},
+
+	add_source: {
+		args: { name: '', url: '', format: 'auto' },
+		call: function(request) {
+			let name = string_arg(request, 'name');
+			let url = string_arg(request, 'url');
+			let format = string_arg(request, 'format') || 'auto';
+			if (!valid_source_name(name))
+				return { success: false, error: 'Invalid subscription name' };
+			if (length(url) > 2048 || (substr(url, 0, 7) != 'http://' && substr(url, 0, 8) != 'https://'))
+				return { success: false, error: 'Subscription URL must use http:// or https://' };
+			if (!match(format, /^(auto|uri|base64)$/))
+				return { success: false, error: 'Unsupported subscription format' };
+			let result = ctl([ 'add-source', 'subscription', name, url, format ]);
+			if (result.code != 0)
+				return failed(result);
+			let sources = ctl([ 'list-sources' ]);
+			if (sources.code != 0)
+				return failed(sources);
+			let lines = split(sources.output, '\n');
+			for (let i = 0; i < length(lines); i++) {
+				let columns = split(lines[i], '\t');
+				if (length(columns) >= 3 && columns[1] == 'subscription' && columns[2] == name)
+					return { success: true, source_id: columns[0] };
+			}
+			return { success: false, error: 'Subscription was saved but its id could not be read' };
+		}
+	},
+
+	update_subscription: {
+		args: { source_id: '' },
+		call: function(request) {
+			let source_id = string_arg(request, 'source_id');
+			if (!valid_id(source_id))
+				return { success: false, error: 'Invalid source id' };
+			let result = ctl([ 'update-subscription', source_id ]);
+			return result.code == 0 ? { success: true, output: result.output } : failed(result);
+		}
+	},
+
+	delete_source: {
+		args: { source_id: '' },
+		call: function(request) {
+			let source_id = string_arg(request, 'source_id');
+			if (!valid_id(source_id))
+				return { success: false, error: 'Invalid source id' };
+			let result = ctl([ 'delete-source', source_id ]);
+			return result.code == 0 ? { success: true } : failed(result);
 		}
 	},
 

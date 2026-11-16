@@ -11,6 +11,8 @@ STATE_DIR="${V2RAYB_STATE_DIR:-/tmp/v2rayB}"
 ACTIVE_DIR="$STATE_DIR/active"
 NFT_MARKER="$STATE_DIR/nft-managed"
 RULE_DIR="${V2RAYB_RULE_DIR:-/etc/v2rayB/rules}"
+SUBSCRIPTION_DIR="${V2RAYB_SUBSCRIPTION_DIR:-/etc/v2rayB/subscriptions}"
+SUBSCRIPTION_PARSER="${V2RAYB_SUBSCRIPTION_PARSER:-/usr/libexec/v2rayB/v2rayB-subscription}"
 SQLITE3="${V2RAYB_SQLITE3:-sqlite3}"
 V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 MOSDNS_BIN="${V2RAYB_MOSDNS_BIN:-/usr/bin/mosdns}"
@@ -163,6 +165,20 @@ db_sql() {
 	"$SQLITE3" -batch -bail "$DB" "PRAGMA foreign_keys=ON; $1"
 }
 
+db_has_column() {
+	table="$1"
+	column="$2"
+	count="$(db_sql "SELECT COUNT(*) FROM pragma_table_info($(sql_quote "$table")) WHERE name=$(sql_quote "$column");" | tr -d '[:space:]')"
+	[ "$count" = 1 ]
+}
+
+db_add_column() {
+	table="$1"
+	column="$2"
+	definition="$3"
+	db_has_column "$table" "$column" || db_sql "ALTER TABLE $table ADD COLUMN $definition;"
+}
+
 acquire_ctl_lock() {
 	[ "${V2RAYB_LOCK_HELD:-0}" = 1 ] && return 0
 	mkdir -p "$(dirname "$CTL_LOCK_DIR")" || die "cannot create lock directory"
@@ -271,11 +287,18 @@ ensure_db() {
 	fi
 	version="$(db_sql 'PRAGMA user_version;' | tr -d '[:space:]')"
 	if [ "$version" = 1 ]; then
-		db_sql "ALTER TABLE policies ADD COLUMN direct_dns TEXT; ALTER TABLE policies ADD COLUMN transparent_proxy_ports TEXT; ALTER TABLE policies ADD COLUMN bypass_china INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)); CREATE TABLE IF NOT EXISTS sources (id INTEGER PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('manual','subscription','imported')), name TEXT NOT NULL, url TEXT, format TEXT, enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)), etag TEXT, last_error TEXT, last_updated TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(type,name)); CREATE INDEX IF NOT EXISTS idx_sources_enabled ON sources(enabled); INSERT OR IGNORE INTO schema_migrations(version) VALUES (2); PRAGMA user_version=2;"
+		db_add_column policies direct_dns 'direct_dns TEXT'
+		db_add_column policies transparent_proxy_ports 'transparent_proxy_ports TEXT'
+		db_add_column policies bypass_china 'bypass_china INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1))'
+		db_sql "CREATE TABLE IF NOT EXISTS sources (id INTEGER PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('manual','subscription','imported')), name TEXT NOT NULL, url TEXT, format TEXT, enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)), etag TEXT, last_error TEXT, last_updated TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(type,name)); CREATE INDEX IF NOT EXISTS idx_sources_enabled ON sources(enabled); INSERT OR IGNORE INTO schema_migrations(version) VALUES (2); PRAGMA user_version=2;"
 		version=2
 	fi
 	if [ "$version" = 2 ]; then
-		db_sql "ALTER TABLE policies ADD COLUMN use_v2ray_dns INTEGER NOT NULL DEFAULT 1 CHECK (use_v2ray_dns IN (0, 1)); ALTER TABLE policies ADD COLUMN mosdns_enabled INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1)); ALTER TABLE policies ADD COLUMN mosdns_domains TEXT; ALTER TABLE policies ADD COLUMN mosdns_match_rules TEXT; INSERT OR IGNORE INTO schema_migrations(version) VALUES (3); PRAGMA user_version=3;"
+		db_add_column policies use_v2ray_dns 'use_v2ray_dns INTEGER NOT NULL DEFAULT 1 CHECK (use_v2ray_dns IN (0, 1))'
+		db_add_column policies mosdns_enabled 'mosdns_enabled INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1))'
+		db_add_column policies mosdns_domains 'mosdns_domains TEXT'
+		db_add_column policies mosdns_match_rules 'mosdns_match_rules TEXT'
+		db_sql "INSERT OR IGNORE INTO schema_migrations(version) VALUES (3); PRAGMA user_version=3;"
 		version=3
 	fi
 	if [ "$version" = 3 ]; then
@@ -283,7 +306,9 @@ ensure_db() {
 		version=4
 	fi
 	if [ "$version" = 4 ]; then
-		db_sql "ALTER TABLE policies ADD COLUMN proxy_router_traffic INTEGER NOT NULL DEFAULT 0 CHECK (proxy_router_traffic IN (0, 1)); ALTER TABLE draft_policies ADD COLUMN proxy_router_traffic INTEGER NOT NULL DEFAULT 0 CHECK (proxy_router_traffic IN (0, 1)); INSERT OR IGNORE INTO schema_migrations(version) VALUES (5); PRAGMA user_version=5;"
+		db_add_column policies proxy_router_traffic 'proxy_router_traffic INTEGER NOT NULL DEFAULT 0 CHECK (proxy_router_traffic IN (0, 1))'
+		db_add_column draft_policies proxy_router_traffic 'proxy_router_traffic INTEGER NOT NULL DEFAULT 0 CHECK (proxy_router_traffic IN (0, 1))'
+		db_sql "INSERT OR IGNORE INTO schema_migrations(version) VALUES (5); PRAGMA user_version=5;"
 		version=5
 	fi
 	[ "$version" = 5 ] || die "unsupported database schema version: $version"
@@ -364,10 +389,95 @@ cmd_add_source() {
 	format="${4:-}"
 	is_name "$name" || die "invalid source name"
 	case "$type" in
-		manual|subscription|imported) ;;
+		manual|imported) ;;
+		subscription)
+			case "$url" in http://*|https://*) ;; *) die "subscription URL must use http or https" ;; esac
+			case "$format" in ''|auto|uri|base64) [ -n "$format" ] || format=auto ;; *) die "unsupported subscription format" ;; esac
+			;;
 		*) die "invalid source type" ;;
 	esac
 	db_sql "INSERT INTO sources(type, name, url, format, updated_at) VALUES($(sql_quote "$type"), $(sql_quote "$name"), $(sql_quote "$url"), $(sql_quote "$format"), CURRENT_TIMESTAMP) ON CONFLICT(type, name) DO UPDATE SET url=excluded.url, format=excluded.format, updated_at=CURRENT_TIMESTAMP;"
+}
+
+cmd_list_sources() {
+	ensure_db
+	db_sql "SELECT s.id || char(9) || s.type || char(9) || s.name || char(9) || COALESCE(s.url, '') || char(9) || COALESCE(s.format, 'auto') || char(9) || s.enabled || char(9) || COALESCE(s.last_updated, '') || char(9) || COALESCE(s.last_error, '') || char(9) || (SELECT COUNT(*) FROM nodes n WHERE n.source_id=s.id) FROM sources s ORDER BY s.type, s.name;"
+}
+
+set_source_error() {
+	source_id="$1"
+	error_text="$2"
+	db_sql "UPDATE sources SET last_error=$(sql_quote "$error_text"), updated_at=CURRENT_TIMESTAMP WHERE id=$source_id;" >/dev/null 2>&1 || :
+}
+
+cmd_update_subscription() {
+	ensure_db
+	source_id="$1"
+	is_uint "$source_id" || die "source id must be numeric"
+	row="$(db_sql "SELECT type || char(9) || name || char(9) || COALESCE(url, '') || char(9) || COALESCE(format, 'auto') FROM sources WHERE id=$source_id;")"
+	[ -n "$row" ] || die "source not found: $source_id"
+	old_ifs="$IFS"
+	IFS="$(printf '\t')"
+	read -r type name url format <<EOF
+$row
+EOF
+	IFS="$old_ifs"
+	[ "$type" = subscription ] || die "source is not a subscription"
+	[ -n "$url" ] || die "subscription URL is empty"
+	draft_pending && die "apply or revert pending changes before updating a subscription"
+	[ -x "$SUBSCRIPTION_PARSER" ] || die "subscription parser is not installed"
+	mkdir -p "$SUBSCRIPTION_DIR" || die "cannot create subscription cache directory"
+	chmod 700 "$SUBSCRIPTION_DIR" 2>/dev/null || :
+	raw_tmp="$SUBSCRIPTION_DIR/.${source_id}.raw.$$"
+	nodes_tmp="$SUBSCRIPTION_DIR/.${source_id}.nodes.$$"
+	sql_tmp="$SUBSCRIPTION_DIR/.${source_id}.sql.$$"
+	error_tmp="$SUBSCRIPTION_DIR/.${source_id}.error.$$"
+	trap 'rm -f "$raw_tmp" "$nodes_tmp" "$sql_tmp" "$error_tmp"; rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
+	if ! curl --fail --location --silent --show-error --connect-timeout 10 --max-time 25 --max-filesize 2097152 --proto '=http,https' --output "$raw_tmp" "$url" 2>"$error_tmp"; then
+		error_text="subscription download failed; check the URL and router connectivity"
+		set_source_error "$source_id" "$error_text"
+		die "$error_text"
+	fi
+	chmod 600 "$raw_tmp" 2>/dev/null || :
+	if ! "$SUBSCRIPTION_PARSER" "$raw_tmp" "$format" "$name" > "$nodes_tmp" 2>"$error_tmp"; then
+		error_text="$(tr '\n\t' '  ' < "$error_tmp" | cut -c1-300)"
+		[ -n "$error_text" ] || error_text="subscription format could not be parsed"
+		set_source_error "$source_id" "$error_text"
+		die "$error_text"
+	fi
+	node_count="$(wc -l < "$nodes_tmp" | tr -d '[:space:]')"
+	is_uint "$node_count" && [ "$node_count" -gt 0 ] && [ "$node_count" -le 512 ] || die "subscription returned an invalid node count"
+	{
+		printf '%s\n' 'PRAGMA foreign_keys=ON; BEGIN IMMEDIATE; CREATE TEMP TABLE import_names(name TEXT PRIMARY KEY);'
+		while IFS="$(printf '\t')" read -r node_name protocol server port data_json; do
+			[ -n "$node_name" ] || continue
+			printf 'INSERT OR IGNORE INTO import_names(name) VALUES(%s);\n' "$(sql_quote "$node_name")"
+		printf 'INSERT INTO nodes(source_id,name,protocol,server,port,data_json,enabled,last_error,updated_at) VALUES(%s,%s,%s,%s,%s,%s,1,NULL,CURRENT_TIMESTAMP) ON CONFLICT(source_id,name) DO UPDATE SET protocol=excluded.protocol,server=excluded.server,port=excluded.port,data_json=excluded.data_json,last_error=NULL,updated_at=CURRENT_TIMESTAMP;\n' \
+				"$source_id" "$(sql_quote "$node_name")" "$(sql_quote "$protocol")" "$(sql_quote "$server")" "$port" "$(sql_quote "$data_json")"
+		done < "$nodes_tmp"
+		printf "UPDATE nodes SET last_error='not present in latest subscription',updated_at=CURRENT_TIMESTAMP WHERE source_id=%s AND name NOT IN (SELECT name FROM import_names);\\n" "$source_id"
+		printf 'DELETE FROM nodes WHERE source_id=%s AND name NOT IN (SELECT name FROM import_names) AND NOT EXISTS (SELECT 1 FROM profile_nodes WHERE profile_nodes.node_id=nodes.id);\n' "$source_id"
+		printf 'UPDATE sources SET last_error=NULL,last_updated=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=%s; COMMIT;\n' "$source_id"
+	} > "$sql_tmp"
+	if ! "$SQLITE3" -batch -bail "$DB" < "$sql_tmp"; then
+		set_source_error "$source_id" "subscription nodes could not be committed"
+		die "subscription nodes could not be committed"
+	fi
+	mv "$raw_tmp" "$SUBSCRIPTION_DIR/$source_id.raw" || die "could not replace subscription cache"
+	printf 'source_id=%s\nnodes=%s\ncache=%s\n' "$source_id" "$node_count" "$SUBSCRIPTION_DIR/$source_id.raw"
+}
+
+cmd_delete_source() {
+	ensure_db
+	source_id="$1"
+	is_uint "$source_id" || die "source id must be numeric"
+	draft_pending && die "apply or revert pending changes before deleting a subscription"
+	type="$(db_sql "SELECT type FROM sources WHERE id=$source_id;" | sed -n '1p')"
+	[ "$type" = subscription ] || die "source is not a subscription"
+	refs="$(db_sql "SELECT COUNT(*) FROM profile_nodes pn JOIN nodes n ON n.id=pn.node_id WHERE n.source_id=$source_id;" | tr -d '[:space:]')"
+	[ "$refs" = 0 ] || die "subscription has nodes referenced by a profile"
+	db_sql "BEGIN; DELETE FROM nodes WHERE source_id=$source_id; DELETE FROM sources WHERE id=$source_id; COMMIT;"
+	rm -f "$SUBSCRIPTION_DIR/$source_id.raw"
 }
 
 cmd_add_manual_node() {
@@ -480,10 +590,12 @@ cmd_update_node() {
 		\{*\}) ;;
 		*) die "data_json must be a JSON object" ;;
 	esac
+	source_id="$(db_sql "SELECT COALESCE(source_id, 0) FROM nodes WHERE id=$node_id;" | sed -n '1p')"
+	source_type="$(db_sql "SELECT COALESCE(s.type, 'manual') FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.id=$node_id;" | sed -n '1p')"
+	[ "$source_type" != subscription ] || die "subscription nodes are managed by their source"
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found: $node_id"
-	source_id="$(db_sql "SELECT source_id FROM draft_nodes WHERE id=$node_id;" | sed -n '1p')"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE source_id=$source_id AND name=$(sql_quote "$name") AND id<>$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 0 ] || die "node name already exists: $name"
 	db_sql "UPDATE draft_nodes SET name=$(sql_quote "$name"), protocol=$(sql_quote "$protocol"), server=$(sql_quote "$server"), port=$port, data_json=$(sql_quote "$data_json"), updated_at=CURRENT_TIMESTAMP WHERE id=$node_id;"
@@ -497,6 +609,8 @@ cmd_set_node_enabled() {
 	enabled="$2"
 	is_uint "$node_id" || die "node id must be numeric"
 	case "$enabled" in 0|1) ;; *) die "enabled must be 0 or 1" ;; esac
+	source_type="$(db_sql "SELECT COALESCE(s.type, 'manual') FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.id=$node_id;" | sed -n '1p')"
+	[ "$source_type" != subscription ] || die "subscription nodes are managed by their source"
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found: $node_id"
@@ -511,6 +625,8 @@ cmd_delete_node() {
 	ensure_db
 	node_id="$1"
 	is_uint "$node_id" || die "node id must be numeric"
+	source_type="$(db_sql "SELECT COALESCE(s.type, 'manual') FROM nodes n LEFT JOIN sources s ON s.id=n.source_id WHERE n.id=$node_id;" | sed -n '1p')"
+	[ "$source_type" != subscription ] || die "subscription nodes are managed by their source"
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found: $node_id"
@@ -651,7 +767,7 @@ cmd_list_nodes() {
 	ensure_db
 	nodes_table=nodes
 	draft_pending && nodes_table=draft_nodes
-	db_sql "SELECT id || char(9) || name || char(9) || protocol || char(9) || server || char(9) || port || char(9) || enabled FROM $nodes_table ORDER BY id;"
+	db_sql "SELECT n.id || char(9) || n.name || char(9) || n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.enabled || char(9) || COALESCE(s.type, 'manual') || char(9) || COALESCE(s.name, '') FROM $nodes_table n LEFT JOIN sources s ON s.id=n.source_id ORDER BY n.id;"
 }
 
 cmd_get_node() {
@@ -1602,6 +1718,9 @@ Usage:
   v2rayBctl set-setting KEY VALUE
   v2rayBctl set-state normal|starting|proxy|stopping|degraded
   v2rayBctl add-source manual|subscription|imported NAME [URL] [FORMAT]
+  v2rayBctl list-sources
+  v2rayBctl update-subscription SOURCE_ID
+  v2rayBctl delete-source SOURCE_ID
   v2rayBctl add-node NAME PROTOCOL SERVER PORT DATA_JSON
   v2rayBctl update-node NODE_ID NAME PROTOCOL SERVER PORT DATA_JSON
   v2rayBctl set-node-enabled NODE_ID 0|1
@@ -1636,7 +1755,7 @@ EOF
 command="$1"
 shift
 case "$command" in
-init-db|set-setting|set-state|add-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft)
+init-db|set-setting|set-state|add-source|update-subscription|delete-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft)
 		acquire_ctl_lock
 		;;
 esac
@@ -1650,6 +1769,9 @@ case "$command" in
 	set-setting) [ "$#" -eq 2 ] || usage; cmd_set_setting "$1" "$2" ;;
 	set-state) [ "$#" -eq 1 ] || usage; cmd_set_state "$1" ;;
 	add-source) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage; cmd_add_source "$@" ;;
+	list-sources) [ "$#" -eq 0 ] || usage; cmd_list_sources ;;
+	update-subscription) [ "$#" -eq 1 ] || usage; cmd_update_subscription "$1" ;;
+	delete-source) [ "$#" -eq 1 ] || usage; cmd_delete_source "$1" ;;
 	add-node) [ "$#" -eq 5 ] || usage; cmd_add_manual_node "$@" ;;
 	update-node) [ "$#" -eq 6 ] || usage; cmd_update_node "$@" ;;
 	set-node-enabled) [ "$#" -eq 2 ] || usage; cmd_set_node_enabled "$@" ;;

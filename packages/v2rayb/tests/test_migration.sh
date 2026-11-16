@@ -111,4 +111,19 @@ WHERE key IN ("direct_dns","transparent_proxy_ports",
               "draft_direct_dns","draft_transparent_proxy_ports");
 ')
 [ "$count" = 0 ]
+
+# A partially applied v4 -> v5 migration must be safe to retry.
+partial="$TEST_DIR/partial-db"
+"$sqlite" "$partial" '
+CREATE TABLE policies (id INTEGER PRIMARY KEY, name TEXT, proxy_router_traffic INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE draft_policies (id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+INSERT INTO settings(key,value) VALUES("draft_pending","1");
+PRAGMA user_version=4;
+'
+V2RAYB_DB="$partial" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
+[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 5 ]
+printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'proxy_router_traffic'
+printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(draft_policies);')" | grep -q 'proxy_router_traffic'
 echo "migration tests: ok"

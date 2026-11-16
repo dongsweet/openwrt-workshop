@@ -46,7 +46,7 @@ def main():
     assert "field(_('Profile to activate'), activeProfileSelect" in view_source
     assert "card(_('Applied profile')" in view_source
     assert "activeProfileRows = parseRows(outputOf(data[5]))" not in view_source
-    assert "appliedProfileRows = parseRows(outputOf(data[5]))" in view_source
+    assert "appliedProfileRows = parseRows(outputOf(data[6]))" in view_source
     assert "const activeProfileRow = appliedProfileRows[0] || null" in view_source
     assert "method: 'get_applied_profile'" in view_source
     assert "get_applied_profile" in rpc_source
@@ -188,6 +188,7 @@ def main():
     assert "get-profile" in (FILES / "usr/libexec/v2rayB/v2rayBctl").read_text(encoding="utf-8")
     for method in (
         "get_node", "get_profile", "update_node", "set_node_enabled", "delete_node",
+        "list_sources", "add_source", "update_subscription", "delete_source",
         "update_profile", "set_profile_enabled", "delete_profile",
     ):
         assert f"\n\t{method}: {{" in rpc_source

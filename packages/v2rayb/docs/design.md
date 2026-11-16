@@ -1,9 +1,9 @@
 # v2rayB Unified Proxy Control Plane
 
 Status: the first installable test build is implemented in `files/` and
-`Makefile`. It supports manual nodes/profiles, runtime DNS/firewall switching,
-and watchdog checks. Subscription ingestion and the full LuCI management
-workflow remain future work.
+`Makefile`. It supports manual and subscription nodes/profiles, runtime
+DNS/firewall switching, and watchdog checks. JSON subscription formats and
+periodic automatic refresh remain future work.
 
 This document defines the target architecture for the router solution. The
 current package is a test implementation and must not be treated as a complete
@@ -322,9 +322,11 @@ Initial LuCI pages:
 - Add overview, profile, node, source, and diagnostics pages.
 - Add standard service enable/disable controls.
 
-### Phase 5: Subscriptions and additional engines
+### Phase 5: Subscription expansion and additional engines
 
-- Add atomic subscription fetch and node replacement.
+- Add JSON subscription formats, periodic subscription refresh, and richer
+  subscription metadata. URI/Base64 subscription fetch and node replacement
+  are implemented in the current test build.
 - Add node validation and optional latency checks.
 - Add Xray/sing-box adapters only after the V2Ray path is stable.
 

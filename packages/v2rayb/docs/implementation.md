@@ -13,14 +13,19 @@ builds both the core and LuCI packages.
 - Router-originated DNS/HTTP(S) diagnostics with observed socket and kernel route data.
 - Structured node editor for VLESS, VMess, Trojan, Shadowsocks, TLS/Reality,
   TCP/WS/H2/gRPC and mux settings; outbound JSON is generated internally.
+- Subscription sources with HTTP(S) download, URI/Base64 parsing, transactional
+  node replacement, failure preservation, and manual LuCI refresh.
 - No Lua controller, Lua template, or `luci-compat` dependency.
 - Exact Google Play GGC regex routing; existing pass and other domain policies
   remain in dnsmasq and are not copied into MosDNS.
 
-Subscription download/update and automatic import of captured legacy JSON files
-are intentionally outside the current scope. The optional importer normalizes an
-explicitly selected file into the application database; it does not use raw
-legacy JSON at runtime.
+The first subscription implementation accepts plain URI lines or a Base64-
+encoded URI list for VLESS, VMess, Trojan, and Shadowsocks. Raw subscription
+payloads are cached under `/etc/v2rayB/subscriptions/`; parsed nodes are stored
+under their subscription source and are shown separately from manual nodes.
+JSON subscription formats and automatic periodic refresh remain future work.
+The optional legacy importer normalizes an explicitly selected file into the
+application database; it does not use raw legacy JSON at runtime.
 
 See the package README for current device state and cutover guidance.
 
@@ -50,6 +55,7 @@ python3 tests/test_schema.py
 python3 tests/test_import.py
 python3 tests/test_rules.py
 python3 tests/test_luci.py
+sh tests/test_subscription.sh
 sh tests/test_network_probe.sh
 sh tests/test_render.sh
 sh tests/test_lifecycle.sh
