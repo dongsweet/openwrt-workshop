@@ -25,6 +25,11 @@ PROBE_ROOT="$STATE_DIR/probes"
 NODE_PROBE_ROOT="$STATE_DIR/node-probes"
 SUBSCRIPTION_JOB_ROOT="$STATE_DIR/subscription-jobs"
 CTL_LOCK_ACQUIRED=0
+SQLITE_BUSY_TIMEOUT_MS="${V2RAYB_SQLITE_BUSY_TIMEOUT_MS:-10000}"
+
+case "$SQLITE_BUSY_TIMEOUT_MS" in
+	''|*[!0-9]*) SQLITE_BUSY_TIMEOUT_MS=10000 ;;
+esac
 
 die() {
 	echo "v2rayBctl: $*" >&2
@@ -173,7 +178,7 @@ validate_profile_policy() {
 }
 
 db_sql() {
-	"$SQLITE3" -batch -bail "$DB" "PRAGMA foreign_keys=ON; $1"
+	"$SQLITE3" -cmd ".timeout $SQLITE_BUSY_TIMEOUT_MS" -batch -bail "$DB" "PRAGMA foreign_keys=ON; $1"
 }
 
 db_has_column() {
@@ -329,9 +334,19 @@ ensure_db() {
 		version=6
 	fi
 	[ "$version" = 6 ] || die "unsupported database schema version: $version"
-	db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''); DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
+	missing_settings="$(db_sql "SELECT COUNT(*) FROM (SELECT 'force_proxy_port' AS key UNION ALL SELECT 'service_enabled' UNION ALL SELECT 'draft_service_enabled' UNION ALL SELECT 'applied_config_version' UNION ALL SELECT 'draft_config_version' UNION ALL SELECT 'draft_pending' UNION ALL SELECT 'draft_active_profile') required WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.key=required.key);" | tr -d '[:space:]')"
+	if [ "$missing_settings" -gt 0 ] 2>/dev/null; then
+		db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', '');"
+	fi
+	legacy_settings="$(db_sql "SELECT COUNT(*) FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');" | tr -d '[:space:]')"
+	if [ "$legacy_settings" -gt 0 ] 2>/dev/null; then
+		db_sql "DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');"
+	fi
 	if [ "$(setting draft_pending)" != 1 ]; then
-		discard_drafts
+		stale_draft_rows="$(db_sql "SELECT (SELECT COUNT(*) FROM draft_nodes) + (SELECT COUNT(*) FROM draft_profiles) + (SELECT COUNT(*) FROM draft_policies) + (SELECT COUNT(*) FROM draft_profile_nodes) + (SELECT COUNT(*) FROM draft_source_deletions);" | tr -d '[:space:]')"
+		if [ "$stale_draft_rows" -gt 0 ] 2>/dev/null; then
+			discard_drafts
+		fi
 	fi
 }
 
