@@ -46,9 +46,9 @@ def main():
     assert "field(_('Profile to activate'), activeProfileSelect" in view_source
     assert "card(_('Applied profile')" in view_source
     assert "activeProfileRows = parseRows(outputOf(data[5]))" not in view_source
-    assert "appliedProfileRows = parseRows(outputOf(data[6]))" in view_source
+    assert "const appliedProfileRows = profiles.filter(row => row[0] === appliedProfile);" in view_source
     assert "const activeProfileRow = appliedProfileRows[0] || null" in view_source
-    assert "method: 'get_applied_profile'" in view_source
+    assert "method: 'get_applied_profile'" not in view_source
     assert "get_applied_profile" in rpc_source
     assert "get-applied-profile" in ctl_source
     assert "profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ]" in view_source
