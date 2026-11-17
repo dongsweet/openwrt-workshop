@@ -61,6 +61,10 @@ def main():
     assert "activeProfileRows = parseRows(outputOf(data[5]))" not in view_source
     assert "const appliedProfileRows = profiles.filter(row => row[0] === appliedProfile);" in view_source
     assert "const activeProfileRow = appliedProfileRows[0] || null" in view_source
+    assert "const appliedProfileName = activeProfileRow" in view_source
+    assert "? activeProfileRow[1]" in view_source
+    assert "`${_('Profile')}: ${appliedProfileName}`" in view_source
+    assert "`${_('Profile')}: ${appliedProfile || _('none')}`" not in view_source
     assert "method: 'get_applied_profile'" not in view_source
     assert "get_applied_profile" in rpc_source
     assert "get-applied-profile" in ctl_source

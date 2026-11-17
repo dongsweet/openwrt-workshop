@@ -1123,8 +1123,10 @@ return view.extend({
 			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
 		}
 		const activeProfileRow = appliedProfileRows[0] || null;
-		const activeProfileCard = card(_('Applied profile'),
-			activeProfileRow ? activeProfileRow[1] : (appliedProfile || _('Not selected')),
+		const appliedProfileName = activeProfileRow
+			? activeProfileRow[1]
+			: (appliedProfile ? _('Unknown') : _('Not selected'));
+		const activeProfileCard = card(_('Applied profile'), appliedProfileName,
 			profilePolicyText(activeProfileRow));
 		function profileOptionsFromProfiles(rows) {
 			const options = [ E('option', { value: '' }, _('Select a profile')) ];
@@ -1985,7 +1987,7 @@ return view.extend({
 				E('h2', {}, _('v2rayB unified proxy')),
 				E('div', { class: 'v2rayb-hero-meta' }, [
 					E('span', { class: 'v2rayb-chip' }, [ _('Current state:'), statusBadge(state) ]),
-					E('span', { class: 'v2rayb-chip' }, `${_('Profile')}: ${appliedProfile || _('none')}`),
+					E('span', { class: 'v2rayb-chip' }, `${_('Profile')}: ${appliedProfileName}`),
 					E('span', { class: 'v2rayb-chip' }, `${_('DNS')}: ${status.v2ray_dns_listen || '-'}`)
 				])
 			]),
