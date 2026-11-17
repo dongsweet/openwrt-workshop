@@ -140,6 +140,8 @@ def main():
     assert "type nat hook output priority -100" in ctl_source
     assert "meta skuid %s return" in ctl_source
     init_source = (FILES / "etc/init.d/v2rayB").read_text(encoding="utf-8")
+    assert '[ "${V2RAYB_LOCK_HELD:-0}" = 1 ]' in init_source
+    assert '[ "$LOCK_INHERITED" = 0 ]' in init_source
     assert 'V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"' in init_source
     assert 'ulimit -n "$max_fd"' in init_source
     assert 'start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP"' in init_source

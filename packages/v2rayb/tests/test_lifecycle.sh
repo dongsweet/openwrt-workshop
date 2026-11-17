@@ -218,6 +218,18 @@ restore_dnsmasq
 [ -z "$MOCK_SERVER" ]
 [ -z "$MOCK_NORESOLV" ]
 
+setup_case inherited-lock
+mkdir -p "$LOCK_DIR"
+printf '%s\n' "$$" > "$LOCK_DIR/pid"
+V2RAYB_LOCK_HELD=1
+export V2RAYB_LOCK_HELD
+acquire_lock
+[ "$LOCK_INHERITED" = 1 ]
+release_lock
+[ -d "$LOCK_DIR" ]
+[ -z "${V2RAYB_LOCK_HELD:-}" ]
+rm -rf "$LOCK_DIR"
+
 setup_case legacy-procd
 stop_instances
 [ -e "$RUNTIME/legacy-cleaned" ]
