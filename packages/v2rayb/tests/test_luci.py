@@ -87,7 +87,20 @@ def main():
     assert "enabled ? 'enable' : 'disable'" in rpc_source
     assert "was_proxy ? 'restart' : 'start'" in rpc_source
     assert "run(init_path, [ 'stop' ])" in rpc_source
-    assert "method: 'apply_draft'" in view_source
+    assert "method: 'apply_draft_start'" in view_source
+    assert "method: 'apply_draft_status'" in view_source
+    assert "method: 'apply_draft'" not in view_source
+    assert "callApplyDraftStatus(jobId)" in view_source
+    assert "sessionStorage.setItem('v2rayb.applyJob', jobId)" in view_source
+    assert "resumeApplyJob(pendingApplyJob)" in view_source
+    assert "apply_draft_start" in rpc_source
+    assert "apply_draft_status" in rpc_source
+    assert "apply_draft_status" in acl["read"]["ubus"]["luci.v2rayb"]
+    assert "apply_draft_start" in acl["write"]["ubus"]["luci.v2rayb"]
+    assert "cmd_apply_draft_start()" in ctl_source
+    assert "cmd_apply_draft_status()" in ctl_source
+    assert "apply_job_fail_and_rollback" in ctl_source
+    assert "V2RAYB_LOCK_WAIT_SECONDS=60" in ctl_source
     assert "method: 'revert_draft'" in view_source
     assert "handleSave()" in view_source
     assert "handleSaveApply()" in view_source

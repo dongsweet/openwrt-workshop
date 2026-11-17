@@ -90,6 +90,24 @@ const _zh = {
 	'ALPN': 'ALPN',
 	'Also controls boot startup.': '同时控制开机启动。',
 	'Applied after Save & Apply.': '点击“保存并应用”后生效。',
+	'Applying configuration changes…': '正在应用配置变更……',
+	'Apply status could not be read; retrying…': '无法读取应用状态，正在重试……',
+	'Configuration changes applied.': '配置变更已应用。',
+	'Configuration apply failed.': '配置应用失败。',
+	'Preparing configuration': '正在准备配置',
+	'Queued': '等待执行',
+	'Rendering configuration': '正在生成配置',
+	'Restarting service': '正在重启服务',
+	'Restoring service': '正在恢复服务',
+	'Rolling back changes': '正在回滚变更',
+	'Saving configuration': '正在保存配置',
+	'Starting service': '正在启动服务',
+	'Stopping service': '正在停止服务',
+	'The configuration apply failed.': '配置应用失败。',
+	'The configuration apply status could not be read.': '无法读取配置应用状态。',
+	'This task continues in the background if this page is closed.': '关闭此页面后，任务仍会在后台继续。',
+	'Updating boot state': '正在更新开机启动状态',
+	'Verifying service': '正在验证服务状态',
 	'Auto detects plain URI lines or Base64-encoded URI lines.': '自动识别普通 URI 行或 Base64 编码的 URI 行。',
 	'Basic settings': '基本设置',
 	'Bypass China IP': '中国 IP 直连',
@@ -339,8 +357,11 @@ const callSetSetting = rpc.declare({
 const callSelectProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'select_profile', params: [ 'profile_id' ], expect: { '': {} }, reject: true
 });
-const callApplyDraft = rpc.declare({
-	object: 'luci.v2rayb', method: 'apply_draft', expect: { '': {} }, reject: true
+const callApplyDraftStart = rpc.declare({
+	object: 'luci.v2rayb', method: 'apply_draft_start', expect: { '': {} }, reject: true
+});
+const callApplyDraftStatus = rpc.declare({
+	object: 'luci.v2rayb', method: 'apply_draft_status', params: [ 'job_id' ], expect: { '': {} }, reject: true
 });
 const callRevertDraft = rpc.declare({
 	object: 'luci.v2rayb', method: 'revert_draft', expect: { '': {} }, reject: true
@@ -560,6 +581,85 @@ function notify(result, successText, reload) {
 		if (reload) window.setTimeout(reloadPage, 700);
 	} else {
 		showRequestError(result);
+	}
+}
+
+function applyStageText(stage) {
+	switch (stage) {
+	case 'queued': return _('Queued');
+	case 'preparing': return _('Preparing configuration');
+	case 'saving-database': return _('Saving configuration');
+	case 'rendering': return _('Rendering configuration');
+	case 'updating-boot': return _('Updating boot state');
+	case 'starting-service': return _('Starting service');
+	case 'restarting-service': return _('Restarting service');
+	case 'stopping-service': return _('Stopping service');
+	case 'verifying': return _('Verifying service');
+	case 'rolling-back': return _('Rolling back changes');
+	case 'restoring-service': return _('Restoring service');
+	case 'complete': return _('Configuration changes applied.');
+	default: return _('Applying configuration changes…');
+	}
+}
+
+function wait(ms) {
+	return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+async function runApplyJob(jobId) {
+	const stageText = E('p', {}, _('Applying configuration changes…'));
+	ui.showModal(_('Applying configuration changes…'), [
+		E('div', { class: 'cbi-section' }, [
+			stageText,
+			E('p', { class: 'cbi-value-description' }, _('This task continues in the background if this page is closed.'))
+		])
+	]);
+	sessionStorage.setItem('v2rayb.applyJob', jobId);
+
+	let failures = 0;
+	try {
+		while (true) {
+			let result;
+			try {
+				result = await callApplyDraftStatus(jobId);
+				failures = 0;
+			}
+			catch (error) {
+				failures++;
+				if (failures >= 5)
+					throw error;
+				stageText.textContent = _('Apply status could not be read; retrying…');
+				await wait(1500);
+				continue;
+			}
+			if (!result || !result.success)
+				throw result || new Error(_('The configuration apply status could not be read.'));
+			if (result.stage)
+				stageText.textContent = applyStageText(result.stage);
+			if (result.status === 'done' || result.status === 'failed')
+				return result;
+			await wait(1000);
+		}
+	}
+	finally {
+		ui.hideModal();
+	}
+}
+
+async function resumeApplyJob(jobId) {
+	try {
+		const result = await runApplyJob(jobId);
+		sessionStorage.removeItem('v2rayb.applyJob');
+		if (result.status === 'done') {
+			ui.addNotification(null, E('p', {}, _('Configuration changes applied.')), 'info');
+			window.setTimeout(reloadPage, 700);
+		}
+		else
+			showRequestError(result.error || _('The configuration apply failed.'));
+	}
+	catch (error) {
+		sessionStorage.removeItem('v2rayb.applyJob');
+		showRequestError(error);
 	}
 }
 
@@ -957,21 +1057,23 @@ return view.extend({
 		}).catch(showRequestError);
 	},
 
-	handleSaveApply() {
-		return this.persistLocalChanges().then(result => {
-			if (!result || !result.success) {
-				notify(result, '');
+	async handleSaveApply() {
+		try {
+			const saved = await this.persistLocalChanges();
+			if (!saved || !saved.success) {
+				notify(saved, '');
 				return;
 			}
-			return callApplyDraft();
-		}).then(result => {
-			if (result && result.success) {
-				window.location.reload();
+			const started = await callApplyDraftStart();
+			if (!started || !started.success) {
+				notify(started, '');
 				return;
 			}
-			if (result)
-				notify(result, '');
-		}).catch(showRequestError);
+			await resumeApplyJob(started.job_id);
+		}
+		catch (error) {
+			showRequestError(error);
+		}
 	},
 
 	handleReset() {
@@ -1872,6 +1974,10 @@ return view.extend({
 				logsOutput
 			])
 		];
+
+		const pendingApplyJob = sessionStorage.getItem('v2rayb.applyJob');
+		if (/^[0-9]+-[0-9]+$/.test(pendingApplyJob || ''))
+			window.setTimeout(() => resumeApplyJob(pendingApplyJob), 0);
 
 		return E('div', { class: 'cbi-map v2rayb-shell' }, [
 			css(),

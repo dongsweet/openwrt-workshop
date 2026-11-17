@@ -20,11 +20,14 @@ DNSMASQ_CONFIG_DIR="${V2RAYB_DNSMASQ_DIR:-/etc/dnsmasq.d}"
 LOGREAD="${V2RAYB_LOGREAD:-logread}"
 MOSDNS_ROUTE_SUFFIX="xn--ngstr-lra8j.com"
 V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
+INIT_SCRIPT="${V2RAYB_INIT_SCRIPT:-/etc/init.d/v2rayB}"
 APPLY_BACKUP="$STATE_DIR/db-before-apply"
 CTL_LOCK_DIR="${V2RAYB_LOCK_DIR:-$STATE_DIR/lock}"
 PROBE_ROOT="$STATE_DIR/probes"
 NODE_PROBE_ROOT="$STATE_DIR/node-probes"
 SUBSCRIPTION_JOB_ROOT="$STATE_DIR/subscription-jobs"
+APPLY_JOB_ROOT="$STATE_DIR/apply-jobs"
+APPLY_ACTIVE_JOB="$APPLY_JOB_ROOT/active"
 CTL_LOCK_ACQUIRED=0
 SQLITE_BUSY_TIMEOUT_MS="${V2RAYB_SQLITE_BUSY_TIMEOUT_MS:-10000}"
 
@@ -199,22 +202,30 @@ db_add_column() {
 acquire_ctl_lock() {
 	[ "${V2RAYB_LOCK_HELD:-0}" = 1 ] && return 0
 	mkdir -p "$(dirname "$CTL_LOCK_DIR")" || die "cannot create lock directory"
-	if mkdir "$CTL_LOCK_DIR" 2>/dev/null; then
-		printf "%s\n" "$$" > "$CTL_LOCK_DIR/pid"
-		CTL_LOCK_ACQUIRED=1
-		trap 'rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
-		return 0
-	fi
-	old_pid="$(sed -n "1p" "$CTL_LOCK_DIR/pid" 2>/dev/null || true)"
-	case "$old_pid" in
-		''|*[!0-9]*) ;;
-		*) kill -0 "$old_pid" 2>/dev/null && die "v2rayB is busy (pid $old_pid)" ;;
-	esac
-	rm -rf "$CTL_LOCK_DIR"
-	mkdir "$CTL_LOCK_DIR" 2>/dev/null || die "v2rayB is busy"
-	printf "%s\n" "$$" > "$CTL_LOCK_DIR/pid"
-	CTL_LOCK_ACQUIRED=1
-	trap 'rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
+	wait_seconds="${V2RAYB_LOCK_WAIT_SECONDS:-0}"
+	case "$wait_seconds" in ''|*[!0-9]*) wait_seconds=0 ;; esac
+	waited=0
+	while :; do
+		if mkdir "$CTL_LOCK_DIR" 2>/dev/null; then
+			printf "%s\n" "$$" > "$CTL_LOCK_DIR/pid"
+			CTL_LOCK_ACQUIRED=1
+			trap 'rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
+			return 0
+		fi
+		old_pid="$(sed -n "1p" "$CTL_LOCK_DIR/pid" 2>/dev/null || true)"
+		case "$old_pid" in
+			''|*[!0-9]*) ;;
+			*)
+				if kill -0 "$old_pid" 2>/dev/null; then
+					[ "$waited" -lt "$wait_seconds" ] || die "v2rayB is busy (pid $old_pid)"
+					waited=$((waited + 1))
+					sleep 1
+					continue
+				fi
+				;;
+		esac
+		rm -rf "$CTL_LOCK_DIR"
+	done
 }
 
 setting() {
@@ -866,6 +877,243 @@ cmd_rollback_apply() {
 
 cmd_clear_apply_backup() {
 	rm -f "$APPLY_BACKUP"
+}
+
+apply_job_write() {
+	apply_job_dir="$1"
+	apply_job_file="$2"
+	apply_job_value="$3"
+	apply_job_tmp="$apply_job_dir/$apply_job_file.tmp.$$"
+	printf '%s\n' "$apply_job_value" > "$apply_job_tmp" || return 1
+	mv "$apply_job_tmp" "$apply_job_dir/$apply_job_file" || return 1
+}
+
+apply_job_output() {
+	apply_job_dir="$1"
+	apply_job_text="$2"
+	[ -n "$apply_job_text" ] || return 0
+	printf '%s\n' "$apply_job_text" >> "$apply_job_dir/output" || :
+}
+
+apply_job_set_stage() {
+	apply_job_dir="$1"
+	apply_job_stage="$2"
+	apply_job_write "$apply_job_dir" stage "$apply_job_stage" || :
+}
+
+apply_job_finish() {
+	apply_job_dir="$1"
+	apply_job_status="$2"
+	apply_job_rc="$3"
+	apply_job_error="$4"
+	[ -z "$apply_job_error" ] || printf '%s\n' "$apply_job_error" > "$apply_job_dir/error"
+	apply_job_write "$apply_job_dir" finished_at "$(date '+%Y-%m-%d %H:%M:%S')" || :
+	apply_job_write "$apply_job_dir" rc "$apply_job_rc" || :
+	apply_job_write "$apply_job_dir" status "$apply_job_status" || :
+}
+
+apply_job_fail_and_rollback() {
+	apply_job_dir="$1"
+	apply_job_reason="$2"
+	apply_job_step_output="$3"
+	apply_job_before_state="$4"
+	apply_job_before_enabled="$5"
+	apply_job_message="$apply_job_reason"
+	apply_job_output "$apply_job_dir" "$apply_job_step_output"
+	apply_job_set_stage "$apply_job_dir" rolling-back
+
+	apply_job_rollback_output="$(cmd_rollback_apply 2>&1)" || {
+		apply_job_message="$apply_job_reason; rollback failed: ${apply_job_rollback_output:-unknown error}"
+		apply_job_output "$apply_job_dir" "$apply_job_rollback_output"
+		apply_job_finish "$apply_job_dir" failed 1 "$apply_job_message"
+		return 1
+	}
+	apply_job_output "$apply_job_dir" "$apply_job_rollback_output"
+
+	apply_job_render_output="$(cmd_render_all 2>&1)" || {
+		apply_job_message="$apply_job_reason; database rolled back but runtime configuration render failed: ${apply_job_render_output:-unknown error}"
+		apply_job_output "$apply_job_dir" "$apply_job_render_output"
+		apply_job_finish "$apply_job_dir" failed 1 "$apply_job_message"
+		return 1
+	}
+	apply_job_output "$apply_job_dir" "$apply_job_render_output"
+
+	apply_job_set_stage "$apply_job_dir" restoring-service
+	apply_job_boot_output="$("$INIT_SCRIPT" "$([ "$apply_job_before_enabled" = 1 ] && printf enable || printf disable)" 2>&1)" || {
+		apply_job_message="$apply_job_reason; database rolled back but boot state restoration failed: ${apply_job_boot_output:-unknown error}"
+		apply_job_output "$apply_job_dir" "$apply_job_boot_output"
+		apply_job_finish "$apply_job_dir" failed 1 "$apply_job_message"
+		return 1
+	}
+	apply_job_output "$apply_job_dir" "$apply_job_boot_output"
+	if [ "$apply_job_before_state" = proxy ]; then
+		apply_job_restore_action=restart
+	else
+		apply_job_restore_action=stop
+	fi
+	apply_job_restore_output="$("$INIT_SCRIPT" "$apply_job_restore_action" 2>&1)" || {
+		apply_job_message="$apply_job_reason; configuration rolled back but service restoration failed: ${apply_job_restore_output:-unknown error}"
+		apply_job_output "$apply_job_dir" "$apply_job_restore_output"
+		apply_job_finish "$apply_job_dir" failed 1 "$apply_job_message"
+		return 1
+	}
+	apply_job_output "$apply_job_dir" "$apply_job_restore_output"
+	cmd_clear_apply_backup >/dev/null 2>&1 || :
+	apply_job_finish "$apply_job_dir" failed 1 "$apply_job_message"
+	return 1
+}
+
+cmd_apply_draft_run() {
+	apply_job_dir="$1"
+	case "$apply_job_dir" in
+		"$APPLY_JOB_ROOT"/*) ;;
+		*) die "invalid apply job directory" ;;
+	esac
+	[ -d "$apply_job_dir" ] || die "apply job not found"
+	apply_job_write "$apply_job_dir" status running || die "cannot record apply job"
+	apply_job_set_stage "$apply_job_dir" preparing
+	apply_job_before_state="$(get_state)"
+	apply_job_before_enabled="$(setting service_enabled)"
+	cmd_clear_apply_backup >/dev/null 2>&1 || :
+
+	apply_job_set_stage "$apply_job_dir" saving-database
+	apply_job_step_output="$(cmd_apply_draft 2>&1)" || {
+		apply_job_fail_and_rollback "$apply_job_dir" "Draft could not be applied" "$apply_job_step_output" "$apply_job_before_state" "$apply_job_before_enabled"
+		return 1
+	}
+	apply_job_output "$apply_job_dir" "$apply_job_step_output"
+
+	apply_job_set_stage "$apply_job_dir" rendering
+	apply_job_step_output="$(cmd_render_all 2>&1)" || {
+		apply_job_fail_and_rollback "$apply_job_dir" "Applied configuration could not be rendered" "$apply_job_step_output" "$apply_job_before_state" "$apply_job_before_enabled"
+		return 1
+	}
+	apply_job_output "$apply_job_dir" "$apply_job_step_output"
+
+	apply_job_enabled="$(setting service_enabled)"
+	apply_job_set_stage "$apply_job_dir" updating-boot
+	apply_job_step_output="$("$INIT_SCRIPT" "$([ "$apply_job_enabled" = 1 ] && printf enable || printf disable)" 2>&1)" || {
+		apply_job_fail_and_rollback "$apply_job_dir" "Applied, but boot state update failed" "$apply_job_step_output" "$apply_job_before_state" "$apply_job_before_enabled"
+		return 1
+	}
+	apply_job_output "$apply_job_dir" "$apply_job_step_output"
+
+	if [ "$apply_job_enabled" = 1 ]; then
+		if [ "$apply_job_before_state" = proxy ]; then
+			apply_job_action=restart
+			apply_job_set_stage "$apply_job_dir" restarting-service
+		else
+			apply_job_action=start
+			apply_job_set_stage "$apply_job_dir" starting-service
+		fi
+		apply_job_step_output="$("$INIT_SCRIPT" "$apply_job_action" 2>&1)" || {
+			apply_job_fail_and_rollback "$apply_job_dir" "Applied, but service start failed" "$apply_job_step_output" "$apply_job_before_state" "$apply_job_before_enabled"
+			return 1
+		}
+	else
+		apply_job_set_stage "$apply_job_dir" stopping-service
+		apply_job_step_output="$("$INIT_SCRIPT" stop 2>&1)" || {
+			apply_job_fail_and_rollback "$apply_job_dir" "Applied, but service stop failed" "$apply_job_step_output" "$apply_job_before_state" "$apply_job_before_enabled"
+			return 1
+		}
+	fi
+	apply_job_output "$apply_job_dir" "$apply_job_step_output"
+
+	apply_job_set_stage "$apply_job_dir" verifying
+	apply_job_now_state="$(get_state)"
+	if [ "$apply_job_enabled" = 1 ]; then
+		[ "$apply_job_now_state" = proxy ] || {
+			apply_job_fail_and_rollback "$apply_job_dir" "Service action returned without reaching proxy mode" "" "$apply_job_before_state" "$apply_job_before_enabled"
+			return 1
+		}
+	else
+		[ "$apply_job_now_state" = normal ] || {
+			apply_job_fail_and_rollback "$apply_job_dir" "Service action returned without returning to normal mode" "" "$apply_job_before_state" "$apply_job_before_enabled"
+			return 1
+		}
+	fi
+
+	cmd_clear_apply_backup >/dev/null 2>&1 || {
+		apply_job_fail_and_rollback "$apply_job_dir" "Applied, but the apply backup could not be cleared" "" "$apply_job_before_state" "$apply_job_before_enabled"
+		return 1
+	}
+	apply_job_set_stage "$apply_job_dir" complete
+	apply_job_finish "$apply_job_dir" done 0 ""
+}
+
+cmd_apply_draft_start() {
+	ensure_db
+	draft_pending || die "no pending configuration changes"
+	active_id="$(setting draft_active_profile)"
+	is_uint "$active_id" || die "draft has no active profile"
+	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles p JOIN draft_profile_nodes pn ON pn.profile_id=p.id JOIN draft_nodes n ON n.id=pn.node_id WHERE p.id=$active_id AND p.enabled=1 AND n.enabled=1;" | tr -d '[:space:]')"
+	[ "$count" -gt 0 ] || die "draft active profile has no enabled node"
+
+	mkdir -p "$APPLY_JOB_ROOT" || die "cannot create apply job directory"
+	find "$APPLY_JOB_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name active -mmin +1440 -exec rm -rf {} + 2>/dev/null || :
+	if [ -d "$APPLY_ACTIVE_JOB" ]; then
+		active_job_id="$(sed -n '1p' "$APPLY_ACTIVE_JOB/job_id" 2>/dev/null || true)"
+		active_job_pid="$(sed -n '1p' "$APPLY_ACTIVE_JOB/pid" 2>/dev/null || true)"
+		if [ -n "$active_job_id" ] && [ -d "$APPLY_JOB_ROOT/$active_job_id" ] &&
+			{ [ "$(sed -n '1p' "$APPLY_JOB_ROOT/$active_job_id/status" 2>/dev/null || true)" = running ] ||
+			  [ "$(sed -n '1p' "$APPLY_JOB_ROOT/$active_job_id/status" 2>/dev/null || true)" = queued ]; } &&
+			is_uint "$active_job_pid" && kill -0 "$active_job_pid" 2>/dev/null; then
+			die "a configuration apply is already running"
+		fi
+		rm -rf "$APPLY_ACTIVE_JOB"
+	fi
+
+	mkdir "$APPLY_ACTIVE_JOB" 2>/dev/null || die "cannot reserve an apply job"
+	job_id="$(date +%s)-$$"
+	job_dir="$APPLY_JOB_ROOT/$job_id"
+	if ! mkdir "$job_dir"; then
+		rm -rf "$APPLY_ACTIVE_JOB"
+		die "cannot create apply job"
+	fi
+	printf '%s\n' "$job_id" > "$APPLY_ACTIVE_JOB/job_id" || {
+		rm -rf "$APPLY_ACTIVE_JOB" "$job_dir"
+		die "cannot reserve an apply job"
+	}
+	apply_job_write "$job_dir" status queued || {
+		rm -rf "$APPLY_ACTIVE_JOB" "$job_dir"
+		die "cannot record apply job"
+	}
+	apply_job_write "$job_dir" stage queued || :
+	apply_job_write "$job_dir" started_at "$(date '+%Y-%m-%d %H:%M:%S')" || :
+	: > "$job_dir/output"
+	: > "$job_dir/error"
+	printf '%s\n' "$job_id"
+
+	(
+		job_rc=0
+		V2RAYB_LOCK_WAIT_SECONDS=60 "$0" apply-draft-run "$job_dir" || job_rc=$?
+		job_status="$(sed -n '1p' "$job_dir/status" 2>/dev/null || printf running)"
+		if [ "$job_rc" -ne 0 ] && { [ "$job_status" = queued ] || [ "$job_status" = running ]; }; then
+			apply_job_finish "$job_dir" failed 1 "Apply worker stopped before completing"
+		fi
+		active_job_id="$(sed -n '1p' "$APPLY_ACTIVE_JOB/job_id" 2>/dev/null || true)"
+		[ "$active_job_id" = "$job_id" ] && rm -rf "$APPLY_ACTIVE_JOB"
+	) </dev/null >/dev/null 2>&1 &
+	printf '%s\n' "$!" > "$APPLY_ACTIVE_JOB/pid" 2>/dev/null || :
+}
+
+cmd_apply_draft_status() {
+	job_id="$1"
+	case "$job_id" in ''|*[!0-9-]*) die "invalid apply job id" ;; esac
+	job_dir="$APPLY_JOB_ROOT/$job_id"
+	[ -d "$job_dir" ] || die "apply job not found"
+	job_status="$(sed -n '1p' "$job_dir/status" 2>/dev/null || printf running)"
+	job_stage="$(sed -n '1p' "$job_dir/stage" 2>/dev/null || printf queued)"
+	job_rc="$(sed -n '1p' "$job_dir/rc" 2>/dev/null || printf '%s\n' '-')"
+	printf 'status=%s\n' "$job_status"
+	printf 'stage=%s\n' "$job_stage"
+	printf 'rc=%s\n' "$job_rc"
+	printf 'started_at=%s\n' "$(sed -n '1p' "$job_dir/started_at" 2>/dev/null || printf '%s\n' '-')"
+	printf 'finished_at=%s\n' "$(sed -n '1p' "$job_dir/finished_at" 2>/dev/null || printf '%s\n' '-')"
+	printf '%s\n' '--output--'
+	cat "$job_dir/output" 2>/dev/null || :
+	printf '%s\n' '--error--'
+	cat "$job_dir/error" 2>/dev/null || :
 }
 
 cmd_revert_draft() {
@@ -2035,6 +2283,8 @@ Usage:
   v2rayBctl delete-profile PROFILE_ID
   v2rayBctl select-profile PROFILE_ID
   v2rayBctl apply-draft|revert-draft
+  v2rayBctl apply-draft-start
+  v2rayBctl apply-draft-status JOB_ID
   v2rayBctl rollback-apply|clear-apply-backup
   v2rayBctl list-nodes
   v2rayBctl node-probe-start all|manual|SOURCE_ID
@@ -2062,7 +2312,7 @@ EOF
 command="$1"
 shift
 case "$command" in
-init-db|set-setting|set-state|add-source|update-subscription|delete-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft|node-probe-start)
+init-db|set-setting|set-state|add-source|update-subscription|delete-source|add-node|update-node|set-node-enabled|delete-node|set-profile-policy|add-profile|update-profile|set-profile-enabled|delete-profile|select-profile|apply-draft|apply-draft-run|revert-draft|rollback-apply|clear-apply-backup|render-v2ray|render-mosdns|render-nft|render-all|apply-nft|delete-nft|node-probe-start)
 		acquire_ctl_lock
 		;;
 esac
@@ -2092,6 +2342,9 @@ case "$command" in
 	delete-profile) [ "$#" -eq 1 ] || usage; cmd_delete_profile "$1" ;;
 	select-profile) [ "$#" -eq 1 ] || usage; cmd_select_profile "$1" ;;
 	apply-draft) [ "$#" -eq 0 ] || usage; cmd_apply_draft ;;
+	apply-draft-start) [ "$#" -eq 0 ] || usage; cmd_apply_draft_start ;;
+	apply-draft-run) [ "$#" -eq 1 ] || usage; cmd_apply_draft_run "$1" ;;
+	apply-draft-status) [ "$#" -eq 1 ] || usage; cmd_apply_draft_status "$1" ;;
 	revert-draft) [ "$#" -eq 0 ] || usage; cmd_revert_draft ;;
 	rollback-apply) [ "$#" -eq 0 ] || usage; cmd_rollback_apply ;;
 	clear-apply-backup) [ "$#" -eq 0 ] || usage; cmd_clear_apply_backup ;;

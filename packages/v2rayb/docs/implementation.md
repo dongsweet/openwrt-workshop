@@ -61,6 +61,7 @@ sh tests/test_render.sh
 sh tests/test_lifecycle.sh
 sh tests/test_migration.sh
 sh tests/test_draft.sh
+sh tests/test_apply_job.sh
 ```
 
 The importer test uses only sanitized fixtures under `tests/fixtures/` and a

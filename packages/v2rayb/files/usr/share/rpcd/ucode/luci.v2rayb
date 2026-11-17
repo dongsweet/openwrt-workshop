@@ -78,7 +78,10 @@ function probe_status_result(result) {
 	return {
 		success: true,
 		status: values.status || 'running',
+		stage: values.stage || '',
 		rc: values.rc || '-',
+		started_at: values.started_at || '',
+		finished_at: values.finished_at || '',
 		output: replace(join('\n', output_lines), /^\s+|\s+$/g, ''),
 		error: replace(join('\n', error_lines), /^\s+|\s+$/g, '')
 	};
@@ -411,6 +414,28 @@ const methods = {
 
 			let result = ctl([ 'set-setting', key, value ]);
 			return result.code == 0 ? { success: true } : failed(result);
+		}
+	},
+
+	apply_draft_start: {
+		call: function() {
+			let result = ctl([ 'apply-draft-start' ]);
+			if (result.code != 0)
+				return failed(result);
+			let job_id = replace(result.output || '', /^\s+|\s+$/g, '');
+			if (!match(job_id, /^[0-9]+-[0-9]+$/))
+				return { success: false, error: 'Apply job id could not be read' };
+			return { success: true, job_id: job_id };
+		}
+	},
+
+	apply_draft_status: {
+		args: { job_id: '' },
+		call: function(request) {
+			let job_id = string_arg(request, 'job_id');
+			if (!match(job_id, /^[0-9]+-[0-9]+$/))
+				return { success: false, error: 'Invalid apply job id' };
+			return probe_status_result(ctl([ 'apply-draft-status', job_id ]));
 		}
 	},
 
