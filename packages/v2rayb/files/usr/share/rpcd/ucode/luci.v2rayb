@@ -206,18 +206,21 @@ const methods = {
 	},
 
 	add_source: {
-		args: { name: '', url: '', format: 'auto' },
+		args: { name: '', url: '', format: 'auto', ipv4_only: '1' },
 		call: function(request) {
 			let name = string_arg(request, 'name');
 			let url = string_arg(request, 'url');
 			let format = string_arg(request, 'format') || 'auto';
+			let ipv4_only = string_arg(request, 'ipv4_only') || '1';
 			if (!valid_source_name(name))
 				return { success: false, error: '订阅名称无效：编码长度不得超过 256 字节，且不能包含控制字符。' };
 			if (length(url) > 2048 || (substr(url, 0, 7) != 'http://' && substr(url, 0, 8) != 'https://'))
 				return { success: false, error: 'Subscription URL must use http:// or https://' };
 			if (!match(format, /^(auto|uri|base64)$/))
 				return { success: false, error: 'Unsupported subscription format' };
-			let result = ctl([ 'add-source', 'subscription', name, url, format ]);
+			if (!match(ipv4_only, /^[01]$/))
+				return { success: false, error: 'Invalid subscription IPv4-only setting' };
+			let result = ctl([ 'add-source', 'subscription', name, url, format, ipv4_only ]);
 			if (result.code != 0)
 				return failed(result);
 			let sources = ctl([ 'list-sources' ]);

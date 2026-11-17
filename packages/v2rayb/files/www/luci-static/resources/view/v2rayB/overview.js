@@ -130,6 +130,11 @@ const _zh = {
 	'Delete subscription "%s" and its unreferenced nodes?': '删除订阅“%s”及其未被配置引用的节点？',
 	'Direct DNS': '直连 DNS',
 	'Direct DNS default': '默认直连 DNS',
+	'Download': '下载',
+	'IPv4 + IPv6': 'IPv4 + IPv6',
+	'IPv4 only': '仅 IPv4',
+	'IPv4 only download': '仅使用 IPv4 下载',
+	'Only affects subscription downloads; proxy traffic is unchanged.': '仅影响订阅下载，不影响代理流量。',
 	'Direct DNS upstream': '直连 DNS 上游',
 	'Direct match: Direct DNS + direct sets.': '直连匹配：直连 DNS + 直连地址集合。',
 	'Direct regexp': '直连正则表达式',
@@ -336,7 +341,8 @@ const callSources = rpc.declare({
 	object: 'luci.v2rayb', method: 'list_sources', expect: { '': {} }
 });
 const callAddSource = rpc.declare({
-	object: 'luci.v2rayb', method: 'add_source', params: [ 'name', 'url', 'format' ], expect: { '': {} }, reject: true
+	object: 'luci.v2rayb', method: 'add_source',
+	params: [ 'name', 'url', 'format', 'ipv4_only' ], expect: { '': {} }, reject: true
 });
 const callSubscriptionUpdateStart = rpc.declare({
 	object: 'luci.v2rayb', method: 'subscription_update_start', params: [ 'source_id' ], expect: { '': {} }, reject: true
@@ -897,6 +903,7 @@ function showSourceModal(existing, onUpdate) {
 	const url = E('input', { class: 'cbi-input-text', type: 'url', maxlength: '2048', required: true, value: existing ? existing[3] : '' });
 	const format = E('select', { class: 'cbi-input-select' }, [ 'auto', 'uri', 'base64' ].map(value => E('option', { value }, value)));
 	format.value = existing ? (existing[4] || 'auto') : 'auto';
+	const ipv4Only = checkbox({}, existing ? isEnabled(existing[9]) : true);
 	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: async () => {
 		const sourceName = name.value.trim();
 		if (!sourceName || !url.value) {
@@ -904,7 +911,8 @@ function showSourceModal(existing, onUpdate) {
 			return;
 		}
 		try {
-			const added = await callAddSource(sourceName, url.value, format.value);
+			const added = await callAddSource(sourceName, url.value, format.value,
+				ipv4Only.checked ? '1' : '0');
 			if (!added || !added.success) {
 				showRequestError(added);
 				return;
@@ -929,7 +937,9 @@ function showSourceModal(existing, onUpdate) {
 			E('h3', {}, _('Subscription source')),
 			field(_('Name'), name),
 			field(_('URL'), url, _('The router downloads this URL directly.')),
-			field(_('Format'), format, _('Auto detects plain URI lines or Base64-encoded URI lines.'))
+			field(_('Format'), format, _('Auto detects plain URI lines or Base64-encoded URI lines.')),
+			field(_('IPv4 only download'), ipv4Only,
+				_('Only affects subscription downloads; proxy traffic is unchanged.'))
 		]),
 		E('div', { class: 'cbi-page-actions' }, [ cancel, save ])
 	]);
@@ -1294,7 +1304,7 @@ return view.extend({
 		let profileTable, nodeTable, sourceTable, profileAddButton, nodeGroupTabs, selectedNodeGroup, nodeProbeButton, nodeProbeHint;
 		const profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ];
 		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Source'), _('Node latency'), _('Enabled'), _('Actions') ];
-		const sourceTableHeaders = [ _('Name'), _('Nodes'), _('Format'), _('Last update'), _('Status'), _('Actions') ];
+		const sourceTableHeaders = [ _('Name'), _('Nodes'), _('Format'), _('Download'), _('Last update'), _('Status'), _('Actions') ];
 
 		function enabledToggle(enabled, change) {
 			const input = checkbox({}, isEnabled(enabled));
@@ -1594,8 +1604,9 @@ return view.extend({
 		}
 		function sourceTableRows() {
 			return sources.filter(row => row[1] === 'subscription').map(row => [
-				row[2], row[8] || '0', row[4] || 'auto', row[6] || '-',
-				sourceStatus(row),
+				row[2], row[8] || '0', row[4] || 'auto',
+				isEnabled(row[9]) ? _('IPv4 only') : _('IPv4 + IPv6'),
+				row[6] || '-', sourceStatus(row),
 				actionCell([
 					editButton(() => showSourceModal(row, startSubscriptionUpdate)),
 					E('button', { class: 'btn cbi-button cbi-button-action', type: 'button', click: async () => {

@@ -66,13 +66,16 @@ grep -q '香港_AWS_01.*vless.*example.com.*443' "$TEST_DIR/unicode-name.nodes"
 "$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" 'PRAGMA user_version;' >/dev/null
 "$CTL" init-db
 "$CTL" add-source subscription demo http://example.test/sub uri
-"$CTL" add-source subscription '跨境订阅' http://example.test/cn uri
+"$CTL" add-source subscription '跨境订阅' http://example.test/cn uri 0
+"$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" "SELECT ipv4_only FROM sources WHERE name='demo';" | grep -q '^1$'
+"$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" "SELECT ipv4_only FROM sources WHERE name='跨境订阅';" | grep -q '^0$'
 "$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" "SELECT name FROM sources WHERE type='subscription' AND name='跨境订阅';" | grep -Fx '跨境订阅' >/dev/null
 cat > "$TEST_DIR/bin/curl" <<'EOF'
 #!/bin/sh
 if [ "${FAKE_CURL_FAIL:-0}" = 1 ]; then
 	exit 22
 fi
+printf '%s\n' "$@" > "$CURL_ARGS_FILE"
 output=''
 while [ "$#" -gt 0 ]; do
 	case "$1" in
@@ -83,10 +86,15 @@ done
 printf '%s\n' 'vless://00000000-0000-0000-0000-000000000000@example.com:443?security=tls#HK-Test' > "$output"
 EOF
 chmod +x "$TEST_DIR/bin/curl"
+export CURL_ARGS_FILE="$TEST_DIR/curl.args"
 export PATH="$TEST_DIR/bin:$PATH"
 
 "$CTL" update-subscription 1 | grep -q '^nodes=1$'
+grep -q -- '--ipv4' "$CURL_ARGS_FILE"
 "$ROOT/tests/sqlite3-wrapper.py" "$V2RAYB_DB" 'SELECT COUNT(*) FROM nodes WHERE source_id=1;' | grep -q '^1$'
+"$CTL" add-source subscription demo http://example.test/sub uri 0
+"$CTL" update-subscription 1 | grep -q '^nodes=1$'
+! grep -q -- '--ipv4' "$CURL_ARGS_FILE"
 job_id="$("$CTL" subscription-update-start 1)"
 job_status=""
 for attempt in $(seq 1 50); do

@@ -34,11 +34,16 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
         assert {
             "draft_nodes", "draft_policies", "draft_profiles",
             "draft_profile_nodes", "draft_source_deletions",
         } <= tables
+        source_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(sources)")
+        }
+        assert "ipv4_only" in source_columns
         profile_columns = {
             row[1]
             for row in conn.execute("PRAGMA table_info(profiles)")
@@ -58,6 +63,9 @@ def main():
             "INSERT INTO sources(type, name) VALUES ('manual', 'local')"
         )
         source_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        assert conn.execute(
+            "SELECT ipv4_only FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()[0] == 1
         node_data = {"tls": {"enabled": True}, "transport": "tcp"}
         conn.execute(
             """

@@ -347,7 +347,12 @@ ensure_db() {
 		db_sql "CREATE TABLE IF NOT EXISTS draft_source_deletions (source_id INTEGER PRIMARY KEY); INSERT OR IGNORE INTO schema_migrations(version) VALUES (6); PRAGMA user_version=6;"
 		version=6
 	fi
-	[ "$version" = 6 ] || die "unsupported database schema version: $version"
+	if [ "$version" = 6 ]; then
+		db_add_column sources ipv4_only 'ipv4_only INTEGER NOT NULL DEFAULT 1 CHECK (ipv4_only IN (0, 1))'
+		db_sql "INSERT OR IGNORE INTO schema_migrations(version) VALUES (7); PRAGMA user_version=7;"
+		version=7
+	fi
+	[ "$version" = 7 ] || die "unsupported database schema version: $version"
 	missing_settings="$(db_sql "SELECT COUNT(*) FROM (SELECT 'force_proxy_port' AS key UNION ALL SELECT 'service_enabled' UNION ALL SELECT 'draft_service_enabled' UNION ALL SELECT 'applied_config_version' UNION ALL SELECT 'draft_config_version' UNION ALL SELECT 'draft_pending' UNION ALL SELECT 'draft_active_profile') required WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.key=required.key);" | tr -d '[:space:]')"
 	if [ "$missing_settings" -gt 0 ] 2>/dev/null; then
 		db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('force_proxy_port', '12346'), ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', '');"
@@ -433,7 +438,9 @@ cmd_add_source() {
 	name="$2"
 	url="${3:-}"
 	format="${4:-}"
+	ipv4_only="${5:-1}"
 	is_source_name "$name" || die "订阅名称无效：编码长度不得超过 256 字节，且不能包含控制字符"
+	case "$ipv4_only" in 0|1) ;; *) die "ipv4_only must be 0 or 1" ;; esac
 	case "$type" in
 		manual|imported) ;;
 		subscription)
@@ -442,7 +449,7 @@ cmd_add_source() {
 			;;
 		*) die "invalid source type" ;;
 	esac
-	db_sql "INSERT INTO sources(type, name, url, format, updated_at) VALUES($(sql_quote "$type"), $(sql_quote "$name"), $(sql_quote "$url"), $(sql_quote "$format"), CURRENT_TIMESTAMP) ON CONFLICT(type, name) DO UPDATE SET url=excluded.url, format=excluded.format, updated_at=CURRENT_TIMESTAMP;"
+	db_sql "INSERT INTO sources(type, name, url, format, ipv4_only, updated_at) VALUES($(sql_quote "$type"), $(sql_quote "$name"), $(sql_quote "$url"), $(sql_quote "$format"), $ipv4_only, CURRENT_TIMESTAMP) ON CONFLICT(type, name) DO UPDATE SET url=excluded.url, format=excluded.format, ipv4_only=excluded.ipv4_only, updated_at=CURRENT_TIMESTAMP;"
 }
 
 cmd_list_sources() {
@@ -451,7 +458,7 @@ cmd_list_sources() {
 	if draft_pending; then
 		source_filter="WHERE NOT EXISTS (SELECT 1 FROM draft_source_deletions dsd WHERE dsd.source_id=s.id)"
 	fi
-	db_sql "SELECT s.id || char(9) || s.type || char(9) || s.name || char(9) || COALESCE(s.url, '') || char(9) || COALESCE(s.format, 'auto') || char(9) || s.enabled || char(9) || COALESCE(s.last_updated, '') || char(9) || COALESCE(s.last_error, '') || char(9) || (SELECT COUNT(*) FROM nodes n WHERE n.source_id=s.id) FROM sources s $source_filter ORDER BY s.type, s.name;"
+	db_sql "SELECT s.id || char(9) || s.type || char(9) || s.name || char(9) || COALESCE(s.url, '') || char(9) || COALESCE(s.format, 'auto') || char(9) || s.enabled || char(9) || COALESCE(s.last_updated, '') || char(9) || COALESCE(s.last_error, '') || char(9) || (SELECT COUNT(*) FROM nodes n WHERE n.source_id=s.id) || char(9) || COALESCE(s.ipv4_only, 1) FROM sources s $source_filter ORDER BY s.type, s.name;"
 }
 
 set_source_error() {
@@ -464,16 +471,17 @@ cmd_update_subscription() {
 	ensure_db
 	source_id="$1"
 	is_uint "$source_id" || die "source id must be numeric"
-	row="$(db_sql "SELECT type || char(9) || name || char(9) || COALESCE(url, '') || char(9) || COALESCE(format, 'auto') FROM sources WHERE id=$source_id;")"
+	row="$(db_sql "SELECT type || char(9) || name || char(9) || COALESCE(url, '') || char(9) || COALESCE(format, 'auto') || char(9) || COALESCE(ipv4_only, 1) FROM sources WHERE id=$source_id;")"
 	[ -n "$row" ] || die "source not found: $source_id"
 	old_ifs="$IFS"
 	IFS="$(printf '\t')"
-	read -r type name url format <<EOF
+	read -r type name url format ipv4_only <<EOF
 $row
 EOF
 	IFS="$old_ifs"
 	[ "$type" = subscription ] || die "source is not a subscription"
 	[ -n "$url" ] || die "subscription URL is empty"
+	case "$ipv4_only" in 0|1) ;; *) die "invalid subscription IPv4 setting" ;; esac
 	draft_pending && die "apply or revert pending changes before updating a subscription"
 	active_before="$(db_sql "SELECT n.server || char(9) || n.data_json FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id WHERE p.id=(SELECT value FROM settings WHERE key='active_profile') AND n.source_id=$source_id ORDER BY pn.priority, n.id LIMIT 1;")"
 	[ -x "$SUBSCRIPTION_PARSER" ] || die "subscription parser is not installed"
@@ -484,7 +492,9 @@ EOF
 	sql_tmp="$SUBSCRIPTION_DIR/.${source_id}.sql.$$"
 	error_tmp="$SUBSCRIPTION_DIR/.${source_id}.error.$$"
 	trap 'rm -f "$raw_tmp" "$nodes_tmp" "$sql_tmp" "$error_tmp"; rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
-	if ! curl --fail --location --silent --show-error --connect-timeout 10 --max-time 25 --max-filesize 2097152 --proto '=http,https' --output "$raw_tmp" "$url" 2>"$error_tmp"; then
+	set -- --fail --location --silent --show-error --connect-timeout 10 --max-time 25 --max-filesize 2097152 --proto '=http,https' --output "$raw_tmp" "$url"
+	[ "$ipv4_only" = 1 ] && set -- --ipv4 "$@"
+	if ! curl "$@" 2>"$error_tmp"; then
 		error_text="subscription download failed; check the URL and router connectivity"
 		set_source_error "$source_id" "$error_text"
 		die "$error_text"
@@ -2268,7 +2278,7 @@ Usage:
   v2rayBctl get-setting KEY
   v2rayBctl set-setting KEY VALUE
   v2rayBctl set-state normal|starting|proxy|stopping|degraded
-  v2rayBctl add-source manual|subscription|imported NAME [URL] [FORMAT]
+  v2rayBctl add-source manual|subscription|imported NAME [URL] [FORMAT] [IPV4_ONLY]
   v2rayBctl list-sources
   v2rayBctl update-subscription SOURCE_ID
   v2rayBctl subscription-update-start SOURCE_ID
@@ -2327,7 +2337,7 @@ case "$command" in
 	get-setting) [ "$#" -eq 1 ] || usage; cmd_get_setting "$1" ;;
 	set-setting) [ "$#" -eq 2 ] || usage; cmd_set_setting "$1" "$2" ;;
 	set-state) [ "$#" -eq 1 ] || usage; cmd_set_state "$1" ;;
-	add-source) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage; cmd_add_source "$@" ;;
+	add-source) [ "$#" -ge 2 ] && [ "$#" -le 5 ] || usage; cmd_add_source "$@" ;;
 	list-sources) [ "$#" -eq 0 ] || usage; cmd_list_sources ;;
 	update-subscription) [ "$#" -eq 1 ] || usage; cmd_update_subscription "$1" ;;
 	subscription-update-start) [ "$#" -eq 1 ] || usage; cmd_subscription_update_start "$1" ;;

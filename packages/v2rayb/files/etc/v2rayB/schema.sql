@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS sources (
     name         TEXT NOT NULL,
     url          TEXT,
     format       TEXT,
+    ipv4_only    INTEGER NOT NULL DEFAULT 1 CHECK (ipv4_only IN (0, 1)),
     enabled      INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     etag         TEXT,
     last_error   TEXT,
@@ -177,6 +178,7 @@ INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (4);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (5);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (6);
-PRAGMA user_version = 6;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (7);
+PRAGMA user_version = 7;
 
 COMMIT;

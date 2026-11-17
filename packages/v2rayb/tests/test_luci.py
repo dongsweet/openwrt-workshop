@@ -34,7 +34,8 @@ def main():
     assert "is_source_name() {" in ctl_source
     assert "订阅名称无效：编码长度不得超过 256 字节" in ctl_source
     assert "const sourceName = name.value.trim();" in view_source
-    assert "callAddSource(sourceName, url.value, format.value)" in view_source
+    assert "callAddSource(sourceName, url.value, format.value," in view_source
+    assert "ipv4Only.checked ? '1' : '0'" in view_source
     translation_block = view_source.split("const _zh = {", 1)[1].split("};", 1)[0]
     translated_keys = set(re.findall(r"^\s*'([^']*)':", translation_block, re.MULTILINE))
     message_keys = set(re.findall(r"_\('([^']*)'\)", view_source))
@@ -145,6 +146,8 @@ def main():
     assert "MosDNS match rules" in view_source
     assert "textarea" in view_source
     assert "params: [ 'name', 'protocol', 'server', 'port', 'data_json' ]" in view_source
+    assert "const sourceTableHeaders = [ _('Name'), _('Nodes'), _('Format'), _('Download'), _('Last update'), _('Status'), _('Actions') ];"
+    assert "isEnabled(row[9]) ? _('IPv4 only') : _('IPv4 + IPv6')" in view_source
     assert "method: 'add_profile'" in view_source
     assert "direct_dns', 'transparent_proxy_ports', 'bypass_china'" in view_source
     assert "Profile policy" in view_source
@@ -193,6 +196,14 @@ def main():
     assert "table([ _('Order'), _('Match group'), _('Fixed action') ]" not in view_source
     assert "mosdnsRulesHelp" in view_source
     assert "mosdns_enabled == '1' && mosdns_domains == ''" in rpc_source
+    assert "params: [ 'name', 'url', 'format', 'ipv4_only' ]" in view_source
+    assert "const ipv4Only = checkbox" in view_source
+    assert "IPv4 only download" in view_source
+    assert "Only affects subscription downloads; proxy traffic is unchanged." in view_source
+    assert "ipv4_only = string_arg(request, 'ipv4_only') || '1'" in rpc_source
+    assert "ctl([ 'add-source', 'subscription', name, url, format, ipv4_only ])" in rpc_source
+    assert "COALESCE(s.ipv4_only, 1)" in ctl_source
+    assert "[ \"$ipv4_only\" = 1 ] && set -- --ipv4 \"$@\"" in ctl_source
     assert "method: 'get_v2ray_config'" in view_source
     assert "method: 'network_probe_start'" in view_source
     assert "method: 'network_probe_status'" in view_source
