@@ -18,24 +18,37 @@ export V2RAYB_SQLITE3="$ROOT/tests/sqlite3-wrapper.py"
 
 raw="$TEST_DIR/raw"
 printf '%s\n' \
-  'vless://00000000-0000-0000-0000-000000000000@example.com:443?security=tls&type=ws&path=%2Ffoo&host=cdn.example.com&alpn=h2%2Chttp%2F1.1#HK-Test' \
-  'trojan://password@example.net:443?security=tls&sni=example.net#Home-Test' > "$raw"
+  'vless://00000000-0000-0000-0000-000000000000@example.com:443?security=tls&type=ws&path=%2Ffoo&host=cdn.example.com&alpn=h2%2Chttp%2F1.1&mux=1&muxConcurrency=16#HK-Test' \
+  'trojan://password@example.net:443?security=tls&sni=example.net&mux=0#Home-Test' \
+  'ss://YWVzLTI1Ni1nY206cGFzcw==@ss.example.net:8388#SS-Test' > "$raw"
 parsed="$TEST_DIR/parsed"
 sh "$PARSER" "$raw" uri demo > "$parsed"
-[ "$(wc -l < "$parsed" | tr -d '[:space:]')" = 2 ]
+[ "$(wc -l < "$parsed" | tr -d '[:space:]')" = 3 ]
 grep -q 'HK-Test.*vless.*example.com.*443' "$parsed"
 grep -q 'Home-Test.*trojan.*example.net.*443' "$parsed"
+grep -q 'SS-Test.*shadowsocks.*ss.example.net.*8388' "$parsed"
 grep -q '"alpn":\["h2","http/1.1"\]' "$parsed"
-cut -f5 "$parsed" | while IFS= read -r json; do
-	printf '%s\n' "$json" | python3 -m json.tool >/dev/null
-done
+python3 - "$parsed" <<'PY'
+import json
+import sys
+rows = [line.rstrip('\n').split('\t') for line in open(sys.argv[1], encoding='utf-8')]
+assert len(rows) == 3
+vless = json.loads(rows[0][4])['mux']
+assert vless == {'enabled': True, 'concurrency': 16}
+assert json.loads(rows[1][4])['mux']['enabled'] is False
+assert json.loads(rows[2][4])['mux']['enabled'] is False
+PY
 
 vmess="$(printf '%s' '{"v":"2","ps":"VMess-Test","add":"vmess.example.com","port":"8443","id":"11111111-1111-1111-1111-111111111111","aid":"0","net":"ws","type":"none","host":"cdn.example.com","path":"/vmess","tls":"tls","sni":"vmess.example.com","scy":"auto"}' | base64 -w0)"
 printf 'vmess://%s\n' "$vmess" > "$TEST_DIR/vmess"
 sh "$PARSER" "$TEST_DIR/vmess" uri demo > "$TEST_DIR/vmess.nodes" 2> "$TEST_DIR/vmess.err"
 [ ! -s "$TEST_DIR/vmess.err" ]
 grep -q 'VMess-Test.*vmess.*vmess.example.com.*8443' "$TEST_DIR/vmess.nodes"
-cut -f5 "$TEST_DIR/vmess.nodes" | python3 -c 'import json,sys; json.load(sys.stdin)'
+cut -f5 "$TEST_DIR/vmess.nodes" | python3 -c 'import json,sys; assert json.load(sys.stdin)["mux"]["enabled"] is False'
+vmess_mux="$(printf '%s' '{"v":"2","ps":"VMess-Mux","add":"vmess.example.com","port":"8443","id":"11111111-1111-1111-1111-111111111111","aid":"0","net":"ws","host":"cdn.example.com","path":"/vmess","tls":"tls","sni":"vmess.example.com","scy":"auto","mux":"1","muxConcurrency":"12"}' | base64 -w0)"
+printf 'vmess://%s\n' "$vmess_mux" > "$TEST_DIR/vmess-mux"
+sh "$PARSER" "$TEST_DIR/vmess-mux" uri demo > "$TEST_DIR/vmess-mux.nodes"
+cut -f5 "$TEST_DIR/vmess-mux.nodes" | python3 -c 'import json,sys; assert json.load(sys.stdin)["mux"] == {"enabled": True, "concurrency": 12}'
 
 printf '%s\n' 'vless://00000000-0000-0000-0000-000000000000@example.com:443?security=tls#Unpadded-Test' \
 	| base64 -w0 | tr -d '=' > "$TEST_DIR/unpadded"

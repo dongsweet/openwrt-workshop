@@ -236,6 +236,10 @@ def main():
     assert "expect: { '': {} }, reject: true" in view_source
     assert "args: {\n\t\t\tname: '', protocol: '', server: '', port: '', data_json: ''\n\t\t}" in rpc_source
     assert "function valid_node_fields" in rpc_source
+    assert "const muxEnabled = checkbox({}, false);" in view_source
+    assert "muxEnabled.checked = !!data.mux && (data.mux.enabled === true || data.mux.enabled === 1);" in view_source
+    assert "muxEnabled.checked = !data.mux || data.mux.enabled !== false;" not in view_source
+    assert "() => muxEnabled.checked" in view_source
     assert "function valid_profile_policy" in rpc_source
     assert "Invalid Bypass China IP value; expected 0 or 1" in rpc_source
     assert "Invalid Use V2Ray DNS value; expected 0 or 1" in rpc_source

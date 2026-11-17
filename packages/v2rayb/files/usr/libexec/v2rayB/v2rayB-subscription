@@ -63,6 +63,45 @@ query_value() {
 	[ -n "$value" ] && url_decode "$value" || :
 }
 
+mux_enabled_value() {
+	case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
+		1|true|yes|on) printf 'true' ;;
+		*) printf 'false' ;;
+	esac
+}
+
+mux_concurrency_value() {
+	case "$1" in
+		''|*[!0-9]*) printf '8' ;;
+		*)
+			[ "$1" -ge 1 ] 2>/dev/null && [ "$1" -le 128 ] 2>/dev/null && printf '%s' "$1" || printf '8'
+			;;
+	esac
+}
+
+query_mux() {
+	MUX_ENABLED="$(mux_enabled_value "$(query_value "$1" mux)")"
+	mux_concurrency="$(query_value "$1" muxConcurrency)"
+	[ -n "$mux_concurrency" ] || mux_concurrency="$(query_value "$1" mux_concurrency)"
+	MUX_CONCURRENCY="$(mux_concurrency_value "$mux_concurrency")"
+}
+
+vmess_mux() {
+	MUX_ENABLED=false
+	MUX_CONCURRENCY=8
+	if grep -Eq '"mux"[[:space:]]*:[[:space:]]*(true|1|"1"|"true"|"yes"|"on")' "$1"; then
+		MUX_ENABLED=true
+	elif grep -Eq '"mux"[[:space:]]*:[[:space:]]*\{[^}]*"enabled"[[:space:]]*:[[:space:]]*(true|1|"1"|"true"|"yes"|"on")' "$1"; then
+		MUX_ENABLED=true
+	fi
+	mux_concurrency="$(sed -n 's/.*"muxConcurrency"[[:space:]]*:[[:space:]]*"\{0,1\}\([0-9][0-9]*\)"\{0,1\}.*/\1/p' "$1" | sed -n '1p')"
+	MUX_CONCURRENCY="$(mux_concurrency_value "$mux_concurrency")"
+}
+
+mux_json() {
+	printf '"mux":{"enabled":%s,"concurrency":%s}' "$MUX_ENABLED" "$MUX_CONCURRENCY"
+}
+
 split_authority() {
 	case "$1" in
 		\[*\]:*) host="${1#\[}"; host="${host%%\]*}"; port="${1#*\]}"; port="${port#:}" ;;
@@ -173,6 +212,7 @@ parse_vless_trojan() {
 	alpn="$(query_value "$query" alpn)"
 	flow="$(query_value "$query" flow)"
 	encryption="$(query_value "$query" encryption)"; [ -n "$encryption" ] || encryption=none
+	query_mux "$query"
 	stream_json || return 1
 	name="$(safe_name "$(url_decode "$fragment")")"
 
@@ -180,9 +220,9 @@ parse_vless_trojan() {
 		user_json="{\"id\":\"$(json_quote "$user")\",\"encryption\":\"$(json_quote "$encryption")\",\"level\":1"
 		[ -n "$flow" ] && user_json="$user_json,\"flow\":\"$(json_quote "$flow")\""
 		user_json="$user_json}"
-		data="{\"settings\":{\"vnext\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"users\":[$user_json]}]},\"streamSettings\":$STREAM_JSON,\"mux\":{\"enabled\":true,\"concurrency\":8}}"
+		data="{\"settings\":{\"vnext\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"users\":[$user_json]}]},\"streamSettings\":$STREAM_JSON,$(mux_json)}"
 	else
-		data="{\"settings\":{\"servers\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"password\":\"$(json_quote "$user")\",\"level\":1}]},\"streamSettings\":$STREAM_JSON,\"mux\":{\"enabled\":true,\"concurrency\":8}}"
+		data="{\"settings\":{\"servers\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"password\":\"$(json_quote "$user")\",\"level\":1}]},\"streamSettings\":$STREAM_JSON,$(mux_json)}"
 	fi
 	printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$proto" "$host" "$port" "$data"
 }
@@ -202,18 +242,20 @@ parse_vmess() {
 	alpn="$(field alpn)"
 	service_name=""
 	allow_insecure=false; fingerprint=chrome; public_key=""; short_id=""
+	vmess_mux "$work/vmess.json"
 	stream_json || return 1
 	name="$(safe_name "$(field ps)")"
 	[ -n "$aid" ] || aid=0
 	scy="$(field scy)"; [ -n "$scy" ] || scy=auto
-	data="{\"settings\":{\"vnext\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"users\":[{\"id\":\"$(json_quote "$id")\",\"alterId\":$aid,\"security\":\"$(json_quote "$scy")\"}]}]},\"streamSettings\":$STREAM_JSON,\"mux\":{\"enabled\":true,\"concurrency\":8}}"
+	data="{\"settings\":{\"vnext\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"users\":[{\"id\":\"$(json_quote "$id")\",\"alterId\":$aid,\"security\":\"$(json_quote "$scy")\"}]}]},\"streamSettings\":$STREAM_JSON,$(mux_json)}"
 	printf '%s\tvmess\t%s\t%s\t%s\n' "$name" "$host" "$port" "$data"
 }
 
 parse_ss() {
-	rest="${1#ss://}"; fragment=""
+	rest="${1#ss://}"; fragment=""; query=""
 	case "$rest" in *#*) fragment="${rest#*#}"; rest="${rest%%#*}" ;; esac
-	case "$rest" in *\?*) rest="${rest%%\?*}" ;; esac
+	case "$rest" in *\?*) query="${rest#*\?}"; rest="${rest%%\?*}" ;; esac
+	query_mux "$query"
 	case "$rest" in *@*) credentials="${rest%@*}"; authority="${rest#*@}" ;;
 		*) decoded="$(decode_base64 "$rest")" || return 1; credentials="${decoded%@*}"; authority="${decoded#*@}" ;;
 	esac
@@ -222,7 +264,7 @@ parse_ss() {
 	method="${credentials%%:*}"; password="${credentials#*:}"
 	[ -n "$method" ] && [ "$password" != "$credentials" ] || return 1
 	name="$(safe_name "$(url_decode "$fragment")")"
-	data="{\"settings\":{\"servers\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"password\":\"$(json_quote "$password")\",\"method\":\"$(json_quote "$method")\",\"level\":1}]},\"streamSettings\":{\"network\":\"tcp\",\"security\":\"none\"},\"mux\":{\"enabled\":true,\"concurrency\":8}}"
+	data="{\"settings\":{\"servers\":[{\"address\":\"$(json_quote "$host")\",\"port\":$port,\"password\":\"$(json_quote "$password")\",\"method\":\"$(json_quote "$method")\",\"level\":1}]},\"streamSettings\":{\"network\":\"tcp\",\"security\":\"none\"},$(mux_json)}"
 	printf '%s\tshadowsocks\t%s\t%s\t%s\n' "$name" "$host" "$port" "$data"
 }
 

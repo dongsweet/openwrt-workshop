@@ -745,7 +745,7 @@ function showNodeModal(view, onSaved, existing) {
 	const h2Path = E('input', { class: 'cbi-input-text', type: 'text', value: '/' });
 	const h2Host = E('input', { class: 'cbi-input-text', type: 'text' });
 	const grpcService = E('input', { class: 'cbi-input-text', type: 'text' });
-	const muxEnabled = checkbox({}, true);
+	const muxEnabled = checkbox({}, false);
 	const muxConcurrency = E('input', { class: 'cbi-input-text', type: 'number', min: '1', max: '128', value: '8' });
 	const conditional = [];
 	function add(label, control, help, predicate, full) {
@@ -833,13 +833,14 @@ function showNodeModal(view, onSaved, existing) {
 		h2Path.value = (stream.httpSettings && stream.httpSettings.path) || '/';
 		h2Host.value = ((stream.httpSettings && stream.httpSettings.host) || []).join(',');
 		grpcService.value = (stream.grpcSettings && stream.grpcSettings.serviceName) || '';
-		muxEnabled.checked = !data.mux || data.mux.enabled !== false;
+		muxEnabled.checked = !!data.mux && (data.mux.enabled === true || data.mux.enabled === 1);
 		muxConcurrency.value = (data.mux && data.mux.concurrency) || 8;
 	}
 	protocol.addEventListener('change', refresh);
 	security.addEventListener('change', refresh);
 	transport.addEventListener('change', refresh);
 	tcpGuise.addEventListener('change', refresh);
+	muxEnabled.addEventListener('change', refresh);
 	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
 		if (!name.value || !server.value || !port.value || !uuid.value) {
 			ui.addNotification(null, E('p', {}, _('Name, server, port and UUID/password are required.')), 'warning'); return;
@@ -880,7 +881,8 @@ function showNodeModal(view, onSaved, existing) {
 			add(_('gRPC service name'), grpcService, null, () => transport.value === 'grpc')
 		]),
 		E('div', { class: 'cbi-section' }, [ E('h3', {}, _('Multiplexing')),
-			add(_('Enable mux'), muxEnabled), add(_('Mux concurrency'), muxConcurrency)
+			add(_('Enable mux'), muxEnabled),
+			add(_('Mux concurrency'), muxConcurrency, null, () => muxEnabled.checked)
 		]),
 		E('div', { class: 'cbi-page-actions' }, [ cancel, save ])
 	]);

@@ -23,7 +23,9 @@ The first subscription implementation accepts plain URI lines or a Base64-
 encoded URI list for VLESS, VMess, Trojan, and Shadowsocks. Raw subscription
 payloads are cached under `/etc/v2rayB/subscriptions/`; parsed nodes are stored
 under their subscription source and are shown separately from manual nodes.
-JSON subscription formats and automatic periodic refresh remain future work.
+Mux defaults to disabled and is enabled only when a URI query or VMess payload
+explicitly requests it. JSON subscription formats and automatic periodic refresh
+remain future work.
 The optional legacy importer normalizes an explicitly selected file into the
 application database; it does not use raw legacy JSON at runtime.
 
