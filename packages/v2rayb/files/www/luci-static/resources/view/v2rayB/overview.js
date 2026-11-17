@@ -1285,7 +1285,7 @@ return view.extend({
 			], _('No status data available.'))
 		];
 
-		let profileTable, nodeTable, sourceTable, profileAddButton, nodeGroupTabs, nodeGroupFilter, nodeProbeButton, nodeProbeHint;
+		let profileTable, nodeTable, sourceTable, profileAddButton, nodeGroupTabs, selectedNodeGroup, nodeProbeButton, nodeProbeHint;
 		const profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ];
 		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Source'), _('Node latency'), _('Enabled'), _('Actions') ];
 		const sourceTableHeaders = [ _('Name'), _('Nodes'), _('Format'), _('Last update'), _('Status'), _('Actions') ];
@@ -1387,17 +1387,16 @@ return view.extend({
 		function refreshNodeGroupOptions() {
 			if (!nodeGroupTabs)
 				return;
-			const selected = nodeGroupFilter.value || 'all';
 			const groups = nodeGroups();
-			const activeGroup = groups.some(group => group[0] === selected) ? selected : 'all';
-			nodeGroupFilter.value = activeGroup;
+			if (!groups.some(group => group[0] === selectedNodeGroup))
+				selectedNodeGroup = 'all';
 			const buttons = groups.map(group => E('button', {
-				class: group[0] === activeGroup ? 'active' : '',
+				class: group[0] === selectedNodeGroup ? 'active' : '',
 				type: 'button',
 				role: 'tab',
-				'aria-selected': group[0] === activeGroup ? 'true' : 'false',
+				'aria-selected': group[0] === selectedNodeGroup ? 'true' : 'false',
 				click: () => {
-					nodeGroupFilter.value = group[0];
+					selectedNodeGroup = group[0];
 					refreshNodeGroupOptions();
 					refreshNodeTable();
 				}
@@ -1405,15 +1404,14 @@ return view.extend({
 			nodeGroupTabs.replaceChildren(...buttons);
 		}
 		function nodeMatchesGroup(row) {
-			const selected = nodeGroupFilter ? nodeGroupFilter.value : 'all';
-			if (selected === 'all')
+			if (!selectedNodeGroup || selectedNodeGroup === 'all')
 				return true;
-			if (selected === 'manual')
+			if (selectedNodeGroup === 'manual')
 				return row[6] === 'manual' || row[6] === 'imported' || !row[6];
-			const source = sources.find(item => item[0] === selected);
+			const source = sources.find(item => item[0] === selectedNodeGroup);
 			if (source)
 				return row[6] === 'subscription' && row[7] === source[2];
-			return row[6] === 'imported' && row[7] === selected;
+			return row[6] === 'imported' && row[7] === selectedNodeGroup;
 		}
 		function nodeLatencyCell(row) {
 			const probe = pageView.nodeProbeResults[row[0]] || {};
@@ -1438,9 +1436,9 @@ return view.extend({
 			}
 		}
 		async function startNodeProbe() {
-			if (!nodeGroupFilter || pageView.nodeProbeJob)
+			if (!selectedNodeGroup || pageView.nodeProbeJob)
 				return;
-			const started = await callNodeProbeStart(nodeGroupFilter.value).catch(error => ({ success: false, error }));
+			const started = await callNodeProbeStart(selectedNodeGroup).catch(error => ({ success: false, error }));
 			if (!started || !started.success) {
 				showRequestError(started);
 				return;
@@ -1754,7 +1752,7 @@ return view.extend({
 			});
 		};
 		refreshProfileAddButton();
-		nodeGroupFilter = E('select', { style: 'display:none' });
+		selectedNodeGroup = 'all';
 		nodeGroupTabs = E('div', { class: 'v2rayb-filter-tabs', role: 'tablist' });
 		refreshNodeGroupOptions();
 		nodeProbeButton = E('button', { class: 'cbi-button cbi-button-action', type: 'button', click: startNodeProbe }, _('Test current group'));

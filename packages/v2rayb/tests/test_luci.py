@@ -48,9 +48,11 @@ def main():
     assert "E('optgroup', { label }, items)" in view_source
     assert "option.selected = !!existingId && option.value === existingId" in view_source
     assert "class: 'v2rayb-filter-tabs'" in view_source
-    assert "nodeGroupFilter.value = group[0]" in view_source
-    assert "const activeGroup = groups.some(group => group[0] === selected) ? selected : 'all';" in view_source
-    assert "nodeGroupFilter.value = activeGroup;" in view_source
+    assert "selectedNodeGroup = group[0];" in view_source
+    assert "selectedNodeGroup = 'all';" in view_source
+    assert "if (!selectedNodeGroup || selectedNodeGroup === 'all')" in view_source
+    assert "callNodeProbeStart(selectedNodeGroup)" in view_source
+    assert "nodeGroupFilter" not in view_source
     assert "field(_('Node group'), nodeGroupFilter)" not in view_source
     assert "const emptyText = nodes.length > 0 ? _('No matching nodes in this group.') : _('No nodes configured.');" in view_source
     assert "'No matching nodes in this group.': '此分组没有匹配节点。'" in view_source
