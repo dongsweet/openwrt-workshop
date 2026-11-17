@@ -461,6 +461,7 @@ EOF
 	[ "$type" = subscription ] || die "source is not a subscription"
 	[ -n "$url" ] || die "subscription URL is empty"
 	draft_pending && die "apply or revert pending changes before updating a subscription"
+	active_before="$(db_sql "SELECT n.server || char(9) || n.data_json FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id WHERE p.id=(SELECT value FROM settings WHERE key='active_profile') AND n.source_id=$source_id ORDER BY pn.priority, n.id LIMIT 1;")"
 	[ -x "$SUBSCRIPTION_PARSER" ] || die "subscription parser is not installed"
 	mkdir -p "$SUBSCRIPTION_DIR" || die "cannot create subscription cache directory"
 	chmod 700 "$SUBSCRIPTION_DIR" 2>/dev/null || :
@@ -495,12 +496,18 @@ EOF
 		printf 'DELETE FROM nodes WHERE source_id=%s AND name NOT IN (SELECT name FROM import_names) AND NOT EXISTS (SELECT 1 FROM profile_nodes WHERE profile_nodes.node_id=nodes.id);\n' "$source_id"
 		printf 'UPDATE sources SET last_error=NULL,last_updated=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=%s; COMMIT;\n' "$source_id"
 	} > "$sql_tmp"
-	if ! "$SQLITE3" -batch -bail "$DB" < "$sql_tmp"; then
+	if ! "$SQLITE3" -cmd ".timeout $SQLITE_BUSY_TIMEOUT_MS" -batch -bail "$DB" < "$sql_tmp"; then
 		set_source_error "$source_id" "subscription nodes could not be committed"
 		die "subscription nodes could not be committed"
 	fi
 	mv "$raw_tmp" "$SUBSCRIPTION_DIR/$source_id.raw" || die "could not replace subscription cache"
+	active_runtime_changed=0
+	active_after="$(db_sql "SELECT n.server || char(9) || n.data_json FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id WHERE p.id=(SELECT value FROM settings WHERE key='active_profile') AND n.source_id=$source_id ORDER BY pn.priority, n.id LIMIT 1;")"
+	if [ -n "$active_before" ] && [ "$active_before" != "$active_after" ]; then
+		active_runtime_changed=1
+	fi
 	printf 'source_id=%s\nnodes=%s\ncache=%s\n' "$source_id" "$node_count" "$SUBSCRIPTION_DIR/$source_id.raw"
+	printf 'active_runtime_changed=%s\n' "$active_runtime_changed"
 }
 
 cmd_subscription_update_start() {
@@ -522,6 +529,16 @@ cmd_subscription_update_start() {
 	(
 		job_rc=0
 		"$0" update-subscription "$source_id" > "$job_dir/output" 2> "$job_dir/error" || job_rc=$?
+		if [ "$job_rc" -eq 0 ] && grep -q '^active_runtime_changed=1$' "$job_dir/output"; then
+			service_enabled="$("$0" get-setting service_enabled 2>/dev/null || true)"
+			runtime_state="$("$0" get-setting proxy_mode 2>/dev/null || true)"
+			if [ "$service_enabled" = 1 ] && [ "$runtime_state" = proxy ]; then
+				if ! /etc/init.d/v2rayB restart >> "$job_dir/output" 2>> "$job_dir/error"; then
+					printf '%s\n' 'active subscription node changed, but v2rayB restart failed' >> "$job_dir/error"
+					job_rc=1
+				fi
+			fi
+		fi
 		printf '%s\n' "$job_rc" > "$job_dir/rc.tmp"
 		mv "$job_dir/rc.tmp" "$job_dir/rc"
 		if [ "$job_rc" -eq 0 ]; then
@@ -1023,6 +1040,7 @@ EOF
 	printf 'runtime_state=%s\n' "$(get_state)"
 	printf 'dnsmasq_default=%s\n' "$dnsmasq_default"
 	printf 'direct_dns=%s\n' "$profile_direct_dns"
+	printf 'bootstrap_domain=%s\n' "$server"
 	printf 'use_v2ray_dns=%s\n' "$use_v2ray_dns"
 	printf 'mosdns_enabled=%s\n' "$mosdns_enabled"
 	printf 'mosdns_domains=%s\n' "$mosdns_domains"

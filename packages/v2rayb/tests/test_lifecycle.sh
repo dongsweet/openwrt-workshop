@@ -71,6 +71,8 @@ setup_case() {
 	DNSMASQ_DIR="$RUNTIME/dnsmasq.d"
 	MOSDNS_FORWARD_FILE="$DNSMASQ_DIR/90-v2rayB-mosdns.conf"
 	MOSDNS_FORWARD_EXPECTED="$RUNTIME/dnsmasq-mosdns-expected"
+	BOOTSTRAP_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-bootstrap.conf"
+	BOOTSTRAP_DNS_EXPECTED="$RUNTIME/dnsmasq-bootstrap-expected"
 	CTL="$TEST_DIR/ctl"
 	MOCK_SERVER=""
 	MOCK_NORESOLV=""
@@ -78,8 +80,10 @@ setup_case() {
 	TEST_DNSMASQ_DEFAULT='127.0.0.1#5353'
 	TEST_MOSDNS_ENABLED=1
 	TEST_MOSDNS_DOMAINS='xn--ngstr-lra8j.com'
+	TEST_BOOTSTRAP_DOMAIN='bootstrap.example.com'
 	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
-		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS
+		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED \
+		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
@@ -96,7 +100,7 @@ case "$1" in
 	dns-settings)
 		printf '%s\n' 'runtime_state=starting' \
 			"dnsmasq_default=$TEST_DNSMASQ_DEFAULT" \
-			'direct_dns=223.5.5.5:53' 'use_v2ray_dns=1' \
+			'direct_dns=223.5.5.5:53' "bootstrap_domain=$TEST_BOOTSTRAP_DOMAIN" 'use_v2ray_dns=1' \
 			"mosdns_enabled=$TEST_MOSDNS_ENABLED" \
 			"mosdns_domains=$TEST_MOSDNS_DOMAINS" \
 			'mosdns_listen=127.0.0.1#5354' 'v2ray_dns_listen=127.0.0.1#5353'
@@ -146,6 +150,9 @@ spawn_managed watchdog
 printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 	'server=/xn--ngstr-lra8j.com/127.0.0.1#5354' > "$MOSDNS_FORWARD_EXPECTED"
 cp "$MOSDNS_FORWARD_EXPECTED" "$MOSDNS_FORWARD_FILE"
+	printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
+		'server=/bootstrap.example.com/223.5.5.5#53' > "$BOOTSTRAP_DNS_EXPECTED"
+	cp "$BOOTSTRAP_DNS_EXPECTED" "$BOOTSTRAP_DNS_FILE"
 printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
 stop_service
 [ -e "$RUNTIME/legacy-cleaned" ]
@@ -153,6 +160,8 @@ stop_service
 [ ! -e "$PID_DIR/mosdns.pid" ]
 [ ! -e "$PID_DIR/watchdog.pid" ]
 [ ! -e "$DNS_BACKUP" ]
+[ ! -e "$BOOTSTRAP_DNS_FILE" ]
+[ ! -e "$BOOTSTRAP_DNS_EXPECTED" ]
 [ "$(sed -n '1p' "$RUNTIME/state")" = normal ]
 
 setup_case dns-routing
@@ -166,11 +175,14 @@ MOCK_SERVER="$(cat "$DNS_BACKUP/server")"
 MOCK_NORESOLV=1
 set_proxy_dns
 cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
+cmp -s "$BOOTSTRAP_DNS_FILE" "$BOOTSTRAP_DNS_EXPECTED"
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5
 127.0.0.1#5353' ]
 [ "$MOCK_NORESOLV" = 1 ]
 restore_dnsmasq
 [ ! -e "$MOSDNS_FORWARD_FILE" ]
+[ ! -e "$BOOTSTRAP_DNS_FILE" ]
+[ ! -e "$BOOTSTRAP_DNS_EXPECTED" ]
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
 [ -z "$MOCK_NORESOLV" ]
 
