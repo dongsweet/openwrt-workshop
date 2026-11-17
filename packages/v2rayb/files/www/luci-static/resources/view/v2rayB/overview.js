@@ -72,6 +72,7 @@ const _zh = {
 	'Subscription deleted.': '订阅已删除。',
 	'No subscriptions configured.': '尚未配置订阅。',
 	'No nodes configured.': '尚未配置节点。',
+	'No matching nodes in this group.': '此分组没有匹配节点。',
 	'No profiles configured.': '尚未配置配置。',
 	'Ready': '就绪',
 	'Manual': '手动',
@@ -457,6 +458,12 @@ function css() {
 		.v2rayb-nav button.active { border-color: #286b78; background: #286b78; color: #fff; box-shadow: 0 7px 18px rgba(40,107,120,.2); }
 		.v2rayb-nav-title { display: block; font-weight: 700; }
 		.v2rayb-nav-caption { display: block; margin-top: .2rem; font-size: .78rem; opacity: .75; }
+		.v2rayb-filter-tabs { display: flex; flex-wrap: wrap; gap: .4rem; margin: .75rem 0 .25rem; }
+		.v2rayb-filter-tabs button { min-width: 0; padding: .45rem .75rem; border: 1px solid #d5dce5;
+			border-radius: 9px; background: #fff; color: #34465c; cursor: pointer; font-weight: 650; }
+		.v2rayb-filter-tabs button:hover { border-color: #2d7d86; background: #f3f9fa; }
+		.v2rayb-filter-tabs button.active { border-color: #286b78; background: #286b78; color: #fff; }
+		.v2rayb-group-label { display: block; padding: .3rem .65rem; color: #687587; font-size: .82rem; font-weight: 700; }
 		.v2rayb-panel { display: block; }
 		.v2rayb-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
 		.v2rayb-card { padding: 1rem 1.1rem; border: 1px solid #d8dfe7; border-radius: 14px;
@@ -924,16 +931,30 @@ function showSourceModal(existing, onUpdate) {
 		window.setTimeout(() => name.focus(), 0);
 }
 
+function groupedNodeOptions(nodes, existingId) {
+	const groups = new Map();
+	for (const row of nodes.filter(item => isEnabled(item[5]))) {
+		const kind = row[6] === 'subscription' ? _('Subscription: ') + (row[7] || _('Unknown'))
+			: row[6] === 'imported' ? _('Imported: ') + (row[7] || _('Unknown'))
+			: _('Manual');
+		if (!groups.has(kind))
+			groups.set(kind, []);
+		groups.get(kind).push(row);
+	}
+	const options = [ E('option', { value: '' }, _('Select a primary node')) ];
+	for (const [label, rows] of groups) {
+		const items = rows.map(row => E('option', { value: row[0] },
+			`${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`));
+		for (const option of items)
+			option.selected = !!existingId && option.value === existingId;
+		options.push(E('optgroup', { label }, items));
+	}
+	return options;
+}
+
 function showProfileModal(onSaved, nodes, defaults, existing) {
 	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true, value: existing ? existing.name : '' });
-	const nodeOptions = [
-		E('option', { value: '' }, _('Select a primary node')),
-		...nodes.filter(row => isEnabled(row[5])).map(row => E('option', {
-			value: row[0]
-		}, `${row[1]} (${row[2].toUpperCase()} ${row[3]}:${row[4]})`))
-	];
-	for (const option of nodeOptions)
-		option.selected = !!existing && option.value === existing.node_id;
+	const nodeOptions = groupedNodeOptions(nodes, existing ? existing.node_id : '');
 	const nodeSelect = E('select', { class: 'cbi-input-select' }, nodeOptions);
 	const profileDns = E('input', {
 		class: 'cbi-input-text', type: 'text',
@@ -1264,7 +1285,7 @@ return view.extend({
 			], _('No status data available.'))
 		];
 
-		let profileTable, nodeTable, sourceTable, profileAddButton, nodeGroupFilter, nodeProbeButton, nodeProbeHint;
+		let profileTable, nodeTable, sourceTable, profileAddButton, nodeGroupTabs, nodeGroupFilter, nodeProbeButton, nodeProbeHint;
 		const profileTableHeaders = [ _('ID'), _('Name'), _('Primary node'), _('Policy'), _('Enabled'), _('Actions') ];
 		const nodeTableHeaders = [ _('ID'), _('Name'), _('Protocol'), _('Server'), _('Port'), _('Source'), _('Node latency'), _('Enabled'), _('Actions') ];
 		const sourceTableHeaders = [ _('Name'), _('Nodes'), _('Format'), _('Last update'), _('Status'), _('Actions') ];
@@ -1357,27 +1378,42 @@ return view.extend({
 			];
 			});
 		}
-		function nodeGroupOptions() {
-			const options = [ [ 'all', _('All nodes') ], [ 'manual', _('Manual') ] ];
+		function nodeGroups() {
+			const groups = [ [ 'all', _('All nodes') ], [ 'manual', _('Manual') ] ];
 			for (const row of sources.filter(item => item[1] === 'subscription'))
-				options.push([ row[0], row[2] ]);
-			return options.map(item => E('option', { value: item[0] }, item[1]));
+				groups.push([ row[0], row[2] ]);
+			return groups;
 		}
 		function refreshNodeGroupOptions() {
-			if (!nodeGroupFilter)
+			if (!nodeGroupTabs)
 				return;
 			const selected = nodeGroupFilter.value || 'all';
-			nodeGroupFilter.replaceChildren(...nodeGroupOptions());
-			nodeGroupFilter.value = Array.from(nodeGroupFilter.options).some(option => option.value === selected) ? selected : 'all';
+			const groups = nodeGroups();
+			const activeGroup = groups.some(group => group[0] === selected) ? selected : 'all';
+			nodeGroupFilter.value = activeGroup;
+			const buttons = groups.map(group => E('button', {
+				class: group[0] === activeGroup ? 'active' : '',
+				type: 'button',
+				role: 'tab',
+				'aria-selected': group[0] === activeGroup ? 'true' : 'false',
+				click: () => {
+					nodeGroupFilter.value = group[0];
+					refreshNodeGroupOptions();
+					refreshNodeTable();
+				}
+			}, group[1]));
+			nodeGroupTabs.replaceChildren(...buttons);
 		}
 		function nodeMatchesGroup(row) {
 			const selected = nodeGroupFilter ? nodeGroupFilter.value : 'all';
 			if (selected === 'all')
 				return true;
 			if (selected === 'manual')
-				return row[6] === 'manual' || !row[6];
+				return row[6] === 'manual' || row[6] === 'imported' || !row[6];
 			const source = sources.find(item => item[0] === selected);
-			return row[6] === 'subscription' && source && row[7] === source[2];
+			if (source)
+				return row[6] === 'subscription' && row[7] === source[2];
+			return row[6] === 'imported' && row[7] === selected;
 		}
 		function nodeLatencyCell(row) {
 			const probe = pageView.nodeProbeResults[row[0]] || {};
@@ -1581,7 +1617,8 @@ return view.extend({
 			sourceTable = next;
 		}
 		function refreshNodeTable() {
-			const next = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'), true);
+			const emptyText = nodes.length > 0 ? _('No matching nodes in this group.') : _('No nodes configured.');
+			const next = table(nodeTableHeaders, nodeTableRows(), emptyText, true);
 			nodeTable.replaceWith(next);
 			nodeTable = next;
 			updateLocalChangesNotice();
@@ -1717,8 +1754,9 @@ return view.extend({
 			});
 		};
 		refreshProfileAddButton();
-		nodeGroupFilter = E('select', { class: 'cbi-input-select' }, nodeGroupOptions());
-		nodeGroupFilter.addEventListener('change', () => refreshNodeTable());
+		nodeGroupFilter = E('select', { style: 'display:none' });
+		nodeGroupTabs = E('div', { class: 'v2rayb-filter-tabs', role: 'tablist' });
+		refreshNodeGroupOptions();
 		nodeProbeButton = E('button', { class: 'cbi-button cbi-button-action', type: 'button', click: startNodeProbe }, _('Test current group'));
 		nodeProbeHint = E('span', { class: 'v2rayb-help' }, _('Tests TCP and TLS connection from the router; it does not change the active profile.'));
 		const nodesPane = [
@@ -1731,8 +1769,9 @@ return view.extend({
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Proxy Nodes')),
+				nodeGroupTabs,
 				E('div', { class: 'v2rayb-toolbar' }, [
-					field(_('Node group'), nodeGroupFilter), nodeProbeButton, nodeProbeHint
+					nodeProbeButton, nodeProbeHint
 				]),
 				nodeTable,
 				E('div', { class: 'v2rayb-create' }, [

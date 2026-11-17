@@ -44,7 +44,16 @@ def main():
     assert "checked: configuredServiceEnabled" not in view_source
     assert "checked: isEnabled(enabled)" not in view_source
     assert "selected: existing && existing.node_id" not in view_source
-    assert "option.selected = !!existing && option.value === existing.node_id" in view_source
+    assert "function groupedNodeOptions(nodes, existingId)" in view_source
+    assert "E('optgroup', { label }, items)" in view_source
+    assert "option.selected = !!existingId && option.value === existingId" in view_source
+    assert "class: 'v2rayb-filter-tabs'" in view_source
+    assert "nodeGroupFilter.value = group[0]" in view_source
+    assert "const activeGroup = groups.some(group => group[0] === selected) ? selected : 'all';" in view_source
+    assert "nodeGroupFilter.value = activeGroup;" in view_source
+    assert "field(_('Node group'), nodeGroupFilter)" not in view_source
+    assert "const emptyText = nodes.length > 0 ? _('No matching nodes in this group.') : _('No nodes configured.');" in view_source
+    assert "'No matching nodes in this group.': '此分组没有匹配节点。'" in view_source
     assert "set_service_enabled" not in view_source
     assert "callSetSetting('service_enabled'" in view_source
     assert "pageView.serviceEnabledDirty" in view_source
