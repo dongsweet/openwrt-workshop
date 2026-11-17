@@ -17,6 +17,7 @@ export PATH="$BIN:$PATH"
 cat >"$BIN/init" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$1" >>"$V2RAYB_TEST_DIR/init.calls"
+[ "${V2RAYB_LOCK_HELD:-0}" = 1 ] || exit 70
 if [ -f "$V2RAYB_TEST_DIR/init.fail.$1" ]; then
 	rm -f "$V2RAYB_TEST_DIR/init.fail.$1"
 	exit 1

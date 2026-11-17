@@ -209,6 +209,8 @@ acquire_ctl_lock() {
 		if mkdir "$CTL_LOCK_DIR" 2>/dev/null; then
 			printf "%s\n" "$$" > "$CTL_LOCK_DIR/pid"
 			CTL_LOCK_ACQUIRED=1
+			V2RAYB_LOCK_HELD=1
+			export V2RAYB_LOCK_HELD
 			trap 'rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
 			return 0
 		fi
