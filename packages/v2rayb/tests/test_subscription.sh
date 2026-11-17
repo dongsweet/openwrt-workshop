@@ -14,6 +14,9 @@ export V2RAYB_STATE_DIR="$TEST_DIR/state"
 export V2RAYB_RULE_DIR="$TEST_DIR/rules"
 export V2RAYB_SUBSCRIPTION_DIR="$TEST_DIR/subscriptions"
 export V2RAYB_SUBSCRIPTION_PARSER="$PARSER"
+export V2RAYB_SUBSCRIPTION_DOWNLOADER="$ROOT/files/usr/libexec/v2rayB/v2rayB-subscription-download"
+export V2RAYB_SUBSCRIPTION_DOWNLOAD_USER="$(id -un)"
+export V2RAYB_SUBSCRIPTION_DOWNLOAD_GROUP="$(id -gn)"
 export V2RAYB_SQLITE3="$ROOT/tests/sqlite3-wrapper.py"
 
 raw="$TEST_DIR/raw"
@@ -85,7 +88,20 @@ while [ "$#" -gt 0 ]; do
 done
 printf '%s\n' 'vless://00000000-0000-0000-0000-000000000000@example.com:443?security=tls#HK-Test' > "$output"
 EOF
-chmod +x "$TEST_DIR/bin/curl"
+cat > "$TEST_DIR/bin/start-stop-daemon" <<'EOF'
+#!/bin/sh
+helper=''
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		-x) helper="$2"; shift 2 ;;
+		--) shift; break ;;
+		*) shift ;;
+	esac
+done
+[ -n "$helper" ]
+exec "$helper" "$@"
+EOF
+chmod +x "$TEST_DIR/bin/curl" "$TEST_DIR/bin/start-stop-daemon"
 export CURL_ARGS_FILE="$TEST_DIR/curl.args"
 export PATH="$TEST_DIR/bin:$PATH"
 

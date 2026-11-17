@@ -200,10 +200,18 @@ def main():
     assert "const ipv4Only = checkbox" in view_source
     assert "IPv4 only download" in view_source
     assert "Only affects subscription downloads; proxy traffic is unchanged." in view_source
+    assert "bypassing the router traffic proxy." in view_source
     assert "ipv4_only = string_arg(request, 'ipv4_only') || '1'" in rpc_source
     assert "ctl([ 'add-source', 'subscription', name, url, format, ipv4_only ])" in rpc_source
     assert "COALESCE(s.ipv4_only, 1)" in ctl_source
-    assert "[ \"$ipv4_only\" = 1 ] && set -- --ipv4 \"$@\"" in ctl_source
+    assert "SUBSCRIPTION_DOWNLOADER=" in ctl_source
+    assert "start-stop-daemon -S -b -c \"$SUBSCRIPTION_DOWNLOAD_USER:$SUBSCRIPTION_DOWNLOAD_GROUP\"" in ctl_source
+    assert "\"$raw_tmp\" \"$error_tmp\" \"$rc_tmp\" \"$ipv4_only\" \"$url\"" in ctl_source
+    downloader_source = (
+        FILES / "usr/libexec/v2rayB/v2rayB-subscription-download"
+    ).read_text(encoding="utf-8")
+    assert "umask 077" in downloader_source
+    assert "[ \"$ipv4_only\" = 1 ] && set -- --ipv4 \"$@\"" in downloader_source
     assert "method: 'get_v2ray_config'" in view_source
     assert "method: 'network_probe_start'" in view_source
     assert "method: 'network_probe_status'" in view_source

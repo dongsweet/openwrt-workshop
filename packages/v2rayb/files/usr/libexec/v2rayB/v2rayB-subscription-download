@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -eu
+
+output="$1"
+error_file="$2"
+rc_file="$3"
+ipv4_only="$4"
+url="$5"
+
+case "$ipv4_only" in
+	0|1) ;;
+	*) exit 64 ;;
+esac
+
+umask 077
+
+set -- --fail --location --silent --show-error \
+	--connect-timeout 10 --max-time 25 --max-filesize 2097152 \
+	--proto '=http,https' --output "$output" "$url"
+[ "$ipv4_only" = 1 ] && set -- --ipv4 "$@"
+
+curl_rc=0
+curl "$@" 2>"$error_file" || curl_rc=$?
+printf '%s\n' "$curl_rc" > "$rc_file.tmp"
+mv "$rc_file.tmp" "$rc_file"
+exit "$curl_rc"

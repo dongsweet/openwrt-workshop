@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2rayb
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=114
+PKG_RELEASE:=115
 PKG_MAINTAINER:=local
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -38,6 +38,7 @@ define Package/v2rayb/install
 	$(INSTALL_DIR) $(1)/usr/libexec/v2rayB
 	$(INSTALL_BIN) ./files/usr/libexec/v2rayB/v2rayBctl $(1)/usr/libexec/v2rayB/
 	$(INSTALL_BIN) ./files/usr/libexec/v2rayB/v2rayB-subscription $(1)/usr/libexec/v2rayB/
+	$(INSTALL_BIN) ./files/usr/libexec/v2rayB/v2rayB-subscription-download $(1)/usr/libexec/v2rayB/
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) ./files/usr/bin/v2rayB-watchdog $(1)/usr/bin/
 	$(INSTALL_DIR) $(1)/etc/init.d

@@ -13,6 +13,9 @@ NFT_MARKER="$STATE_DIR/nft-managed"
 RULE_DIR="${V2RAYB_RULE_DIR:-/etc/v2rayB/rules}"
 SUBSCRIPTION_DIR="${V2RAYB_SUBSCRIPTION_DIR:-/etc/v2rayB/subscriptions}"
 SUBSCRIPTION_PARSER="${V2RAYB_SUBSCRIPTION_PARSER:-/usr/libexec/v2rayB/v2rayB-subscription}"
+SUBSCRIPTION_DOWNLOADER="${V2RAYB_SUBSCRIPTION_DOWNLOADER:-/usr/libexec/v2rayB/v2rayB-subscription-download}"
+SUBSCRIPTION_DOWNLOAD_USER="${V2RAYB_SUBSCRIPTION_DOWNLOAD_USER:-nobody}"
+SUBSCRIPTION_DOWNLOAD_GROUP="${V2RAYB_SUBSCRIPTION_DOWNLOAD_GROUP:-nogroup}"
 SQLITE3="${V2RAYB_SQLITE3:-sqlite3}"
 V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 MOSDNS_BIN="${V2RAYB_MOSDNS_BIN:-/usr/bin/mosdns}"
@@ -487,14 +490,33 @@ EOF
 	[ -x "$SUBSCRIPTION_PARSER" ] || die "subscription parser is not installed"
 	mkdir -p "$SUBSCRIPTION_DIR" || die "cannot create subscription cache directory"
 	chmod 700 "$SUBSCRIPTION_DIR" 2>/dev/null || :
-	raw_tmp="$SUBSCRIPTION_DIR/.${source_id}.raw.$$"
+	fetch_dir="${TMPDIR:-/tmp}/v2rayB-subscription-fetch.$$"
+	raw_tmp="$fetch_dir/raw"
+	error_tmp="$fetch_dir/error"
+	rc_tmp="$fetch_dir/rc"
+	pid_tmp="$fetch_dir/pid"
 	nodes_tmp="$SUBSCRIPTION_DIR/.${source_id}.nodes.$$"
 	sql_tmp="$SUBSCRIPTION_DIR/.${source_id}.sql.$$"
-	error_tmp="$SUBSCRIPTION_DIR/.${source_id}.error.$$"
-	trap 'rm -f "$raw_tmp" "$nodes_tmp" "$sql_tmp" "$error_tmp"; rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
-	set -- --fail --location --silent --show-error --connect-timeout 10 --max-time 25 --max-filesize 2097152 --proto '=http,https' --output "$raw_tmp" "$url"
-	[ "$ipv4_only" = 1 ] && set -- --ipv4 "$@"
-	if ! curl "$@" 2>"$error_tmp"; then
+	trap 'rm -rf "$fetch_dir"; rm -f "$nodes_tmp" "$sql_tmp"; rm -rf "$CTL_LOCK_DIR"' EXIT HUP INT TERM
+	[ -x "$SUBSCRIPTION_DOWNLOADER" ] || die "subscription downloader is not installed"
+	command -v start-stop-daemon >/dev/null 2>&1 || die "start-stop-daemon is required"
+	id -u "$SUBSCRIPTION_DOWNLOAD_USER" >/dev/null 2>&1 || die "subscription download user does not exist"
+	mkdir -m 700 "$fetch_dir" || die "cannot create subscription fetch directory"
+	chown "$SUBSCRIPTION_DOWNLOAD_USER:$SUBSCRIPTION_DOWNLOAD_GROUP" "$fetch_dir" || die "cannot prepare subscription fetch directory"
+	start-stop-daemon -S -b -c "$SUBSCRIPTION_DOWNLOAD_USER:$SUBSCRIPTION_DOWNLOAD_GROUP" \
+		-x "$SUBSCRIPTION_DOWNLOADER" -m -p "$pid_tmp" -- \
+		"$raw_tmp" "$error_tmp" "$rc_tmp" "$ipv4_only" "$url" || die "cannot start subscription download"
+	wait_count=0
+	while kill -0 "$(sed -n '1p' "$pid_tmp" 2>/dev/null)" 2>/dev/null; do
+		[ "$wait_count" -lt 30 ] || {
+			kill "$(sed -n '1p' "$pid_tmp" 2>/dev/null)" 2>/dev/null || :
+			die "subscription download did not finish"
+		}
+		wait_count=$((wait_count + 1))
+		sleep 1
+	done
+	download_rc="$(sed -n '1p' "$rc_tmp" 2>/dev/null || printf 1)"
+	if [ "$download_rc" != 0 ] || [ ! -s "$raw_tmp" ]; then
 		error_text="subscription download failed; check the URL and router connectivity"
 		set_source_error "$source_id" "$error_text"
 		die "$error_text"

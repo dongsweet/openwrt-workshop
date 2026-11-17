@@ -135,6 +135,7 @@ const _zh = {
 	'IPv4 only': '仅 IPv4',
 	'IPv4 only download': '仅使用 IPv4 下载',
 	'Only affects subscription downloads; proxy traffic is unchanged.': '仅影响订阅下载，不影响代理流量。',
+	'The router downloads this URL directly through WAN, bypassing the router traffic proxy.': '路由器通过 WAN 直连下载此 URL，不经过路由器流量代理。',
 	'Direct DNS upstream': '直连 DNS 上游',
 	'Direct match: Direct DNS + direct sets.': '直连匹配：直连 DNS + 直连地址集合。',
 	'Direct regexp': '直连正则表达式',
@@ -936,7 +937,8 @@ function showSourceModal(existing, onUpdate) {
 		E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('Subscription source')),
 			field(_('Name'), name),
-			field(_('URL'), url, _('The router downloads this URL directly.')),
+			field(_('URL'), url,
+				_('The router downloads this URL directly through WAN, bypassing the router traffic proxy.')),
 			field(_('Format'), format, _('Auto detects plain URI lines or Base64-encoded URI lines.')),
 			field(_('IPv4 only download'), ipv4Only,
 				_('Only affects subscription downloads; proxy traffic is unchanged.'))
