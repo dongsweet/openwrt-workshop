@@ -17,6 +17,7 @@ SQLITE3="${V2RAYB_SQLITE3:-sqlite3}"
 V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 MOSDNS_BIN="${V2RAYB_MOSDNS_BIN:-/usr/bin/mosdns}"
 DNSMASQ_CONFIG_DIR="${V2RAYB_DNSMASQ_DIR:-/etc/dnsmasq.d}"
+LOGREAD="${V2RAYB_LOGREAD:-logread}"
 MOSDNS_ROUTE_SUFFIX="xn--ngstr-lra8j.com"
 V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 APPLY_BACKUP="$STATE_DIR/db-before-apply"
@@ -1955,6 +1956,60 @@ EOF
 	fi
 }
 
+cmd_logs() {
+	component="$1"
+	lines=100
+	[ "$#" -lt 2 ] || lines="$2"
+	case "$component" in
+		all|v2rayb|watchdog|v2ray|mosdns|dnsmasq|system) ;;
+		*) die "unsupported log component" ;;
+	esac
+	case "$lines" in
+		50|100|200) ;;
+		*) die "log line count must be 50, 100 or 200" ;;
+	esac
+	print_file_tail() {
+		label="$1"
+		file="$2"
+		printf '%s\n' "===== $label ====="
+		if [ -r "$file" ]; then
+			tail -n "$lines" "$file" | awk 'length($0) > 2048 { print substr($0, 1, 2048) " ... [line truncated]"; next } { print }'
+		else
+			printf '%s\n' '[log file not available]'
+		fi
+	}
+	print_syslog() {
+		filter="$1"
+		printf '%s\n' "===== $2 ====="
+		if ! command -v "$LOGREAD" >/dev/null 2>&1; then
+			printf '%s\n' '[logread not available]'
+			return
+		fi
+		if [ "$filter" = all ]; then
+			"$LOGREAD" 2>/dev/null
+		else
+			"$LOGREAD" 2>/dev/null | grep -E "$filter" || :
+		fi | tail -n "$lines" | awk 'length($0) > 2048 { print substr($0, 1, 2048) " ... [line truncated]"; next } { print }'
+	}
+	case "$component" in
+		v2rayb) print_syslog 'v2rayB:' 'v2rayB' ;;
+		watchdog) print_syslog 'v2rayB-watchdog:' 'Watchdog' ;;
+		v2ray)
+			print_file_tail 'V2Ray standard log' "$STATE_DIR/v2ray.log"
+			print_file_tail 'V2Ray error log' "$STATE_DIR/v2ray-error.log"
+			;;
+		mosdns) print_file_tail 'MosDNS' "$STATE_DIR/mosdns.log" ;;
+		dnsmasq) print_syslog 'dnsmasq\[' 'dnsmasq' ;;
+		system) print_syslog all 'System log' ;;
+		all)
+			print_syslog 'v2rayB:|v2rayB-watchdog:|dnsmasq\[' 'v2rayB, watchdog and dnsmasq'
+			print_file_tail 'V2Ray standard log' "$STATE_DIR/v2ray.log"
+			print_file_tail 'V2Ray error log' "$STATE_DIR/v2ray-error.log"
+			print_file_tail 'MosDNS' "$STATE_DIR/mosdns.log"
+			;;
+	esac
+}
+
 usage() {
 	cat >&2 <<'EOF'
 Usage:
@@ -1994,6 +2049,7 @@ Usage:
   v2rayBctl dns-settings
   v2rayBctl render-v2ray|render-mosdns|render-nft|render-all
   v2rayBctl get-v2ray-config
+  v2rayBctl logs COMPONENT [50|100|200]
   v2rayBctl apply-nft|delete-nft|test-v2ray|test-dns|test-dnsmasq
   v2rayBctl network-probe URL
   v2rayBctl network-probe-start URL
@@ -2052,6 +2108,7 @@ case "$command" in
 	apply-nft) [ "$#" -eq 0 ] || usage; cmd_apply_nft ;;
 	delete-nft) [ "$#" -eq 0 ] || usage; cmd_delete_nft ;;
 	get-v2ray-config) [ "$#" -eq 0 ] || usage; cmd_get_v2ray_config ;;
+	logs) { [ "$#" -eq 1 ] || [ "$#" -eq 2 ]; } || usage; cmd_logs "$@" ;;
 	test-v2ray) [ "$#" -eq 0 ] || usage; cmd_test_v2ray ;;
 	test-dns) [ "$#" -eq 0 ] || usage; ensure_db; cmd_test_dns ;;
 	test-dnsmasq) [ "$#" -eq 0 ] || usage; cmd_test_dnsmasq ;;

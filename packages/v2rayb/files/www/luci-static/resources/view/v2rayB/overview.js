@@ -35,6 +35,18 @@ const _zh = {
 	'Nodes and profiles': '节点与配置',
 	'DNS and proxy': 'DNS 与代理',
 	'Diagnostics': '诊断',
+	'Logs': '日志',
+	'All components': '全部组件',
+	'v2rayB': 'v2rayB',
+	'V2Ray': 'V2Ray',
+	'MosDNS': 'MosDNS',
+	'dnsmasq': 'dnsmasq',
+	'System log': '系统日志',
+	'Log component': '日志组件',
+	'Lines': '行数',
+	'Refresh logs': '刷新日志',
+	'Loading logs...': '正在读取日志……',
+	'No log entries.': '没有可显示的日志。',
 	'Add': '添加',
 	'Edit': '编辑',
 	'Delete': '删除',
@@ -284,6 +296,9 @@ const callDnsState = rpc.declare({
 });
 const callGetV2rayConfig = rpc.declare({
 	object: 'luci.v2rayb', method: 'get_v2ray_config', expect: { '': {} }
+});
+const callLogs = rpc.declare({
+	object: 'luci.v2rayb', method: 'logs', params: [ 'component', 'lines' ], expect: { '': {} }, reject: true
 });
 const callNetworkProbeStart = rpc.declare({
 	object: 'luci.v2rayb', method: 'network_probe_start', params: [ 'url' ], expect: { '': {} }, reject: true
@@ -1807,6 +1822,56 @@ return view.extend({
 				E('pre', { class: 'v2rayb-code' }, outputOf(data[0]) || _('No runtime status available.'))
 			])
 		];
+		const logComponent = E('select', { class: 'cbi-input-select' }, [
+			[ 'all', _('All components') ],
+			[ 'v2rayb', _('v2rayB') ],
+			[ 'watchdog', _('Watchdog') ],
+			[ 'v2ray', _('V2Ray') ],
+			[ 'mosdns', _('MosDNS') ],
+			[ 'dnsmasq', _('dnsmasq') ],
+			[ 'system', _('System log') ]
+		].map(item => E('option', { value: item[0] }, item[1])));
+		const logLines = E('select', { class: 'cbi-input-select' }, [ 50, 100, 200 ].map(value =>
+			E('option', { value: String(value) }, String(value))));
+		logLines.value = '100';
+		const logsOutput = E('pre', { class: 'v2rayb-code' }, _('Loading logs...'));
+		const logsUpdated = E('span', { class: 'v2rayb-help' }, '');
+		const refreshLogsButton = E('button', {
+			class: 'cbi-button cbi-button-action',
+			type: 'button',
+			click: loadLogs
+		}, _('Refresh logs'));
+		async function loadLogs() {
+			refreshLogsButton.disabled = true;
+			logsOutput.textContent = _('Loading logs...');
+			try {
+				const result = await callLogs(logComponent.value, logLines.value);
+				if (!result || !result.success)
+					throw new Error(result && result.error || _('No log entries.'));
+				logsOutput.textContent = result.output || _('No log entries.');
+				logsUpdated.textContent = new Date().toLocaleString();
+			}
+			catch (error) {
+				logsOutput.textContent = errorMessage(error);
+			}
+			finally {
+				refreshLogsButton.disabled = false;
+			}
+		}
+		logComponent.addEventListener('change', loadLogs);
+		logLines.addEventListener('change', loadLogs);
+		const logsPane = [
+			E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('Logs')),
+				E('div', { class: 'v2rayb-toolbar' }, [
+					field(_('Log component'), logComponent),
+					field(_('Lines'), logLines),
+					refreshLogsButton,
+					logsUpdated
+				]),
+				logsOutput
+			])
+		];
 
 		return E('div', { class: 'cbi-map v2rayb-shell' }, [
 			css(),
@@ -1822,7 +1887,8 @@ return view.extend({
 				{ id: 'overview', title: _('Overview'), nodes: overview },
 				{ id: 'nodes', title: _('Nodes and profiles'), nodes: nodesPane },
 				{ id: 'runtime', title: _('DNS and proxy'), nodes: runtimePane },
-				{ id: 'diagnostics', title: _('Diagnostics'), nodes: diagnosticsPane, onActivate: loadV2rayConfig }
+				{ id: 'diagnostics', title: _('Diagnostics'), nodes: diagnosticsPane, onActivate: loadV2rayConfig },
+				{ id: 'logs', title: _('Logs'), nodes: logsPane, onActivate: loadLogs }
 			])
 		]);
 	}

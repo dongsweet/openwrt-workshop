@@ -187,6 +187,10 @@ def main():
     assert "Applied V2Ray configuration" in view_source
     assert "Contains credentials. Do not share." in view_source
     assert "get_v2ray_config" in rpc_source
+    assert "logs: {" in rpc_source
+    assert "method: 'logs'" in view_source
+    assert "logs" in acl["read"]["ubus"]["luci.v2rayb"]
+    assert "Logs" in view_source
     assert "DNS Resolution Chain" in view_source
     assert "MosDNS Narrow Route" in view_source
     assert "nftables Direct Sets" in view_source

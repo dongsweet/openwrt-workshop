@@ -3,7 +3,7 @@
 		"description": "Manage v2rayB through its LuCI page",
 		"read": {
 			"ubus": {
-				"luci.v2rayb": [ "status", "dns_state", "get_v2ray_config", "network_probe_status", "subscription_update_status", "node_probe_status", "list_nodes", "list_sources", "get_node", "list_profiles", "get_applied_profile", "get_profile" ]
+				"luci.v2rayb": [ "status", "dns_state", "get_v2ray_config", "logs", "network_probe_status", "subscription_update_status", "node_probe_status", "list_nodes", "list_sources", "get_node", "list_profiles", "get_applied_profile", "get_profile" ]
 			}
 		},
 		"write": {
