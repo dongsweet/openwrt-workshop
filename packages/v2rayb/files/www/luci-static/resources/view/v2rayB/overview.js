@@ -135,6 +135,11 @@ const _zh = {
 	'Direct regexp': '直连正则表达式',
 	'Disabled: all intercepted traffic uses the proxy.': '关闭后，所有被拦截流量都走代理。',
 	'Disabled: domains and rules are inactive but retained.': '关闭后，域名和规则不生效，但会保留。',
+	'Direct: use Direct DNS and add the answer to the direct nft set.': '直连：使用直连 DNS，并将解析结果加入直连 nft 集合。',
+	'Force proxy: use V2Ray DNS and add the answer to the force_proxy nft set.': '强制代理：使用 V2Ray DNS，并将解析结果加入强制代理 nft 集合。',
+	'Handles the listed Google Play download suffixes separately so mainland cache addresses can stay direct. Disabled: settings are retained but inactive.': '单独处理列出的 Google Play 下载域名后缀，使返回国内缓存地址时保持直连。关闭后，设置会保留但不生效。',
+	'Suffixes forwarded to MosDNS, one per line.': '转发给 MosDNS 的域名后缀，每行一个。',
+	'Unmatched names use V2Ray DNS.': '未匹配的域名使用 V2Ray DNS。',
 	'DNS': 'DNS',
 	'DNS / TCP / TLS / first byte / total': 'DNS / TCP / TLS / 首字节 / 总耗时',
 	'DNS branch': 'DNS 分支',
@@ -160,7 +165,7 @@ const _zh = {
 	'Fallback: V2Ray DNS, no direct sets.': '回退策略：使用 V2Ray DNS，不写入直连地址集合。',
 	'For MosDNS direct queries.': '用于 MosDNS 的直连查询。',
 	'Force-proxy answers': '强制代理解析结果',
-	'Force-proxy: V2Ray DNS + force_proxy sets.': '强制代理：使用 V2Ray DNS 并写入 force_proxy 集合。',
+
 	'Forwarded suffix': '转发域名后缀',
 	'gRPC service name': 'gRPC 服务名称',
 	'H2 host': 'H2 主机',
@@ -227,8 +232,7 @@ const _zh = {
 	'Observation status': '观测状态',
 	'Observed query types': '观测到的查询类型',
 	'Observed upstreams': '观测到的上游',
-	'One per line: domain:, full: or regexp:.': '每行一条，格式为 domain:、full: 或 regexp:。',
-	'One suffix per line.': '每行填写一个域名后缀。',
+	'One rule per line: domain:, full: or regexp:.': '每行一条规则，格式为 domain:、full: 或 regexp:。',
 	'Only names not matched by a domain-specific dnsmasq rule use the V2Ray resolver. China domain rules still use Direct DNS.': '仅未命中 dnsmasq 域名专属规则的查询会使用 V2Ray DNS；中国域名规则仍走直连 DNS。',
 	'Order': '顺序',
 	'Path note': '链路说明',
@@ -980,12 +984,12 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	});
 	mosdnsRules.value = (existing && existing.mosdns_match_rules) || defaults.mosdns_match_rules || '';
 	const mosdnsDomainsField = field(_('MosDNS domains'), mosdnsDomains,
-		_('One suffix per line.'));
+		_('Suffixes forwarded to MosDNS, one per line.'));
 	const mosdnsRulesHelp = E('div', {}, [
-		E('p', {}, _('One per line: domain:, full: or regexp:.')),
-		E('p', {}, _('Force-proxy: V2Ray DNS + force_proxy sets.')),
-		E('p', {}, _('Direct match: Direct DNS + direct sets.')),
-		E('p', {}, _('Fallback: V2Ray DNS, no direct sets.'))
+		E('p', {}, _('One rule per line: domain:, full: or regexp:.')),
+		E('p', {}, _('Direct: use Direct DNS and add the answer to the direct nft set.')),
+		E('p', {}, _('Force proxy: use V2Ray DNS and add the answer to the force_proxy nft set.')),
+		E('p', {}, _('Unmatched names use V2Ray DNS.'))
 	]);
 	const mosdnsRulesField = field(_('MosDNS match rules'), mosdnsRules, mosdnsRulesHelp);
 	function refreshMosdnsFields() {
@@ -1049,7 +1053,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			field(_('Use V2Ray DNS as dnsmasq default'), useV2rayDns,
 				_('Only names not matched by a domain-specific dnsmasq rule use the V2Ray resolver. China domain rules still use Direct DNS.')),
 			field(_('Enable MosDNS branch'), mosdnsEnabled,
-				_('Disabled: domains and rules are inactive but retained.')),
+				_('Handles the listed Google Play download suffixes separately so mainland cache addresses can stay direct. Disabled: settings are retained but inactive.')),
 			mosdnsDomainsField,
 			mosdnsRulesField
 		]),

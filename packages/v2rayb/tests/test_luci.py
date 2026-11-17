@@ -182,9 +182,11 @@ def main():
     assert "class: 'cbi-value-description'" in view_source
     assert "help ? E('div', { class: 'v2rayb-help' }" not in view_source
     assert "mosdnsDomains.value.split(/[\\s,]+/)" in view_source
-    assert "One suffix per line." in view_source
-    assert "Disabled: domains and rules are inactive but retained." in view_source
-    assert "Force-proxy: V2Ray DNS + force_proxy sets." in view_source
+    assert "Suffixes forwarded to MosDNS, one per line." in view_source
+    assert "Handles the listed Google Play download suffixes separately" in view_source
+    assert "Unmatched names use V2Ray DNS." in view_source
+    assert "Direct: use Direct DNS and add the answer to the direct nft set." in view_source
+    assert "Force proxy: use V2Ray DNS and add the answer to the force_proxy nft set." in view_source
     assert "Direct match: Direct DNS + direct sets." in view_source
     assert "Fallback: V2Ray DNS, no direct sets." in view_source
     assert "E('h4', {}, _('Fixed evaluation order and actions'))" not in view_source
