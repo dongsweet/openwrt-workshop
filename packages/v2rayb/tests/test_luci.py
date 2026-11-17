@@ -207,6 +207,7 @@ def main():
     assert "SUBSCRIPTION_DOWNLOADER=" in ctl_source
     assert "start-stop-daemon -S -b -c \"$SUBSCRIPTION_DOWNLOAD_USER:$SUBSCRIPTION_DOWNLOAD_GROUP\"" in ctl_source
     assert "\"$raw_tmp\" \"$error_tmp\" \"$rc_tmp\" \"$ipv4_only\" \"$url\"" in ctl_source
+    assert "chown root:root \"$raw_tmp\"" in ctl_source
     downloader_source = (
         FILES / "usr/libexec/v2rayB/v2rayB-subscription-download"
     ).read_text(encoding="utf-8")

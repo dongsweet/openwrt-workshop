@@ -521,6 +521,9 @@ EOF
 		set_source_error "$source_id" "$error_text"
 		die "$error_text"
 	fi
+	if [ "$(id -u)" = 0 ]; then
+		chown root:root "$raw_tmp" || die "cannot secure subscription cache"
+	fi
 	chmod 600 "$raw_tmp" 2>/dev/null || :
 	if ! "$SUBSCRIPTION_PARSER" "$raw_tmp" "$format" "$name" > "$nodes_tmp" 2>"$error_tmp"; then
 		error_text="$(tr '\n\t' '  ' < "$error_tmp" | cut -c1-300)"
