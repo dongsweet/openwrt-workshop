@@ -150,9 +150,9 @@ spawn_managed watchdog
 printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 	'server=/xn--ngstr-lra8j.com/127.0.0.1#5354' > "$MOSDNS_FORWARD_EXPECTED"
 cp "$MOSDNS_FORWARD_EXPECTED" "$MOSDNS_FORWARD_FILE"
-	printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
-		'server=/bootstrap.example.com/223.5.5.5#53' > "$BOOTSTRAP_DNS_EXPECTED"
-	cp "$BOOTSTRAP_DNS_EXPECTED" "$BOOTSTRAP_DNS_FILE"
+printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
+	'server=/bootstrap.example.com/223.5.5.5#53' > "$BOOTSTRAP_DNS_EXPECTED"
+cp "$BOOTSTRAP_DNS_EXPECTED" "$BOOTSTRAP_DNS_FILE"
 printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
 stop_service
 [ -e "$RUNTIME/legacy-cleaned" ]
