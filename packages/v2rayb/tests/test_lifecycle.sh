@@ -227,7 +227,8 @@ acquire_lock
 [ "$LOCK_INHERITED" = 1 ]
 release_lock
 [ -d "$LOCK_DIR" ]
-[ -z "${V2RAYB_LOCK_HELD:-}" ]
+[ "${V2RAYB_LOCK_HELD:-}" = 1 ]
+unset V2RAYB_LOCK_HELD
 rm -rf "$LOCK_DIR"
 
 setup_case legacy-procd

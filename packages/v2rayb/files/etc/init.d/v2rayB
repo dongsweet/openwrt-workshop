@@ -51,9 +51,8 @@ acquire_lock() {
 }
 
 release_lock() {
-	if [ "$LOCK_INHERITED" = 0 ]; then
-		rm -rf "$LOCK_DIR"
-	fi
+	[ "$LOCK_INHERITED" = 0 ] || return 0
+	rm -rf "$LOCK_DIR"
 	unset V2RAYB_LOCK_HELD 2>/dev/null || :
 }
 
