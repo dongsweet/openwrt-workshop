@@ -2,6 +2,7 @@
 
 START=99
 STOP=10
+EXTRA_COMMANDS="status running suspend resume recover"
 
 CTL="/usr/libexec/v2rayB/v2rayBctl"
 RUNTIME="/tmp/v2rayB"

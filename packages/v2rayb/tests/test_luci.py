@@ -185,6 +185,7 @@ def main():
     assert "wasSuspended ? 'suspend'" in rpc_source
     assert "was_suspended ? 'resume'" in rpc_source
     assert 'extra_command "resume"' in init_source
+    assert 'EXTRA_COMMANDS="status running suspend resume recover"' in init_source
     assert "restart/reload retries through the normal startup probe" in init_source
     assert "resume_service\n\t\treturn" in init_source
     assert "traffic and DNS imports withdrawn; proxy engine and watchdog remain active" in init_source
