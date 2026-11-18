@@ -6,9 +6,11 @@ builds both the core and LuCI packages.
 ## Current Scope
 
 - SQLite-backed manual nodes, profiles, and runtime settings.
-- Generated V2Ray and MosDNS configs under `/tmp/v2rayB/active/`.
-- DNS switching with rollback, an owned nftables table, and a DNS watchdog.
-- Watchdog cooldown timestamp persisted under `/tmp` across watchdog restarts.
+- Generated proxy-engine and MosDNS configs under `/tmp/v2rayB/active/`.
+- DNS switching with rollback, an owned nftables table, and an optional
+  proxy-connectivity watchdog.
+- The last watchdog fallback timestamp is kept under `/tmp` across watchdog
+  restarts; it does not automatically resume a suspended proxy.
 - JavaScript LuCI page backed by a narrow rpcd/ucode API and explicit read/write ACLs.
 - Router-originated DNS/HTTP(S) diagnostics with observed socket and kernel route data.
 - Structured node editor for VLESS, VMess, Trojan, Shadowsocks, TLS/Reality,
@@ -24,9 +26,9 @@ encoded URI list for VLESS, VMess, Trojan, and Shadowsocks. Raw subscription
 payloads are cached under `/etc/v2rayB/subscriptions/`; parsed nodes are stored
 under their subscription source and are shown separately from manual nodes.
 Each subscription can enable or disable IPv4-only downloading. Downloads run in
-an unprivileged helper. Subscription hostnames resolve through WAN DNS and their
-addresses are added to the v2rayB direct sets so retries bypass the router traffic
-proxy; proxy traffic itself is not affected.
+an unprivileged helper. Subscription hostnames use the global direct-DNS upstream
+list and their addresses are added to the v2rayB direct sets so retries bypass
+the router traffic proxy; proxy traffic itself is not affected.
 
 The active profile owns the engine choice (`v2ray` or `xray`). The lifecycle
 resolves the binary and config-test mode from the applied profile, with Xray
@@ -39,9 +41,11 @@ redirection and DNS switching are enabled. Startup rolls back if this probe fail
 When disabled, traffic and DNS are imported without an end-to-end proxy check.
 
 The watchdog is an optional global setting, saved through the same draft transaction
-as service and profile changes. When disabled, it is not started and proxy failures
-do not automatically withdraw traffic or DNS imports.
-At runtime, three consecutive probe failures move the service to `suspended`,
+as service and profile changes. It starts only when the global watchdog setting
+and the active profile's connectivity probe are both enabled. A disabled profile
+probe also suppresses the startup check and the health-probe inbound.
+When continuous monitoring is enabled, three consecutive probe failures move the
+service to `suspended`,
 restore the dnsmasq baseline, remove the v2rayB nftables table and stop the managed
 processes while retaining the enabled setting. Ordinary starts, restarts and reloads
 do not retry a suspended proxy; an explicit resume or applying a profile change

@@ -1,8 +1,9 @@
 # v2rayB
 
-v2rayB is an OpenWrt control plane for a V2Ray-based transparent proxy. It
-combines a SQLite application database, generated V2Ray/MosDNS/nftables
-configuration, dnsmasq integration, LuCI management, and a DNS watchdog.
+v2rayB is an OpenWrt control plane for V2Ray- or Xray-based transparent proxies.
+It combines a SQLite application database, generated proxy/MosDNS/nftables
+configuration, dnsmasq integration, LuCI management, and an optional connectivity
+watchdog.
 
 The implementation is an installable test build. Manual and subscription
 nodes/profiles, runtime proxy switching, rollback, and basic LuCI management
@@ -36,8 +37,9 @@ The package Makefile builds:
 - `luci-app-v2rayb`: JavaScript LuCI console backed by rpcd/ucode. It does not
   require `luci-compat` or the Lua runtime.
 
-The core package declares dependencies on sqlite3-cli, v2ray-core,
-v2ray-geoip, mosdns, nftables-json, bind-dig, and curl.
+The core package declares dependencies on sqlite3-cli, v2ray-core, xray-core,
+v2ray-geoip, mosdns, nftables-json, bind-dig, and curl. Both engine packages are
+installed, but only the engine selected by the active profile is started.
 
 ## Router State
 
@@ -72,9 +74,10 @@ default upstream is V2Ray DNS at `127.0.0.1#5353`; only the
 MosDNS sends matching Google Play GGC names to domestic DNS and adds their
 answers to v2rayB's nft set. Other names in that suffix fall back to V2Ray DNS.
 
-The service captures dnsmasq settings before switching and restores them on
-stop. Stopping also removes the v2rayB-owned nftables table and managed
-processes.
+A global ordered direct-DNS upstream list supplies node bootstrap, subscription
+hostname resolution and the MosDNS direct branch. The service captures dnsmasq
+settings before switching and restores them on stop. Stopping also removes the
+v2rayB-owned nftables table and managed processes.
 
 ## First Start
 
@@ -118,22 +121,44 @@ Stop and restore normal DNS:
 /usr/libexec/v2rayB/v2rayBctl status
 ```
 
-## Test Scope
+## Proxy Engines
 
 Each profile selects its proxy engine (`V2Ray` or `Xray`). Xray is required for
-REALITY nodes that fail the V2Ray compatibility path; switching profiles also
-switches the engine after Save & Apply.
-The watchdog is a global opt-in setting and does not start when disabled.
-Direct DNS upstreams are global and support an ordered list. The same list is
-used for node bootstrap, subscription-hostname forwarding and the MosDNS direct
-branch. Each profile selects the intercepted TCP destination ports, a local
-transparent proxy listener port (default `12345`), and an optional loopback SOCKS
-connectivity-probe port (default `12346`). Disabling the probe imports traffic
-and DNS immediately without an end-to-end proxy check. China IP traffic can use
-V2Ray's `geoip:cn` direct outbound rule.
+REALITY nodes that fail the V2Ray compatibility path. Saving and applying a
+profile switch also switches the engine and restarts the managed process.
 
-Verify MosDNS `nftset` behavior, the device's WAN resolver, and LAN client
-traffic on the actual router before treating the package as production-ready.
+The normal `/etc/init.d/v2ray` and `/etc/init.d/xray` services are disabled by
+the v2rayB package. They must remain inactive because v2rayB starts only the
+binary selected by the active profile.
+
+## Watchdog and Probe
+
+The profile's **Verify proxy connectivity** switch controls the loopback SOCKS
+health-probe inbound, its port, and the startup connectivity check. The global
+**Enable watchdog** switch controls continuous monitoring after startup.
+
+| Profile probe | Global watchdog | Behavior |
+| --- | --- | --- |
+| Off | Either value | No health inbound or startup check; traffic and DNS are imported immediately. The watchdog is not started. |
+| On | Off | The startup check runs, but there is no continuous watchdog. |
+| On | On | The startup check runs and continuous monitoring starts after a 60 second delay. |
+
+The watchdog probes every 10 to 30 seconds. Three consecutive failures move the
+service to `suspended`: the original dnsmasq configuration is restored, the
+v2rayB nftables table is removed, and V2Ray/Xray and MosDNS are stopped. Ordinary
+start, restart, or reload operations do not retry a suspended proxy. Use an
+explicit resume or apply a profile change to retry.
+
+Each profile also selects the intercepted TCP destination ports, its transparent
+proxy listener port (default `12345`), and its optional connectivity-probe port
+(default `12346`). China IP traffic can use V2Ray's `geoip:cn` direct outbound
+rule.
+
+## Test Scope
+
+Verify MosDNS `nftset` behavior, the device's resolver, engine switching, and LAN
+client traffic on the actual router before treating the package as
+production-ready.
 
 ## Google Play CDN Scope
 
