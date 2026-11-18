@@ -1308,22 +1308,21 @@ dnsmasq_endpoint() {
 	printf '%s\n' "$1" | sed 's/:\([0-9][0-9]*\)$/#\1/'
 }
 
-subscription_url_host() {
-	authority="${1#*://}"
-	case "$authority" in "$1"|'') return 0 ;; esac
-	authority="${authority%%[/?#]*}"
-	case "$authority" in
-		\[*\]:*|\[*\]) host="${authority#\[}"; host="${host%%\]*}" ;;
-		*:*) host="${authority%:*}" ;;
-		*) host="$authority" ;;
-	esac
-	printf '%s\n' "$host" | sed 's/^\[//;s/\]$//' | tr '[:upper:]' '[:lower:]'
-}
-
 subscription_hosts() {
-	db_sql "SELECT url FROM sources WHERE type='subscription' AND url IS NOT NULL ORDER BY id;" | while IFS= read -r url; do
-		subscription_url_host "$url"
-	done | awk '
+	db_sql "SELECT url FROM sources WHERE type='subscription' AND url IS NOT NULL ORDER BY id;" | awk '
+		{
+			url = $0
+			sub(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, "", url)
+			sub(/[\/?#].*$/, "", url)
+			if (url ~ /^\[[^]]*\](:[0-9]+)?$/) {
+				sub(/^\[/, "", url)
+				sub(/\](:[0-9]+)?$/, "", url)
+			} else if (url ~ /^[^:]+:[0-9]+$/) {
+				sub(/:[0-9]+$/, "", url)
+			}
+			print tolower(url)
+		}
+	' | awk '
 		function valid(host) {
 			return length(host) <= 253 && host !~ /^[.]/ && host !~ /[.]$/ && host !~ /[^A-Za-z0-9._:-]/
 		}
