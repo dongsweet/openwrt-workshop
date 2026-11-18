@@ -429,7 +429,7 @@ const methods = {
 		call: function(request) {
 			let key = string_arg(request, 'key');
 			let value = string_arg(request, 'value');
-			if (key != 'service_enabled' && key != 'direct_dns_upstreams')
+			if (key != 'service_enabled' && key != 'direct_dns_upstreams' && key != 'watchdog_enabled')
 				return { success: false, error: 'Unsupported setting' };
 
 			let result = ctl([ 'set-setting', key, value ]);

@@ -35,6 +35,9 @@ SOCKS inbound completes an HTTPS request through the selected proxy before traff
 redirection and DNS switching are enabled. Startup rolls back if this probe fails.
 When disabled, traffic and DNS are imported without an end-to-end proxy check.
 
+The watchdog is an optional global setting, saved through the same draft transaction
+as service and profile changes. When disabled, it is not started and proxy failures
+do not automatically withdraw traffic or DNS imports.
 At runtime, three consecutive probe failures move the service to `suspended`,
 restore the dnsmasq baseline, remove the v2rayB nftables table and stop the managed
 processes while retaining the enabled setting. Ordinary starts, restarts and reloads

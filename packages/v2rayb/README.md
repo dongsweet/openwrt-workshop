@@ -120,6 +120,7 @@ Stop and restore normal DNS:
 
 ## Test Scope
 
+The watchdog is a global opt-in setting and does not start when disabled.
 Direct DNS upstreams are global and support an ordered list. The same list is
 used for node bootstrap, subscription-hostname forwarding and the MosDNS direct
 branch. Each profile selects the intercepted TCP destination ports, a local

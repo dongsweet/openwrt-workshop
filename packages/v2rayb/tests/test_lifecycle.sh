@@ -107,7 +107,13 @@ case "$1" in
 	get-setting)
 		case "$2" in
 			service_enabled) printf '1\n' ;;
-			watchdog_enabled) printf '0\n' ;;
+			watchdog_enabled)
+				if [ "$(sed -n '1p' "$RUNTIME/state")" = watchdog-disabled-state ]; then
+					printf '0\n'
+				else
+					printf '1\n'
+				fi
+				;;
 			fallback_on_failure) printf '1\n' ;;
 			*) return 1 ;;
 		esac
@@ -363,6 +369,11 @@ release_lock
 [ "${V2RAYB_LOCK_HELD:-}" = 1 ]
 unset V2RAYB_LOCK_HELD
 rm -rf "$LOCK_DIR"
+
+setup_case watchdog-disabled
+printf 'watchdog-disabled-state\n' > "$RUNTIME/state"
+start_watchdog
+[ ! -e "$PID_DIR/watchdog.pid" ]
 
 setup_case legacy-procd
 stop_instances

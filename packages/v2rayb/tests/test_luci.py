@@ -374,6 +374,13 @@ def main():
     assert "callSetSetting('direct_dns_upstreams', this.directDnsDesired)" in view_source
     assert "directDnsInput.addEventListener('input'" in view_source
     assert "configuredDirectDnsUpstreams" in view_source
+    assert "const watchdogEnabled = checkbox" in view_source
+    assert "field(_('Enable watchdog'), watchdogEnabled" in view_source
+    assert "callSetSetting('watchdog_enabled', this.watchdogEnabledDesired ? '1' : '0')" in view_source
+    assert "this.watchdogEnabledDirty" in view_source
+    assert "key != 'watchdog_enabled'" in rpc_source
+    assert "setting draft_watchdog_enabled" in ctl_source
+    assert "UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_watchdog_enabled'),value)" in ctl_source
     assert "key != 'service_enabled' && key != 'direct_dns_upstreams'" in rpc_source
     assert "setting draft_transparent_proxy_ports" not in ctl_source
     assert "printf 'transparent_proxy_ports=%s\\n'" not in ctl_source

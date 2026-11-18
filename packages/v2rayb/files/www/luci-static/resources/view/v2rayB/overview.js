@@ -328,6 +328,8 @@ const _zh = {
 	'WAN / normal mode': 'WAN / 普通模式',
 	'WAN DHCP DNS': 'WAN DHCP DNS',
 	'Watchdog': '看门狗',
+	'Enable watchdog': '启用看门狗',
+	'Automatically withdraws traffic and DNS imports after repeated proxy connectivity failures.': '代理连续连通失败时，自动撤销流量和 DNS 接管。',
 	'WebSocket host': 'WebSocket 主机',
 	'WebSocket path': 'WebSocket 路径',
 	'Your changes are saved as a draft. Use Save & Apply to make them active.': '变更已保存为草稿，请点击“保存并应用”使其生效。',
@@ -1242,6 +1244,12 @@ return view.extend({
 		const serviceEnabled = checkbox({}, configuredServiceEnabled);
 		pageView.serviceEnabledDesired = configuredServiceEnabled;
 		pageView.serviceEnabledDirty = false;
+		const configuredWatchdogEnabled = draftPending
+			? status.draft_watchdog_enabled !== '0'
+			: status.watchdog_enabled !== '0';
+		const watchdogEnabled = checkbox({}, configuredWatchdogEnabled);
+		pageView.watchdogEnabledDesired = configuredWatchdogEnabled;
+		pageView.watchdogEnabledDirty = false;
 		const configuredDirectDnsUpstreams = draftPending
 			? (status.draft_direct_dns_upstreams || status.direct_dns_upstreams || '223.5.5.5:53')
 			: (status.direct_dns_upstreams || '223.5.5.5:53');
@@ -1278,8 +1286,9 @@ return view.extend({
 		};
 		pageView.activeProfileDirty = false;
 		pageView.hasLocalChanges = function() {
-			return this.serviceEnabledDirty || this.activeProfileDirty ||
-				this.directDnsDirty || this.pendingOperations.length > 0;
+			return this.serviceEnabledDirty || this.watchdogEnabledDirty ||
+				this.activeProfileDirty || this.directDnsDirty ||
+				this.pendingOperations.length > 0;
 		};
 		pageView.refreshActiveProfileSelect = function() {
 			const current = String(activeProfile || '');
@@ -1291,6 +1300,8 @@ return view.extend({
 			let chain = Promise.resolve({ success: true });
 			if (this.serviceEnabledDirty)
 				chain = chain.then(() => callSetSetting('service_enabled', this.serviceEnabledDesired ? '1' : '0'));
+			if (this.watchdogEnabledDirty)
+				chain = chain.then(() => callSetSetting('watchdog_enabled', this.watchdogEnabledDesired ? '1' : '0'));
 			if (this.directDnsDirty)
 				chain = chain.then(() => callSetSetting('direct_dns_upstreams', this.directDnsDesired));
 			for (const operation of this.pendingOperations)
@@ -1306,6 +1317,7 @@ return view.extend({
 					return result.result;
 				if (result && result.success) {
 					this.serviceEnabledDirty = false;
+					this.watchdogEnabledDirty = false;
 					this.directDnsDirty = false;
 					this.pendingOperations = [];
 				}
@@ -1345,6 +1357,11 @@ return view.extend({
 			pageView.serviceEnabledDirty = serviceEnabled.checked !== configuredServiceEnabled;
 			updateLocalChangesNotice();
 		});
+		watchdogEnabled.addEventListener('change', () => {
+			pageView.watchdogEnabledDesired = watchdogEnabled.checked;
+			pageView.watchdogEnabledDirty = watchdogEnabled.checked !== configuredWatchdogEnabled;
+			updateLocalChangesNotice();
+		});
 		directDnsInput.addEventListener('input', () => {
 			pageView.directDnsDesired = normalizeDirectDnsValue(directDnsInput.value);
 			pageView.directDnsDirty = pageView.directDnsDesired !== configuredDirectDnsUpstreams;
@@ -1369,7 +1386,9 @@ return view.extend({
 				field(_('Enable v2rayB'), E('div', {}, [ serviceEnabled, ' ', statusBadge(state) ]),
 					_('Also controls boot startup.')),
 				field(_('Profile to activate'), activeProfileSelect,
-					_('Applied after Save & Apply.'))
+					_('Applied after Save & Apply.')),
+				field(_('Enable watchdog'), watchdogEnabled,
+					_('Automatically withdraws traffic and DNS imports after repeated proxy connectivity failures.'))
 			]),
 			table([ _('Property'), _('Current value') ], [
 				[ _('Engine'), status.active_engine || '-' ], [ _('Proxy mode'), status.proxy_mode || '-' ],
