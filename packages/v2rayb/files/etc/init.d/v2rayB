@@ -123,41 +123,45 @@ write_mosdns_forward_expected() {
 
 write_dns_domain_rules() {
 	domain="$1"
-	dns_server="$2"
+	upstreams="$2"
 	case "$domain" in
 		''|*[!A-Za-z0-9._-]*|.*|*.) return 0 ;;
 	esac
-	printf 'server=/%s/%s\n' "$domain" "$dns_server"
+	printf '%s\n' "$upstreams" | tr ',' '\n' | while IFS= read -r upstream; do
+		upstream="$(printf '%s' "$upstream" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+		[ -n "$upstream" ] || continue
+		dnsmasq_server="$(printf '%s\n' "$upstream" | sed 's/:\([0-9][0-9]*\)$/#\1/')"
+		printf 'server=/%s/%s\n' "$domain" "$dnsmasq_server"
+	done
 	printf 'nftset=/%s/4#inet#v2rayB#pass\n' "$domain"
 	printf 'nftset=/%s/6#inet#v2rayB#pass6\n' "$domain"
 }
 
+direct_dns_upstreams() {
+	upstreams="$(dns_policy_value direct_dns_upstreams)"
+	[ -n "$upstreams" ] || upstreams="$(dns_policy_value direct_dns)"
+	[ -n "$upstreams" ] || upstreams='223.5.5.5:53'
+	printf '%s\n' "$upstreams"
+}
+
 write_bootstrap_dns_expected() {
-	direct_dns="$(dns_policy_value direct_dns)"
+	direct_dns="$(direct_dns_upstreams)"
 	bootstrap_domain="$(dns_policy_value bootstrap_domain)"
-	dns_server="$(printf '%s\n' "$direct_dns" | sed 's/:\([0-9][0-9]*\)$/#\1/')"
-	[ -n "$dns_server" ] || return 1
+	[ -n "$direct_dns" ] || return 1
 	{
 		printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.'
-		write_dns_domain_rules "$bootstrap_domain" "$dns_server"
+		write_dns_domain_rules "$bootstrap_domain" "$direct_dns"
 	} > "$BOOTSTRAP_DNS_EXPECTED"
 }
 
-wan_dns_endpoint() {
-	awk '$1 == "nameserver" && $2 != "" { print $2; exit }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null |
-		sed 's/:\([0-9][0-9]*\)$/#\1/'
-}
-
 write_subscription_dns_expected() {
-	direct_dns="$(dns_policy_value direct_dns)"
-	dns_server="$(wan_dns_endpoint)"
-	[ -n "$dns_server" ] || dns_server="$(printf '%s\n' "$direct_dns" | sed 's/:\([0-9][0-9]*\)$/#\1/')"
+	direct_dns="$(direct_dns_upstreams)"
 	subscription_domains="$(dns_policy_value subscription_domains)"
-	[ -n "$dns_server" ] || return 1
+	[ -n "$direct_dns" ] || return 1
 	{
 		printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.'
 		printf '%s\n' "$subscription_domains" | tr ',' '\n' | while IFS= read -r domain; do
-			write_dns_domain_rules "$domain" "$dns_server"
+			write_dns_domain_rules "$domain" "$direct_dns"
 		done
 	} > "$SUBSCRIPTION_DNS_EXPECTED"
 }

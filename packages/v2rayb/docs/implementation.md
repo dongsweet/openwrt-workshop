@@ -28,8 +28,9 @@ an unprivileged helper. Subscription hostnames resolve through WAN DNS and their
 addresses are added to the v2rayB direct sets so retries bypass the router traffic
 proxy; proxy traffic itself is not affected.
 
-Each profile policy stores the transparent proxy listener port, the connectivity
-probe enable flag, and the probe port. When the probe is enabled, an isolated local
+A global, ordered direct-DNS upstream list is shared by node bootstrap, subscription
+downloads and the MosDNS direct branch. Each profile policy stores the transparent
+proxy listener port, the connectivity probe enable flag, and the probe port. When the probe is enabled, an isolated local
 SOCKS inbound completes an HTTPS request through the selected proxy before traffic
 redirection and DNS switching are enabled. Startup rolls back if this probe fails.
 When disabled, traffic and DNS are imported without an end-to-end proxy check.

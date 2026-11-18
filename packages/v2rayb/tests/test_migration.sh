@@ -70,7 +70,8 @@ PRAGMA user_version=1;
 "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
 
 version=$("$sqlite" "$V2RAYB_DB" 'PRAGMA user_version;')
-[ "$version" = 8 ]
+[ "$version" = 9 ]
+"$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="direct_dns_upstreams";' | grep -q '223.5.5.5:53'
 columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(policies);')
 printf '%s\n' "$columns" | grep -q 'direct_dns'
 printf '%s\n' "$columns" | grep -q 'transparent_proxy_ports'
@@ -85,7 +86,7 @@ printf '%s\n' "$columns" | grep -q 'mosdns_match_rules'
 printf '%s\n' "$columns" | grep -q 'proxy_router_traffic'
 source_columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(sources);')
 printf '%s\n' "$source_columns" | grep -q 'ipv4_only'
-"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^8$'
+"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^9$'
 
 # Old databases append new policy columns at the end, unlike freshly created
 # tables. Draft copies and apply-back must address columns explicitly.
@@ -121,6 +122,7 @@ WHERE key IN ("direct_dns","transparent_proxy_ports",
 partial="$TEST_DIR/partial-db"
 "$sqlite" "$partial" '
 CREATE TABLE policies (id INTEGER PRIMARY KEY, name TEXT, proxy_router_traffic INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE profiles (id INTEGER PRIMARY KEY, name TEXT, policy_id INTEGER);
 CREATE TABLE draft_policies (id INTEGER PRIMARY KEY, name TEXT);
 CREATE TABLE sources (id INTEGER PRIMARY KEY, type TEXT, name TEXT);
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
@@ -129,7 +131,7 @@ INSERT INTO settings(key,value) VALUES("draft_pending","1");
 PRAGMA user_version=4;
 '
 V2RAYB_DB="$partial" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
-[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 8 ]
+[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 9 ]
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'proxy_router_traffic'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'transparent_proxy_port'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'probe_enabled'

@@ -88,9 +88,10 @@ setup_case() {
 	TEST_TRANSPARENT_PROXY_PORT='12345'
 	TEST_PROBE_ENABLED='1'
 	TEST_PROBE_PORT='12346'
+	TEST_DIRECT_DNS_UPSTREAMS='223.5.5.5:53'
 	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
 		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED LEGACY_FORCE_PROXY_FILE \
-		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT
+		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT TEST_DIRECT_DNS_UPSTREAMS
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
@@ -121,7 +122,8 @@ case "$1" in
 	dns-settings)
 		printf '%s\n' 'runtime_state=starting' \
 			"dnsmasq_default=$TEST_DNSMASQ_DEFAULT" \
-			'direct_dns=223.5.5.5:53' "bootstrap_domain=$TEST_BOOTSTRAP_DOMAIN" 'use_v2ray_dns=1' \
+			'direct_dns=223.5.5.5:53' "direct_dns_upstreams=$TEST_DIRECT_DNS_UPSTREAMS" \
+			"bootstrap_domain=$TEST_BOOTSTRAP_DOMAIN" 'use_v2ray_dns=1' \
 			"mosdns_enabled=$TEST_MOSDNS_ENABLED" \
 			"mosdns_domains=$TEST_MOSDNS_DOMAINS" \
 			'mosdns_listen=127.0.0.1#5354' 'v2ray_dns_listen=127.0.0.1#5353' \
@@ -230,6 +232,20 @@ setup_case modified-legacy-force-proxy
 printf '%s\n' '# User-owned rule' > "$LEGACY_FORCE_PROXY_FILE"
 remove_legacy_force_proxy_rule
 grep -q '^# User-owned rule$' "$LEGACY_FORCE_PROXY_FILE"
+
+setup_case multi-direct-dns
+TEST_DIRECT_DNS_UPSTREAMS='223.5.5.5:53,119.29.29.29:53'
+export TEST_DIRECT_DNS_UPSTREAMS
+load_dns_policy
+write_bootstrap_dns_expected
+write_subscription_dns_expected
+grep -q 'server=/bootstrap.example.com/223.5.5.5#53' "$BOOTSTRAP_DNS_EXPECTED"
+grep -q 'server=/bootstrap.example.com/119.29.29.29#53' "$BOOTSTRAP_DNS_EXPECTED"
+[ "$(grep -c '^server=/bootstrap.example.com/' "$BOOTSTRAP_DNS_EXPECTED")" = 2 ]
+grep -q 'server=/sub.example.com/223.5.5.5#53' "$SUBSCRIPTION_DNS_EXPECTED"
+grep -q 'server=/sub.example.com/119.29.29.29#53' "$SUBSCRIPTION_DNS_EXPECTED"
+[ "$(grep -c '^server=/sub.example.com/' "$SUBSCRIPTION_DNS_EXPECTED")" = 2 ]
+[ "$(grep -c '^nftset=/sub.example.com/4' "$SUBSCRIPTION_DNS_EXPECTED")" = 1 ]
 
 setup_case dns-routing
 DNS_RELOAD_FAIL=0

@@ -34,11 +34,11 @@ def main():
     assert "write_mosdns_forward_expected" in init_script
     assert "server=/%s/%s" in init_script
     assert "SUBSCRIPTION_DNS_FILE=" in init_script
-    assert "wan_dns_endpoint()" in init_script
     assert "write_subscription_dns_expected()" in init_script
     assert "nftset=/%s/4#inet#v2rayB#pass" in init_script
     assert "nftset=/%s/6#inet#v2rayB#pass6" in init_script
-    assert "write_dns_domain_rules \"$bootstrap_domain\"" in init_script
+    assert "write_dns_domain_rules \"$bootstrap_domain\" \"$direct_dns\"" in init_script
+    assert 'upstreams="$(dns_policy_value direct_dns_upstreams)"' in init_script
     assert "subscription_domains" in init_script
     assert "subscription_hosts()" in ctl_script
     assert "sub(/^[A-Za-z][A-Za-z0-9+.-]*:\\/\\//" in ctl_script

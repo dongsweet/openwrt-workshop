@@ -34,7 +34,7 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 9
         assert {
             "draft_nodes", "draft_policies", "draft_profiles",
             "draft_profile_nodes", "draft_source_deletions",
@@ -97,6 +97,9 @@ def main():
         assert conn.execute(
             "SELECT COUNT(*) FROM settings WHERE key IN ('transparent_proxy_port', 'force_proxy_port')"
         ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT value FROM settings WHERE key = 'direct_dns_upstreams'"
+        ).fetchone()[0] == "223.5.5.5:53"
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'service_enabled'"
         ).fetchone()[0] == "0"

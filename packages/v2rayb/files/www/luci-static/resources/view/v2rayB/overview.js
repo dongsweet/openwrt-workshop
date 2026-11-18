@@ -139,6 +139,9 @@ const _zh = {
 	'Only affects subscription downloads; proxy traffic is unchanged.': '仅影响订阅下载，不影响代理流量。',
 	'The router downloads this URL directly through WAN, bypassing the router traffic proxy.': '路由器通过 WAN 直连下载此 URL，不经过路由器流量代理。',
 	'Direct DNS upstream': '直连 DNS 上游',
+	'Direct DNS upstreams': '直连 DNS 上游列表',
+	'Global DNS settings': '全局 DNS 设置',
+	'One upstream per line or comma-separated. Used for bootstrap, subscription and MosDNS direct resolution.': '每行一个上游，也可用逗号分隔。用于节点引导、订阅下载和 MosDNS 直连解析。',
 	'Direct match: Direct DNS + direct sets.': '直连匹配：直连 DNS + 直连地址集合。',
 	'Direct regexp': '直连正则表达式',
 	'Disabled: all intercepted traffic uses the proxy.': '关闭后，所有被拦截流量都走代理。',
@@ -990,8 +993,8 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	const nodeOptions = groupedNodeOptions(nodes, existing ? existing.node_id : '');
 	const nodeSelect = E('select', { class: 'cbi-input-select' }, nodeOptions);
 	const profileDns = E('input', {
-		class: 'cbi-input-text', type: 'text',
-		value: (existing && existing.direct_dns) || defaults.direct_dns
+		class: 'cbi-input-text', type: 'hidden',
+		value: (existing && existing.direct_dns) || defaults.direct_dns || '223.5.5.5:53'
 	});
 	const profilePorts = E('input', {
 		class: 'cbi-input-text', type: 'text',
@@ -1098,8 +1101,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		]),
 		E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('Profile policy')),
-			field(_('Direct DNS upstream'), profileDns,
-				_('For MosDNS direct queries.')),
+			profileDns,
 			field(_('Intercepted TCP destination ports'), profilePorts,
 				_('Example: 80,443,8080-8443.')),
 			field(_('Transparent proxy listener port'), transparentPort,
@@ -1203,7 +1205,6 @@ return view.extend({
 		function profilePolicyText(row) {
 			if (!row)
 				return _('No active profile policy');
-			const dns = row[6] || '-';
 			const ports = row[7] || '-';
 			const china = isEnabled(row[8]) ? _('China IP direct') : _('All through proxy');
 			const v2rayDns = isEnabled(row[9]) ? _('V2Ray DNS default') : _('Direct DNS default');
@@ -1211,7 +1212,7 @@ return view.extend({
 			const routerTraffic = isEnabled(row[12]) ? _('Router TCP on') : _('Router TCP off');
 			const listener = row[13] || '12345';
 			const probe = isEnabled(row[14]) ? `${_('Probe')} ${row[15] || '12346'}` : _('Probe off');
-			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${_('Listen')} ${listener} · ${probe} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
+			return `${_('Ports')} ${ports} · ${_('Listen')} ${listener} · ${probe} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
 		}
 		const activeProfileRow = appliedProfileRows[0] || null;
 		const appliedProfileName = activeProfileRow
@@ -1241,6 +1242,20 @@ return view.extend({
 		const serviceEnabled = checkbox({}, configuredServiceEnabled);
 		pageView.serviceEnabledDesired = configuredServiceEnabled;
 		pageView.serviceEnabledDirty = false;
+		const configuredDirectDnsUpstreams = draftPending
+			? (status.draft_direct_dns_upstreams || status.direct_dns_upstreams || '223.5.5.5:53')
+			: (status.direct_dns_upstreams || '223.5.5.5:53');
+		const directDnsInput = E('textarea', {
+			class: 'cbi-input-text v2rayb-form-wide', rows: '3', spellcheck: 'false',
+			maxlength: '1024',
+			placeholder: '223.5.5.5:53\n119.29.29.29:53'
+		});
+		directDnsInput.value = configuredDirectDnsUpstreams.replace(/,/g, '\n');
+		pageView.directDnsDesired = configuredDirectDnsUpstreams;
+		pageView.directDnsDirty = false;
+		function normalizeDirectDnsValue(value) {
+			return value.split(/[\s,]+/).filter(item => item !== '').join(',');
+		}
 		pageView.pendingOperations = [];
 		pageView.subscriptionJobs = {};
 		pageView.subscriptionJobErrors = {};
@@ -1264,7 +1279,7 @@ return view.extend({
 		pageView.activeProfileDirty = false;
 		pageView.hasLocalChanges = function() {
 			return this.serviceEnabledDirty || this.activeProfileDirty ||
-				this.pendingOperations.length > 0;
+				this.directDnsDirty || this.pendingOperations.length > 0;
 		};
 		pageView.refreshActiveProfileSelect = function() {
 			const current = String(activeProfile || '');
@@ -1276,6 +1291,8 @@ return view.extend({
 			let chain = Promise.resolve({ success: true });
 			if (this.serviceEnabledDirty)
 				chain = chain.then(() => callSetSetting('service_enabled', this.serviceEnabledDesired ? '1' : '0'));
+			if (this.directDnsDirty)
+				chain = chain.then(() => callSetSetting('direct_dns_upstreams', this.directDnsDesired));
 			for (const operation of this.pendingOperations)
 				chain = chain.then(result => {
 					if (result && result.success === false)
@@ -1289,6 +1306,7 @@ return view.extend({
 					return result.result;
 				if (result && result.success) {
 					this.serviceEnabledDirty = false;
+					this.directDnsDirty = false;
 					this.pendingOperations = [];
 				}
 				return result;
@@ -1325,6 +1343,11 @@ return view.extend({
 		serviceEnabled.addEventListener('change', () => {
 			pageView.serviceEnabledDesired = serviceEnabled.checked;
 			pageView.serviceEnabledDirty = serviceEnabled.checked !== configuredServiceEnabled;
+			updateLocalChangesNotice();
+		});
+		directDnsInput.addEventListener('input', () => {
+			pageView.directDnsDesired = normalizeDirectDnsValue(directDnsInput.value);
+			pageView.directDnsDirty = pageView.directDnsDesired !== configuredDirectDnsUpstreams;
 			updateLocalChangesNotice();
 		});
 		activeProfileSelect.addEventListener('change', () => {
@@ -1875,6 +1898,11 @@ return view.extend({
 			const directRule = deferredDnsState.direct_rule || _('No direct regex rule configured');
 			const accelFiles = deferredDnsState.china_accel_files || '0';
 			runtimePaneContent.replaceChildren(
+				E('div', { class: 'cbi-section' }, [
+					E('h3', {}, _('Global DNS settings')),
+					field(_('Direct DNS upstreams'), directDnsInput,
+						_('One upstream per line or comma-separated. Used for bootstrap, subscription and MosDNS direct resolution.'))
+				]),
 				E('div', { class: 'cbi-section' }, [
 					E('h3', {}, _('DNS Resolution Chain')),
 					table([ _('Order'), _('Component'), _('Listener / upstream') ], [

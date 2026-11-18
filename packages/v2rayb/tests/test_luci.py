@@ -369,7 +369,12 @@ def main():
     assert "method: 'get_setting'" not in view_source
     assert "\n\tget_setting: {" not in rpc_source
     assert "key != 'service_enabled'" in rpc_source
-    assert "setting draft_direct_dns" not in ctl_source
+    assert "setting draft_direct_dns_upstreams" in ctl_source
+    assert "Direct DNS upstreams" in view_source
+    assert "callSetSetting('direct_dns_upstreams', this.directDnsDesired)" in view_source
+    assert "directDnsInput.addEventListener('input'" in view_source
+    assert "configuredDirectDnsUpstreams" in view_source
+    assert "key != 'service_enabled' && key != 'direct_dns_upstreams'" in rpc_source
     assert "setting draft_transparent_proxy_ports" not in ctl_source
     assert "printf 'transparent_proxy_ports=%s\\n'" not in ctl_source
     assert "DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports')" in ctl_source

@@ -124,11 +124,11 @@ format_ports() {
 }
 
 validate_dns_endpoint() {
-	value="$1"
-	case "$value" in *[!A-Za-z0-9.:\[\]-]*|*:|:*) return 1 ;; esac
-	port="${value##*:}"
-	is_uint "$port" && [ "$port" -ge 1 ] 2>/dev/null && [ "$port" -le 65535 ] 2>/dev/null || return 1
-	[ -n "${value%:*}" ]
+	_dns_endpoint_value="$1"
+	case "$_dns_endpoint_value" in *[!A-Za-z0-9.:\[\]-]*|*:|:*) return 1 ;; esac
+	_dns_endpoint_port="${_dns_endpoint_value##*:}"
+	is_uint "$_dns_endpoint_port" && [ "$_dns_endpoint_port" -ge 1 ] 2>/dev/null && [ "$_dns_endpoint_port" -le 65535 ] 2>/dev/null || return 1
+	[ -n "${_dns_endpoint_value%:*}" ]
 }
 
 validate_dns_domains() {
@@ -160,6 +160,30 @@ validate_mosdns_rules() {
 		esac
 	done
 	IFS="$old_ifs"
+}
+
+normalize_dns_upstreams() {
+	printf '%s\n' "$1" | tr ', \t' '\n\n\n' | awk '
+		NF { print }
+	' | awk '!seen[$0]++' | awk 'BEGIN { first=1 } { if (!first) printf ","; printf "%s", $0; first=0 } END { if (!first) printf "\n" }'
+}
+
+validate_dns_upstreams() {
+	_dns_upstreams_value="$1"
+	[ -n "$_dns_upstreams_value" ] || return 1
+	_dns_upstreams_old_ifs="$IFS"
+	IFS=','
+	set -f
+	set -- $_dns_upstreams_value
+	IFS="$_dns_upstreams_old_ifs"
+	set +f
+	_dns_upstreams_count=0
+	for _dns_upstreams_item in "$@"; do
+		[ -n "$_dns_upstreams_item" ] || return 1
+		validate_dns_endpoint "$_dns_upstreams_item" || return 1
+		_dns_upstreams_count=$((_dns_upstreams_count + 1))
+	done
+	[ "$_dns_upstreams_count" -ge 1 ] && [ "$_dns_upstreams_count" -le 8 ]
 }
 
 validate_profile_policy() {
@@ -249,7 +273,11 @@ setting() {
 draft_pending() {
 	[ "$(setting draft_pending)" = 1 ] || return 1
 	count="$(db_sql "SELECT (SELECT COUNT(*) FROM draft_nodes) + (SELECT COUNT(*) FROM draft_profiles) + (SELECT COUNT(*) FROM draft_policies) + (SELECT COUNT(*) FROM draft_source_deletions);" | tr -d '[:space:]')"
-	[ "$count" -gt 0 ] || return 1
+	[ "$count" -gt 0 ] 2>/dev/null && return 0
+	[ "$(setting active_profile)" != "$(setting draft_active_profile)" ] && return 0
+	[ "$(setting service_enabled)" != "$(setting draft_service_enabled)" ] && return 0
+	[ "$(setting direct_dns_upstreams)" != "$(setting draft_direct_dns_upstreams)" ] && return 0
+	return 1
 }
 
 begin_draft() {
@@ -264,9 +292,10 @@ begin_draft() {
 		INSERT INTO draft_nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM nodes;
 		INSERT INTO draft_profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM profiles;
 		INSERT INTO draft_profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM profile_nodes;
-		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_service_enabled');
+		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_service_enabled','draft_direct_dns_upstreams');
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_active_profile',value,CURRENT_TIMESTAMP FROM settings WHERE key='active_profile';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_service_enabled',value,CURRENT_TIMESTAMP FROM settings WHERE key='service_enabled';
+		INSERT INTO settings(key,value,updated_at) SELECT 'draft_direct_dns_upstreams',value,CURRENT_TIMESTAMP FROM settings WHERE key='direct_dns_upstreams';
 		INSERT INTO settings(key,value,updated_at) VALUES('draft_pending','1',CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value='1',updated_at=CURRENT_TIMESTAMP;
 		COMMIT;"
 }
@@ -309,6 +338,7 @@ discard_drafts() {
 		DELETE FROM sources WHERE type='manual' AND name='manual' AND NOT EXISTS (SELECT 1 FROM nodes WHERE source_id=sources.id);
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='active_profile'),''),updated_at=CURRENT_TIMESTAMP WHERE key='draft_active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='service_enabled'),'0'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_service_enabled';
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='direct_dns_upstreams'),'223.5.5.5:53'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_direct_dns_upstreams';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='applied_config_version'),'1'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_config_version';
 		INSERT INTO settings(key,value,updated_at) VALUES('draft_pending','0',CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value='0',updated_at=CURRENT_TIMESTAMP;
 		COMMIT;"
@@ -378,10 +408,20 @@ ensure_db() {
 		db_sql "DELETE FROM settings WHERE key IN ('transparent_proxy_port','force_proxy_port'); INSERT OR IGNORE INTO schema_migrations(version) VALUES (8); PRAGMA user_version=8;"
 		version=8
 	fi
-	[ "$version" = 8 ] || die "unsupported database schema version: $version"
-	missing_settings="$(db_sql "SELECT COUNT(*) FROM (SELECT 'service_enabled' AS key UNION ALL SELECT 'draft_service_enabled' UNION ALL SELECT 'applied_config_version' UNION ALL SELECT 'draft_config_version' UNION ALL SELECT 'draft_pending' UNION ALL SELECT 'draft_active_profile') required WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.key=required.key);" | tr -d '[:space:]')"
+	if [ "$version" = 8 ]; then
+		legacy_direct_dns='223.5.5.5:53'
+		if db_has_column policies direct_dns && db_has_column profiles policy_id; then
+			legacy_direct_dns="$(db_sql "SELECT COALESCE((SELECT pol.direct_dns FROM profiles p JOIN policies pol ON pol.id=p.policy_id WHERE p.id=(SELECT value FROM settings WHERE key='active_profile')), (SELECT direct_dns FROM policies WHERE direct_dns IS NOT NULL AND direct_dns<>'' ORDER BY id LIMIT 1), '223.5.5.5:53');" | sed -n '1p')"
+		fi
+		normalized_direct_dns="$(normalize_dns_upstreams "$legacy_direct_dns")"
+		validate_dns_upstreams "$normalized_direct_dns" || normalized_direct_dns='223.5.5.5:53'
+		db_sql "INSERT INTO settings(key,value,updated_at) VALUES('direct_dns_upstreams',$(sql_quote "$normalized_direct_dns"),CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP; INSERT OR IGNORE INTO schema_migrations(version) VALUES (9); PRAGMA user_version=9;"
+		version=9
+	fi
+	[ "$version" = 9 ] || die "unsupported database schema version: $version"
+	missing_settings="$(db_sql "SELECT COUNT(*) FROM (SELECT 'service_enabled' AS key UNION ALL SELECT 'draft_service_enabled' UNION ALL SELECT 'applied_config_version' UNION ALL SELECT 'draft_config_version' UNION ALL SELECT 'draft_pending' UNION ALL SELECT 'draft_active_profile' UNION ALL SELECT 'direct_dns_upstreams' UNION ALL SELECT 'draft_direct_dns_upstreams') required WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.key=required.key);" | tr -d '[:space:]')"
 	if [ "$missing_settings" -gt 0 ] 2>/dev/null; then
-		db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', '');"
+		db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('service_enabled', '0'), ('draft_service_enabled', '0'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('direct_dns_upstreams', '223.5.5.5:53'), ('draft_direct_dns_upstreams', '223.5.5.5:53');"
 	fi
 	legacy_settings="$(db_sql "SELECT COUNT(*) FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');" | tr -d '[:space:]')"
 	if [ "$legacy_settings" -gt 0 ] 2>/dev/null; then
@@ -440,9 +480,13 @@ cmd_set_setting() {
 		service_enabled)
 			case "$value" in 0|1) ;; *) die "service_enabled must be 0 or 1" ;; esac
 			;;
+		direct_dns_upstreams)
+			value="$(normalize_dns_upstreams "$value")"
+			validate_dns_upstreams "$value" || die "invalid direct DNS upstream list"
+			;;
 	esac
 	case "$key" in
-		active_profile|service_enabled)
+		active_profile|service_enabled|direct_dns_upstreams)
 			draft_change_begin
 			set_draft_setting "$key" "$value"
 			draft_change_commit
@@ -924,6 +968,7 @@ cmd_apply_draft() {
 		INSERT INTO profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM draft_profile_nodes;
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_active_profile'),value),updated_at=CURRENT_TIMESTAMP WHERE key='active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_service_enabled'),value),updated_at=CURRENT_TIMESTAMP WHERE key='service_enabled';
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_direct_dns_upstreams'),value),updated_at=CURRENT_TIMESTAMP WHERE key='direct_dns_upstreams';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_config_version'),value),updated_at=CURRENT_TIMESTAMP WHERE key='applied_config_version';
 		DELETE FROM draft_profile_nodes;
 		DELETE FROM draft_profiles;
@@ -1363,6 +1408,16 @@ dnsmasq_endpoint() {
 	printf '%s\n' "$1" | sed 's/:\([0-9][0-9]*\)$/#\1/'
 }
 
+direct_dns_upstreams() {
+	value="$(setting direct_dns_upstreams)"
+	[ -n "$value" ] || value='223.5.5.5:53'
+	printf '%s\n' "$value"
+}
+
+first_direct_dns_upstream() {
+	direct_dns_upstreams | awk -F ',' 'NF { print $1; exit }'
+}
+
 subscription_hosts() {
 	db_sql "SELECT url FROM sources WHERE type='subscription' AND url IS NOT NULL ORDER BY id;" | awk '
 		{
@@ -1401,14 +1456,17 @@ cmd_dns_settings() {
 $row
 EOF
 	IFS="$old_ifs"
+	direct_dns="$(direct_dns_upstreams)"
+	direct_dns_first="$(first_direct_dns_upstream)"
 	if [ "$use_v2ray_dns" = 1 ]; then
 		dnsmasq_default="$(setting v2ray_dns_listen)"
 	else
-		dnsmasq_default="$(dnsmasq_endpoint "$profile_direct_dns")"
+		dnsmasq_default="$(dnsmasq_endpoint "$direct_dns_first")"
 	fi
 	printf 'runtime_state=%s\n' "$(get_state)"
 	printf 'dnsmasq_default=%s\n' "$dnsmasq_default"
-	printf 'direct_dns=%s\n' "$profile_direct_dns"
+	printf 'direct_dns=%s\n' "$direct_dns_first"
+	printf 'direct_dns_upstreams=%s\n' "$direct_dns"
 	printf 'bootstrap_domain=%s\n' "$server"
 	printf 'use_v2ray_dns=%s\n' "$use_v2ray_dns"
 	printf 'mosdns_enabled=%s\n' "$mosdns_enabled"
@@ -1434,7 +1492,7 @@ EOF
 	IFS="$old_ifs"
 	listen="$(hash_port_addr "$(setting mosdns_listen)")"
 	proxy_dns="$(endpoint_to_addr "$(hash_port_addr "$(setting v2ray_dns_listen)")")"
-	direct_dns="$(endpoint_to_addr "$profile_direct_dns")"
+	direct_dns_upstreams="$(direct_dns_upstreams)"
 	match_rules="$(active_profile_match_rules)"
 	if [ -n "$match_rules" ]; then
 		printf '%s\n' "$match_rules" > "$ACTIVE_DIR/mosdns-direct-domains.txt"
@@ -1450,7 +1508,13 @@ EOF
 		printf '%s\n' '    type: forward'
 		printf '%s\n' '    args:'
 		printf '%s\n' '      upstreams:'
-		printf '        - addr: "%s"\n' "$direct_dns"
+		printf '%s\n' "$direct_dns_upstreams" | awk -F ',' '
+			{
+				for (i = 1; i <= NF; i++)
+					if ($i != "")
+						printf "        - addr: \"udp://%s\"\n", $i
+			}
+		'
 		printf '%s\n' '  - tag: forward_proxy'
 		printf '%s\n' '    type: forward'
 		printf '%s\n' '    args:'
@@ -2026,7 +2090,7 @@ cmd_network_probe() {
 	if [ "$runtime_state" = proxy ] && [ -n "$active_row" ]; then
 		old_ifs="$IFS"
 		IFS="$(printf '\t')"
-		read -r _profile_protocol _profile_server _profile_port _profile_data _direct_dns _profile_proxy_ports _bypass_china \
+		read -r _profile_protocol _profile_server _profile_port _profile_data _profile_direct_dns _profile_proxy_ports _bypass_china \
 			use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
 		transparent_proxy_port probe_enabled probe_port <<EOF
 $active_row
@@ -2035,7 +2099,7 @@ EOF
 		if [ "$use_v2ray_dns" = 1 ]; then
 			dns_default="$(setting v2ray_dns_listen)"
 		else
-			dns_default="$(dnsmasq_endpoint "$_direct_dns")"
+			dns_default="$(dnsmasq_endpoint "$(first_direct_dns_upstream)")"
 		fi
 	fi
 	dnsmasq_servers="$(uci -q get 'dhcp.@dnsmasq[0].server' 2>/dev/null | tr '\n' ',' | sed 's/,$//' || true)"
@@ -2250,12 +2314,14 @@ cmd_dns_state() {
 	row="$(active_profile)"
 	old_ifs="$IFS"
 	IFS="$(printf '\t')"
-	read -r protocol server port data_json direct_dns profile_proxy_ports bypass_china \
+	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
 		transparent_proxy_port probe_enabled probe_port <<EOF
 $row
 EOF
 	IFS="$old_ifs"
+	direct_dns="$(direct_dns_upstreams)"
+	direct_dns_first="$(first_direct_dns_upstream)"
 	direct_rule="$(active_profile_match_rules | sed -n '/^[[:space:]]*[^#[:space:]]/{p;q;}')"
 	[ -n "$direct_rule" ] || direct_rule="$(sed -n '/^[[:space:]]*[^#[:space:]]/{p;q;}' "$RULE_DIR/direct_domains.txt" 2>/dev/null || true)"
 	accel_count=0
@@ -2268,7 +2334,7 @@ EOF
 		if [ "$use_v2ray_dns" = 1 ]; then
 			printf 'dnsmasq_default=%s\n' "$(setting v2ray_dns_listen)"
 		else
-			printf 'dnsmasq_default=%s\n' "$(dnsmasq_endpoint "$direct_dns")"
+			printf 'dnsmasq_default=%s\n' "$(dnsmasq_endpoint "$direct_dns_first")"
 		fi
 	else
 		printf 'dnsmasq_default=WAN DHCP DNS\n'
@@ -2280,7 +2346,8 @@ EOF
 	printf 'mosdns_enabled=%s\n' "$mosdns_enabled"
 	printf 'mosdns_listen=%s\n' "$(setting mosdns_listen)"
 	printf 'mosdns_route_suffix=%s\n' "$mosdns_domains"
-	printf 'direct_dns=%s\n' "$direct_dns"
+	printf 'direct_dns=%s\n' "$direct_dns_first"
+	printf 'direct_dns_upstreams=%s\n' "$direct_dns"
 	printf 'proxy_router_traffic=%s\n' "$proxy_router_traffic"
 	printf 'direct_rule=%s\n' "$direct_rule"
 	printf 'nft_direct_sets=%s\n' 'direct4,direct6'
@@ -2293,6 +2360,8 @@ EOF
 cmd_status() {
 	ensure_db
 	printf 'state=%s\n' "$(get_state)"
+	printf 'direct_dns_upstreams=%s\n' "$(setting direct_dns_upstreams)"
+	printf 'draft_direct_dns_upstreams=%s\n' "$(setting draft_direct_dns_upstreams)"
 	printf 'active_engine=%s\n' "$(setting active_engine)"
 	printf 'active_profile=%s\n' "$(setting active_profile)"
 	printf 'service_enabled=%s\n' "$(setting service_enabled)"

@@ -120,8 +120,10 @@ Stop and restore normal DNS:
 
 ## Test Scope
 
-Each profile selects the intercepted TCP destination ports, a local transparent
-proxy listener port (default `12345`), and an optional loopback SOCKS
+Direct DNS upstreams are global and support an ordered list. The same list is
+used for node bootstrap, subscription-hostname forwarding and the MosDNS direct
+branch. Each profile selects the intercepted TCP destination ports, a local
+transparent proxy listener port (default `12345`), and an optional loopback SOCKS
 connectivity-probe port (default `12346`). Disabling the probe imports traffic
 and DNS immediately without an end-to-end proxy check. China IP traffic can use
 V2Ray's `geoip:cn` direct outbound rule.

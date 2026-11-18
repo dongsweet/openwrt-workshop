@@ -70,6 +70,15 @@ grep -q '"tag":"health-in","listen":"127.0.0.1","port":12346' "$TEST_DIR/runtime
 grep -q '"inboundTag":\["dns-in","health-in"\]' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
 
+"$ctl" set-setting direct_dns_upstreams '1.1.1.1:53, 9.9.9.9:53'
+"$ctl" status | grep -q '^direct_dns_upstreams=223.5.5.5:53$'
+"$ctl" status | grep -q '^draft_direct_dns_upstreams=1.1.1.1:53,9.9.9.9:53$'
+"$ctl" apply-draft
+"$ctl" render-all
+grep -q 'addr: "udp://1.1.1.1:53"' "$TEST_DIR/runtime/active/mosdns.yaml"
+grep -q 'addr: "udp://9.9.9.9:53"' "$TEST_DIR/runtime/active/mosdns.yaml"
+"$ctl" status | grep -q '^direct_dns_upstreams=1.1.1.1:53,9.9.9.9:53$'
+
 "$ctl" update-node 1 hk-updated vless hk3.example.com 8443 '{"settings":{"vnext":[{"address":"hk3.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"ws"}}' >/dev/null
 "$ctl" list-nodes | grep -q 'hk-updated.*hk3.example.com.*8443'
 if "$ctl" set-node-enabled 1 0 >/dev/null 2>&1; then
