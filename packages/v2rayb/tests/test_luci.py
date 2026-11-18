@@ -169,6 +169,7 @@ def main():
     assert "rollback_start suspended" in init_source
     assert "suspend_service()" in init_source
     assert '"$CTL" set-state suspended' in init_source
+    assert "normal|starting|proxy|stopping|degraded|suspended" in ctl_source
     watchdog_source = (FILES / "usr/bin/v2rayB-watchdog").read_text(encoding="utf-8")
     assert "probe_proxy()" in watchdog_source
     assert "--socks5-hostname \"127.0.0.1:$HEALTH_PROBE_PORT\"" in watchdog_source

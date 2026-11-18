@@ -375,7 +375,7 @@ ensure_db() {
 
 set_state() {
 	case "$1" in
-		normal|starting|proxy|stopping|degraded) ;;
+		normal|starting|proxy|stopping|degraded|suspended) ;;
 		*) die "invalid runtime state: $1" ;;
 	esac
 	mkdir -p "$STATE_DIR"
@@ -2349,7 +2349,7 @@ Usage:
   v2rayBctl status
   v2rayBctl get-setting KEY
   v2rayBctl set-setting KEY VALUE
-  v2rayBctl set-state normal|starting|proxy|stopping|degraded
+  v2rayBctl set-state normal|starting|proxy|stopping|degraded|suspended
   v2rayBctl add-source manual|subscription|imported NAME [URL] [FORMAT] [IPV4_ONLY]
   v2rayBctl list-sources
   v2rayBctl update-subscription SOURCE_ID
