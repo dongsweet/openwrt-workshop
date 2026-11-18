@@ -1309,7 +1309,15 @@ dnsmasq_endpoint() {
 }
 
 subscription_url_host() {
-	printf '%s\n' "$1" | sed -n 's#^[A-Za-z][A-Za-z0-9+.-]*://\(\[[^]]*\]\)[:/].*#\1#p; s#^[A-Za-z][A-Za-z0-9+.-]*://\([^/:?#]*\).*#\1#p' | sed -n '1p' | sed 's/^\[//;s/\]$//' | tr '[:upper:]' '[:lower:]'
+	authority="${1#*://}"
+	case "$authority" in "$1"|'') return 0 ;; esac
+	authority="${authority%%[/?#]*}"
+	case "$authority" in
+		\[*\]:*|\[*\]) host="${authority#\[}"; host="${host%%\]*}" ;;
+		*:*) host="${authority%:*}" ;;
+		*) host="$authority" ;;
+	esac
+	printf '%s\n' "$host" | sed 's/^\[//;s/\]$//' | tr '[:upper:]' '[:lower:]'
 }
 
 subscription_hosts() {

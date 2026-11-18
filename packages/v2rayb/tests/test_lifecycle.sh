@@ -73,7 +73,7 @@ setup_case() {
 	MOSDNS_FORWARD_EXPECTED="$RUNTIME/dnsmasq-mosdns-expected"
 	BOOTSTRAP_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-bootstrap.conf"
 	BOOTSTRAP_DNS_EXPECTED="$RUNTIME/dnsmasq-bootstrap-expected"
-	SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-subscriptions.conf"
+	SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/89-v2rayB-subscriptions.conf"
 	SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
 	CTL="$TEST_DIR/ctl"
 	MOCK_SERVER=""
