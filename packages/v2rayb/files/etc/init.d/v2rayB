@@ -122,26 +122,26 @@ write_mosdns_forward_expected() {
 }
 
 write_dns_domain_rules() {
-	domain="$1"
-	upstreams="$2"
-	case "$domain" in
+	_dns_rule_domain="$1"
+	_dns_rule_upstreams="$2"
+	case "$_dns_rule_domain" in
 		''|*[!A-Za-z0-9._-]*|.*|*.) return 0 ;;
 	esac
-	printf '%s\n' "$upstreams" | tr ',' '\n' | while IFS= read -r upstream; do
-		upstream="$(printf '%s' "$upstream" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-		[ -n "$upstream" ] || continue
-		dnsmasq_server="$(printf '%s\n' "$upstream" | sed 's/:\([0-9][0-9]*\)$/#\1/')"
-		printf 'server=/%s/%s\n' "$domain" "$dnsmasq_server"
+	printf '%s\n' "$_dns_rule_upstreams" | tr ',' '\n' | while IFS= read -r _dns_rule_upstream; do
+		_dns_rule_upstream="$(printf '%s' "$_dns_rule_upstream" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+		[ -n "$_dns_rule_upstream" ] || continue
+		_dns_rule_server="$(printf '%s\n' "$_dns_rule_upstream" | sed 's/:\([0-9][0-9]*\)$/#\1/')"
+		printf 'server=/%s/%s\n' "$_dns_rule_domain" "$_dns_rule_server"
 	done
-	printf 'nftset=/%s/4#inet#v2rayB#pass\n' "$domain"
-	printf 'nftset=/%s/6#inet#v2rayB#pass6\n' "$domain"
+	printf 'nftset=/%s/4#inet#v2rayB#pass\n' "$_dns_rule_domain"
+	printf 'nftset=/%s/6#inet#v2rayB#pass6\n' "$_dns_rule_domain"
 }
 
 direct_dns_upstreams() {
-	upstreams="$(dns_policy_value direct_dns_upstreams)"
-	[ -n "$upstreams" ] || upstreams="$(dns_policy_value direct_dns)"
-	[ -n "$upstreams" ] || upstreams='223.5.5.5:53'
-	printf '%s\n' "$upstreams"
+	_direct_dns_value="$(dns_policy_value direct_dns_upstreams)"
+	[ -n "$_direct_dns_value" ] || _direct_dns_value="$(dns_policy_value direct_dns)"
+	[ -n "$_direct_dns_value" ] || _direct_dns_value='223.5.5.5:53'
+	printf '%s\n' "$_direct_dns_value"
 }
 
 write_bootstrap_dns_expected() {

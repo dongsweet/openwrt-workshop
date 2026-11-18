@@ -1409,9 +1409,10 @@ dnsmasq_endpoint() {
 }
 
 direct_dns_upstreams() {
-	value="$(setting direct_dns_upstreams)"
-	[ -n "$value" ] || value='223.5.5.5:53'
-	printf '%s\n' "$value"
+	# Shared shell variables must not leak the caller's list into this function.
+	_direct_dns_value="$(setting direct_dns_upstreams)"
+	[ -n "$_direct_dns_value" ] || _direct_dns_value='223.5.5.5:53'
+	printf '%s\n' "$_direct_dns_value"
 }
 
 first_direct_dns_upstream() {
@@ -1456,17 +1457,17 @@ cmd_dns_settings() {
 $row
 EOF
 	IFS="$old_ifs"
-	direct_dns="$(direct_dns_upstreams)"
-	direct_dns_first="$(first_direct_dns_upstream)"
+	_dns_direct_list="$(direct_dns_upstreams)"
+	_dns_direct_first="$(first_direct_dns_upstream)"
 	if [ "$use_v2ray_dns" = 1 ]; then
 		dnsmasq_default="$(setting v2ray_dns_listen)"
 	else
-		dnsmasq_default="$(dnsmasq_endpoint "$direct_dns_first")"
+		dnsmasq_default="$(dnsmasq_endpoint "$_dns_direct_first")"
 	fi
 	printf 'runtime_state=%s\n' "$(get_state)"
 	printf 'dnsmasq_default=%s\n' "$dnsmasq_default"
-	printf 'direct_dns=%s\n' "$direct_dns_first"
-	printf 'direct_dns_upstreams=%s\n' "$direct_dns"
+	printf 'direct_dns=%s\n' "$_dns_direct_first"
+	printf 'direct_dns_upstreams=%s\n' "$_dns_direct_list"
 	printf 'bootstrap_domain=%s\n' "$server"
 	printf 'use_v2ray_dns=%s\n' "$use_v2ray_dns"
 	printf 'mosdns_enabled=%s\n' "$mosdns_enabled"
@@ -1492,7 +1493,7 @@ EOF
 	IFS="$old_ifs"
 	listen="$(hash_port_addr "$(setting mosdns_listen)")"
 	proxy_dns="$(endpoint_to_addr "$(hash_port_addr "$(setting v2ray_dns_listen)")")"
-	direct_dns_upstreams="$(direct_dns_upstreams)"
+	_direct_dns_upstreams="$(direct_dns_upstreams)"
 	match_rules="$(active_profile_match_rules)"
 	if [ -n "$match_rules" ]; then
 		printf '%s\n' "$match_rules" > "$ACTIVE_DIR/mosdns-direct-domains.txt"
@@ -1508,7 +1509,7 @@ EOF
 		printf '%s\n' '    type: forward'
 		printf '%s\n' '    args:'
 		printf '%s\n' '      upstreams:'
-		printf '%s\n' "$direct_dns_upstreams" | awk -F ',' '
+		printf '%s\n' "$_direct_dns_upstreams" | awk -F ',' '
 			{
 				for (i = 1; i <= NF; i++)
 					if ($i != "")
@@ -2320,8 +2321,8 @@ cmd_dns_state() {
 $row
 EOF
 	IFS="$old_ifs"
-	direct_dns="$(direct_dns_upstreams)"
-	direct_dns_first="$(first_direct_dns_upstream)"
+	_dns_direct_list="$(direct_dns_upstreams)"
+	_dns_direct_first="$(first_direct_dns_upstream)"
 	direct_rule="$(active_profile_match_rules | sed -n '/^[[:space:]]*[^#[:space:]]/{p;q;}')"
 	[ -n "$direct_rule" ] || direct_rule="$(sed -n '/^[[:space:]]*[^#[:space:]]/{p;q;}' "$RULE_DIR/direct_domains.txt" 2>/dev/null || true)"
 	accel_count=0
@@ -2334,7 +2335,7 @@ EOF
 		if [ "$use_v2ray_dns" = 1 ]; then
 			printf 'dnsmasq_default=%s\n' "$(setting v2ray_dns_listen)"
 		else
-			printf 'dnsmasq_default=%s\n' "$(dnsmasq_endpoint "$direct_dns_first")"
+			printf 'dnsmasq_default=%s\n' "$(dnsmasq_endpoint "$_dns_direct_first")"
 		fi
 	else
 		printf 'dnsmasq_default=WAN DHCP DNS\n'
@@ -2346,8 +2347,8 @@ EOF
 	printf 'mosdns_enabled=%s\n' "$mosdns_enabled"
 	printf 'mosdns_listen=%s\n' "$(setting mosdns_listen)"
 	printf 'mosdns_route_suffix=%s\n' "$mosdns_domains"
-	printf 'direct_dns=%s\n' "$direct_dns_first"
-	printf 'direct_dns_upstreams=%s\n' "$direct_dns"
+	printf 'direct_dns=%s\n' "$_dns_direct_first"
+	printf 'direct_dns_upstreams=%s\n' "$_dns_direct_list"
 	printf 'proxy_router_traffic=%s\n' "$proxy_router_traffic"
 	printf 'direct_rule=%s\n' "$direct_rule"
 	printf 'nft_direct_sets=%s\n' 'direct4,direct6'

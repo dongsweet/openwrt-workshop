@@ -73,7 +73,9 @@ grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
 "$ctl" set-setting direct_dns_upstreams '1.1.1.1:53, 9.9.9.9:53'
 "$ctl" status | grep -q '^direct_dns_upstreams=223.5.5.5:53$'
 "$ctl" status | grep -q '^draft_direct_dns_upstreams=1.1.1.1:53,9.9.9.9:53$'
+"$ctl" dns-settings | grep -q '^direct_dns_upstreams=223.5.5.5:53$'
 "$ctl" apply-draft
+"$ctl" dns-settings | grep -q '^direct_dns_upstreams=1.1.1.1:53,9.9.9.9:53$'
 "$ctl" render-all
 grep -q 'addr: "udp://1.1.1.1:53"' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'addr: "udp://9.9.9.9:53"' "$TEST_DIR/runtime/active/mosdns.yaml"
