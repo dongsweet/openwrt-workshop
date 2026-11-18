@@ -255,11 +255,16 @@ restore_dnsmasq() {
 		target="${rule%%:*}"
 		expected="${rule#*:}"
 		if [ -e "$target" ]; then
-			if [ ! -f "$expected" ] || ! cmp -s "$target" "$expected"; then
+			if [ -f "$expected" ] && cmp -s "$target" "$expected"; then
+				rm -f "$target" || return 1
+			elif [ "$target" = "$SUBSCRIPTION_DNS_FILE" ] &&
+				[ "$(sed -n '1p' "$target" 2>/dev/null)" = '# Managed by v2rayB; removed when proxy mode stops.' ] &&
+				! sed -n '2,$p' "$target" | grep -Eqv '^server=/[A-Za-z0-9._:-]+/[A-Za-z0-9._:#-]+$'; then
+				rm -f "$target" || return 1
+			else
 				log "refusing to remove modified $target"
 				return 1
 			fi
-			rm -f "$target" || return 1
 		fi
 	done
 	rm -f "$RUNTIME/dnsmasq-mosdns-rule" "$MOSDNS_FORWARD_EXPECTED" "$BOOTSTRAP_DNS_EXPECTED" "$SUBSCRIPTION_DNS_EXPECTED"

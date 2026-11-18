@@ -174,6 +174,21 @@ stop_service
 [ ! -e "$SUBSCRIPTION_DNS_EXPECTED" ]
 [ "$(sed -n '1p' "$RUNTIME/state")" = normal ]
 
+setup_case legacy-subscription-rule
+printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
+	'server=/old.example.com/61.139.2.69' > "$SUBSCRIPTION_DNS_FILE"
+restore_dnsmasq
+[ ! -e "$SUBSCRIPTION_DNS_FILE" ]
+
+setup_case modified-subscription-rule
+printf '%s\n' '# User-owned rule' \
+	'server=/keep.example.com/9.9.9.9' > "$SUBSCRIPTION_DNS_FILE"
+if restore_dnsmasq; then
+	echo "modified subscription rule was unexpectedly removed" >&2
+	exit 1
+fi
+grep -q 'server=/keep.example.com/9.9.9.9' "$SUBSCRIPTION_DNS_FILE"
+
 setup_case dns-routing
 DNS_RELOAD_FAIL=0
 FAIL_NFT=0
