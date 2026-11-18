@@ -389,6 +389,7 @@ def main():
     assert "draft_watchdog_auto_recover" in ctl_source
     assert "key != 'watchdog_auto_recover'" in rpc_source
     assert "field(_('Restart engine during recovery'), watchdogRestartEngine" in view_source
+    assert "安全暂停后探测仍失败且引擎进程存在时" in view_source
     assert "callSetSetting('watchdog_restart_engine'" in view_source
     assert "draft_watchdog_restart_engine" in ctl_source
     assert "key != 'watchdog_restart_engine'" in rpc_source

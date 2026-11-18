@@ -333,7 +333,7 @@ const _zh = {
 	'Enable watchdog': '启用看门狗',
 	'Automatically restore takeover': '自动恢复代理接管',
 	'Restart engine during recovery': '恢复时重启代理引擎',
-	'After a recovered probe, restart V2Ray/Xray before restoring takeover. This handles a running but hung engine; retries are throttled.': '恢复探测成功后先重启 V2Ray/Xray 再重新接管，用于处理进程仍在但已经卡死的情况；重启重试有冷却间隔。',
+	'After a recovered probe, restart V2Ray/Xray before restoring takeover. This handles a running but hung engine; retries are throttled.': '安全暂停后探测仍失败且引擎进程存在时，先重启 V2Ray/Xray 再重新探测；重启尝试有冷却间隔。',
 	'After a fail-open suspension, automatically restore traffic and DNS takeover when proxy connectivity returns.': '进入安全暂停后持续探测，连接恢复时自动重新接管流量和 DNS。',
 	'Automatically withdraws traffic and DNS imports after repeated proxy connectivity failures.': '代理连续连通失败时，自动撤销流量和 DNS 接管。',
 	'WebSocket host': 'WebSocket 主机',
