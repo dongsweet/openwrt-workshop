@@ -376,7 +376,7 @@ def main():
     assert "configuredDirectDnsUpstreams" in view_source
     assert "const watchdogEnabled = checkbox" in view_source
     assert "field(_('Enable watchdog'), E('div'" in view_source
-    assert "连续 3 次探测失败后停止代理并撤销接管；恢复后需手动重试。" in view_source
+    assert "需在 Profile 中启用连通性探测；连续 3 次探测失败后停止代理并撤销接管，恢复后需手动重试。" in view_source
     assert "callSetSetting('watchdog_enabled', this.watchdogEnabledDesired ? '1' : '0')" in view_source
     assert "field(_('Proxy engine'), profileEngine" in view_source
     assert "const profileEngine = E('select'" in view_source

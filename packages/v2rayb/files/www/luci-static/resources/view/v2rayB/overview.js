@@ -1400,7 +1400,7 @@ return view.extend({
 					_('Applied after Save & Apply.')),
 				field(_('Enable watchdog'), E('div', {}, [
 					watchdogEnabled, E('span', { class: 'v2rayb-help' },
-						'连续 3 次探测失败后停止代理并撤销接管；恢复后需手动重试。')
+						'需在 Profile 中启用连通性探测；连续 3 次探测失败后停止代理并撤销接管，恢复后需手动重试。')
 				]))
 			]),
 			table([ _('Property'), _('Current value') ], [
