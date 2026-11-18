@@ -741,6 +741,10 @@ restart() {
 	reload_service "$@"
 }
 
+suspend() {
+	suspend_service "$@"
+}
+
 resume() {
 	resume_service "$@"
 }
