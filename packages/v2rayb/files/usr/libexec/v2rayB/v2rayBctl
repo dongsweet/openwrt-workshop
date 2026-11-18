@@ -984,11 +984,11 @@ apply_job_fail_and_rollback() {
 		return 1
 	}
 	apply_job_output "$apply_job_dir" "$apply_job_boot_output"
-	if [ "$apply_job_before_state" = proxy ]; then
-		apply_job_restore_action=restart
-	else
-		apply_job_restore_action=stop
-	fi
+	case "$apply_job_before_state" in
+		proxy) apply_job_restore_action=restart ;;
+		suspended) apply_job_restore_action=suspend ;;
+		*) apply_job_restore_action=stop ;;
+	esac
 	apply_job_restore_output="$("$INIT_SCRIPT" "$apply_job_restore_action" 2>&1)" || {
 		apply_job_message="$apply_job_reason; configuration rolled back but service restoration failed: ${apply_job_restore_output:-unknown error}"
 		apply_job_output "$apply_job_dir" "$apply_job_restore_output"
@@ -1037,13 +1037,20 @@ cmd_apply_draft_run() {
 	apply_job_output "$apply_job_dir" "$apply_job_step_output"
 
 	if [ "$apply_job_enabled" = 1 ]; then
-		if [ "$apply_job_before_state" = proxy ]; then
-			apply_job_action=restart
-			apply_job_set_stage "$apply_job_dir" restarting-service
-		else
-			apply_job_action=start
-			apply_job_set_stage "$apply_job_dir" starting-service
-		fi
+		case "$apply_job_before_state" in
+			proxy)
+				apply_job_action=restart
+				apply_job_set_stage "$apply_job_dir" restarting-service
+				;;
+			suspended)
+				apply_job_action=resume
+				apply_job_set_stage "$apply_job_dir" resuming-service
+				;;
+			*)
+				apply_job_action=start
+				apply_job_set_stage "$apply_job_dir" starting-service
+				;;
+		esac
 		apply_job_step_output="$("$INIT_SCRIPT" "$apply_job_action" 2>&1)" || {
 			apply_job_fail_and_rollback "$apply_job_dir" "Applied, but service start failed" "$apply_job_step_output" "$apply_job_before_state" "$apply_job_before_enabled"
 			return 1

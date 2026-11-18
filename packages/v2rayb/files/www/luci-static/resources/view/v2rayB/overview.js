@@ -99,6 +99,7 @@ const _zh = {
 	'Queued': '等待执行',
 	'Rendering configuration': '正在生成配置',
 	'Restarting service': '正在重启服务',
+	'Resuming service': '正在恢复服务',
 	'Restoring service': '正在恢复服务',
 	'Rolling back changes': '正在回滚变更',
 	'Saving configuration': '正在保存配置',
@@ -612,6 +613,7 @@ function applyStageText(stage) {
 	case 'updating-boot': return _('Updating boot state');
 	case 'starting-service': return _('Starting service');
 	case 'restarting-service': return _('Restarting service');
+	case 'resuming-service': return _('Resuming service');
 	case 'stopping-service': return _('Stopping service');
 	case 'verifying': return _('Verifying service');
 	case 'rolling-back': return _('Rolling back changes');

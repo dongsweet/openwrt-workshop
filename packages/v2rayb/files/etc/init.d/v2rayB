@@ -442,6 +442,11 @@ start_service() {
 		release_lock
 		return 0
 	fi
+	if [ "$current_state" = suspended ]; then
+		log "proxy is suspended; explicit resume or a profile change is required"
+		release_lock
+		return 0
+	fi
 	if [ "$current_state" != normal ] || managed_processes_alive || [ -d "$DNS_BACKUP" ] || [ -f "$RUNTIME/nft-managed" ]; then
 		release_lock
 		stop_service || return 1
@@ -554,7 +559,29 @@ suspend_service() {
 	release_lock
 }
 
+resume_service() {
+	acquire_lock || return 1
+	if [ "$("$CTL" get-setting service_enabled 2>/dev/null)" != 1 ]; then
+		release_lock
+		return 0
+	fi
+	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
+	if [ "$current_state" != normal ] || managed_processes_alive ||
+		[ -d "$DNS_BACKUP" ] || [ -f "$RUNTIME/nft-managed" ]; then
+		release_lock
+		stop_service || return 1
+	else
+		release_lock
+	fi
+	start_service
+}
+
 reload_service() {
+	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
+	if [ "$current_state" = suspended ]; then
+		log "proxy remains suspended; reload does not retry it"
+		return 0
+	fi
 	stop_service || return 1
 	start_service
 }
@@ -575,10 +602,19 @@ reload() {
 	reload_service "$@"
 }
 
+restart() {
+	reload_service "$@"
+}
+
+resume() {
+	resume_service "$@"
+}
+
 if command -v extra_command >/dev/null 2>&1; then
 	extra_command "status" "Show service status"
 	extra_command "running" "Check whether managed processes are running"
 	extra_command "suspend" "Withdraw traffic and DNS imports after a proxy failure"
+	extra_command "resume" "Retry a suspended proxy service"
 fi
 
 running() {

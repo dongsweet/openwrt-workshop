@@ -101,7 +101,7 @@ def main():
     assert "set_service_enabled" not in rpc_source
     assert "key != 'service_enabled'" in rpc_source
     assert "enabled ? 'enable' : 'disable'" in rpc_source
-    assert "was_proxy ? 'restart' : 'start'" in rpc_source
+    assert "was_proxy ? 'restart' : was_suspended ? 'resume' : 'start'" in rpc_source
     assert "run(init_path, [ 'stop' ])" in rpc_source
     assert "method: 'apply_draft_start'" in view_source
     assert "method: 'apply_draft_status'" in view_source
@@ -172,8 +172,18 @@ def main():
     assert "normal|starting|proxy|stopping|degraded|suspended" in ctl_source
     makefile_source = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert 'state="$$(/usr/libexec/v2rayB/v2rayBctl status' in makefile_source
-    assert '[ "$$state" = suspended ] || exit 1' in makefile_source
+    assert 'if [ "$$start_status" != 0 ] && [ "$$state" != suspended ]; then' in makefile_source
+    assert 'if [ "$$state" = suspended ]; then' in makefile_source
     assert "proxy unavailable, traffic and DNS imports suspended" in makefile_source
+    assert "apply_job_restore_action=suspend" in ctl_source
+    assert "apply_job_action=resume" in ctl_source
+    assert "resuming-service" in ctl_source
+    assert "let wasSuspended = match(before.output" in rpc_source
+    assert "let was_suspended = match(before.output" in rpc_source
+    assert "wasSuspended ? 'suspend'" in rpc_source
+    assert "was_suspended ? 'resume'" in rpc_source
+    assert 'extra_command "resume"' in init_source
+    assert "proxy remains suspended; reload does not retry it" in init_source
     watchdog_source = (FILES / "usr/bin/v2rayB-watchdog").read_text(encoding="utf-8")
     assert "probe_proxy()" in watchdog_source
     assert "--socks5-hostname \"127.0.0.1:$HEALTH_PROBE_PORT\"" in watchdog_source

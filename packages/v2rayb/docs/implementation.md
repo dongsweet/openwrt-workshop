@@ -32,7 +32,9 @@ Before traffic redirection and DNS switching are enabled, an isolated local SOCK
 inbound completes an HTTPS request through the selected proxy. Startup rolls back
 if this probe fails. At runtime, three consecutive probe failures move the service
 to `suspended`, restore the dnsmasq baseline, remove the v2rayB nftables table and
-stop the managed processes while retaining the enabled setting for a later retry. Mux defaults to disabled and is enabled only when a URI query or
+stop the managed processes while retaining the enabled setting. Ordinary starts,
+restarts and reloads do not retry a suspended proxy; an explicit resume or applying
+a profile change performs the retry. Mux defaults to disabled and is enabled only when a URI query or
 VMess payload explicitly requests it. JSON subscription formats and automatic
 periodic refresh remain future work.
 The optional legacy importer normalizes an explicitly selected file into the

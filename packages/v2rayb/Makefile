@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2rayb
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=124
+PKG_RELEASE:=125
 PKG_MAINTAINER:=local
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -52,9 +52,13 @@ define Package/v2rayb/postinst
 	service_enabled="$$(/usr/libexec/v2rayB/v2rayBctl status 2>/dev/null | sed -n 's/^service_enabled=//p' | head -n1)"
 	if [ "$$service_enabled" = 1 ]; then
 		/etc/init.d/v2rayB enable >/dev/null 2>&1 || exit 1
-		if ! /etc/init.d/v2rayB start >/dev/null 2>&1; then
-			state="$$(/usr/libexec/v2rayB/v2rayBctl status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
-			[ "$$state" = suspended ] || exit 1
+		/etc/init.d/v2rayB start >/dev/null 2>&1
+		start_status=$$?
+		state="$$(/usr/libexec/v2rayB/v2rayBctl status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
+		if [ "$$start_status" != 0 ] && [ "$$state" != suspended ]; then
+			exit 1
+		fi
+		if [ "$$state" = suspended ]; then
 			logger -t v2rayB "upgrade completed; proxy unavailable, traffic and DNS imports suspended"
 		fi
 	else

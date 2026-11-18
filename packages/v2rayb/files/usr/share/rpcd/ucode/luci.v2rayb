@@ -465,11 +465,12 @@ const methods = {
 				if (renderOld.code != 0)
 					return { success: false, error: message + '; database rolled back but old runtime configuration could not be rendered: ' + (renderOld.output || 'unknown error') };
 				let wasProxy = match(before.output, /(^|\n)state=proxy(\n|$)/);
+				let wasSuspended = match(before.output, /(^|\n)state=suspended(\n|$)/);
 				let wasEnabled = match(before.output, /(^|\n)service_enabled=1(\n|$)/);
 				let restoreBoot = run(init_path, [ wasEnabled ? 'enable' : 'disable' ]);
 				if (restoreBoot.code != 0)
 					return { success: false, error: message + '; database rolled back but boot state restoration failed: ' + (restoreBoot.output || 'unknown error') };
-				let restored = run(init_path, [ wasProxy ? 'restart' : 'stop' ]);
+				let restored = run(init_path, [ wasProxy ? 'restart' : wasSuspended ? 'suspend' : 'stop' ]);
 				if (restored.code != 0)
 					return { success: false, error: message + '; configuration rolled back but service restoration failed: ' + (restored.output || 'unknown error') };
 				ctl([ 'clear-apply-backup' ]);
@@ -491,7 +492,8 @@ const methods = {
 
 			if (enabled) {
 				let was_proxy = match(before.output, /(^|\n)state=proxy(\n|$)/);
-				let action = was_proxy ? 'restart' : 'start';
+				let was_suspended = match(before.output, /(^|\n)state=suspended(\n|$)/);
+				let action = was_proxy ? 'restart' : was_suspended ? 'resume' : 'start';
 				let current = run(init_path, [ action ]);
 				if (current.code != 0)
 					return rollbackAppliedChange(current.output || 'Applied, but service start failed');

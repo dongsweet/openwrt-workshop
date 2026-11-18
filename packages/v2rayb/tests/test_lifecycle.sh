@@ -98,6 +98,7 @@ cat > "$TEST_DIR/ctl" <<'EOF'
 #!/bin/sh
 case "$1" in
 	set-state) printf '%s\n' "$2" > "$RUNTIME/state" ;;
+	status) printf 'state=%s\n' "$(sed -n '1p' "$RUNTIME/state")" ;;
 	set-setting) exit 0 ;;
 	delete-nft) [ "${FAIL_NFT:-0}" = 0 ] ;;
 	dns-settings)
@@ -289,6 +290,15 @@ suspend_service
 [ ! -e "$SUBSCRIPTION_DNS_FILE" ]
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
 [ -z "$MOCK_NORESOLV" ]
+
+setup_case suspended-reload
+printf 'suspended\n' > "$RUNTIME/state"
+reload_service
+[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
+restart
+[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
+stop_service
+[ "$(sed -n '1p' "$RUNTIME/state")" = normal ]
 
 setup_case inherited-lock
 mkdir -p "$LOCK_DIR"

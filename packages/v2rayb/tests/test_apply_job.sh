@@ -22,8 +22,10 @@ if [ -f "$V2RAYB_TEST_DIR/init.fail.$1" ]; then
 	rm -f "$V2RAYB_TEST_DIR/init.fail.$1"
 	exit 1
 fi
-if [ "$1" = start ] || [ "$1" = restart ]; then
+if [ "$1" = start ] || [ "$1" = restart ] || [ "$1" = resume ]; then
 	printf 'proxy\n' >"$V2RAYB_TEST_DIR/state/state"
+elif [ "$1" = suspend ]; then
+	printf 'suspended\n' >"$V2RAYB_TEST_DIR/state/state"
 elif [ "$1" = stop ]; then
 	printf 'normal\n' >"$V2RAYB_TEST_DIR/state/state"
 fi
@@ -119,5 +121,33 @@ rm -f "$TEST_DIR/init.fail.stop"
 "$ctl" status | grep -q '^draft_pending=0$'
 "$ctl" list-nodes | grep -q 'new.example.com'
 ! "$ctl" list-nodes | grep -q 'newer.example.com'
+
+# A failed resume returns to suspended without reinstalling traffic imports.
+"$ctl" set-setting service_enabled 1 >/dev/null
+"$ctl" apply-draft
+printf 'suspended\n' > "$TEST_DIR/state/state"
+"$ctl" update-node 1 resume-failed vless failed.example.com 443 \
+	'{"settings":{"vnext":[{"address":"failed.example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
+: > "$TEST_DIR/init.calls"
+: > "$TEST_DIR/init.fail.resume"
+job="$("$ctl" apply-draft-start)"
+status=''
+i=0
+while [ "$i" -lt 100 ]; do
+	status="$("$ctl" apply-draft-status "$job")"
+	if printf '%s\n' "$status" | grep -Eq '^status=(done|failed)$'; then
+		break
+	fi
+	i=$((i + 1))
+	sleep 0.1
+done
+printf '%s\n' "$status" | grep -q '^status=failed$'
+printf '%s\n' "$status" | grep -q '^stage=restoring-service$'
+grep -q '^resume$' "$TEST_DIR/init.calls"
+grep -q '^suspend$' "$TEST_DIR/init.calls"
+[ "$(sed -n '1p' "$TEST_DIR/state/state")" = suspended ]
+"$ctl" status | grep -q '^draft_pending=1$'
+"$ctl" list-nodes | grep -q 'failed.example.com'
+[ ! -e "$TEST_DIR/state/db-before-apply" ]
 
 echo "apply job tests: ok"
