@@ -418,6 +418,20 @@ recover_service restart
 [ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
 [ -e "$restart_engine_called" ]
 
+setup_case recover-restart-hung-engine-after-manual-suspend
+spawn_managed v2ray
+printf 'suspended\n' > "$RUNTIME/state"
+restart_engine_called="$RUNTIME/restart-engine.called"
+restart_engine() {
+	printf 'called\n' > "$restart_engine_called"
+	return 0
+}
+proxy_connected() { [ -e "$restart_engine_called" ]; }
+set_proxy_dns() { return 0; }
+recover_service restart
+[ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
+[ -e "$restart_engine_called" ]
+
 setup_case inherited-lock
 mkdir -p "$LOCK_DIR"
 printf '%s\n' "$$" > "$LOCK_DIR/pid"

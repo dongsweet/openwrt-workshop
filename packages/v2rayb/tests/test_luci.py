@@ -175,6 +175,8 @@ def main():
     makefile_source = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert 'state="$$(/usr/libexec/v2rayB/v2rayBctl status' in makefile_source
     assert 'if [ "$$start_status" != 0 ] && [ "$$state" != suspended ]; then' in makefile_source
+    assert 'proxy) /etc/init.d/v2rayB restart' in makefile_source
+    assert 'suspended) ;;' in makefile_source
     assert 'if [ "$$state" = suspended ]; then' in makefile_source
     assert "proxy unavailable, traffic and DNS imports suspended" in makefile_source
     assert "apply_job_restore_action=suspend" in ctl_source
