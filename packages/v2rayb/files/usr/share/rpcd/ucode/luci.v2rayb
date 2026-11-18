@@ -95,7 +95,7 @@ function valid_source_name(value) {
 	return length(value) > 0 && length(value) <= 256 && !match(value, /[\t\r\n]/);
 }
 
-function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic) {
+function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port) {
 	if (direct_dns == '' || length(direct_dns) > 255)
 		return 'Invalid direct DNS endpoint';
 	if (ports == '' || length(ports) > 255 ||
@@ -113,6 +113,20 @@ function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mo
 		return 'MosDNS match rules are too long';
 	if (!match(proxy_router_traffic, /^[01]$/))
 		return 'Invalid Proxy router-originated TCP value; expected 0 or 1';
+	if (!match(transparent_proxy_port, /^[0-9]+$/))
+		return 'Invalid transparent proxy listener port';
+	let listener_port = +transparent_proxy_port;
+	if (listener_port < 1 || listener_port > 65535)
+		return 'Transparent proxy listener port is out of range';
+	if (!match(probe_enabled, /^[01]$/))
+		return 'Invalid connectivity probe setting';
+	if (!match(probe_port, /^[0-9]+$/))
+		return 'Invalid connectivity probe port';
+	let health_port = +probe_port;
+	if (health_port < 1 || health_port > 65535)
+		return 'Connectivity probe port is out of range';
+	if (probe_enabled == '1' && listener_port == health_port)
+		return 'Transparent proxy and probe ports must differ';
 	return null;
 }
 
@@ -389,7 +403,10 @@ const methods = {
 					mosdns_enabled: fields.mosdns_enabled || '1',
 					mosdns_domains: fields.mosdns_domains || '',
 					mosdns_match_rules: rules.output,
-					proxy_router_traffic: fields.proxy_router_traffic || '0'
+					proxy_router_traffic: fields.proxy_router_traffic || '0',
+					transparent_proxy_port: fields.transparent_proxy_port || '12345',
+					probe_enabled: fields.probe_enabled || '1',
+					probe_port: fields.probe_port || '12346'
 				}
 			};
 		}
@@ -561,7 +578,7 @@ const methods = {
 	},
 
 	add_profile: {
-		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0' },
+		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346' },
 		call: function(request) {
 			let name = string_arg(request, 'name');
 			let node_id = string_arg(request, 'node_id');
@@ -573,13 +590,16 @@ const methods = {
 			let mosdns_domains = string_arg(request, 'mosdns_domains');
 			let mosdns_match_rules = string_arg(request, 'mosdns_match_rules');
 			let proxy_router_traffic = string_arg(request, 'proxy_router_traffic');
+			let transparent_proxy_port = string_arg(request, 'transparent_proxy_port') || '12345';
+			let probe_enabled = string_arg(request, 'probe_enabled') || '1';
+			let probe_port = string_arg(request, 'probe_port') || '12346';
 			if (length(name) > 64)
 				return { success: false, error: 'Profile name is too long' };
 			if (!match(node_id, /^[0-9]+$/))
 				return { success: false, error: 'Select a valid primary node' };
 			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port);
 			if (policy_error != null)
 				return { success: false, error: policy_error };
 
@@ -595,7 +615,7 @@ const methods = {
 
 			let result = ctl([ 'add-profile', name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic ]);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port ]);
 			if (result.code != 0)
 				return failed(result);
 
@@ -646,7 +666,7 @@ const methods = {
 	},
 
 	update_profile: {
-		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0' },
+		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346' },
 		call: function(request) {
 			let profile_id = string_arg(request, 'profile_id');
 			let name = string_arg(request, 'name');
@@ -659,18 +679,21 @@ const methods = {
 			let mosdns_domains = string_arg(request, 'mosdns_domains');
 			let mosdns_match_rules = string_arg(request, 'mosdns_match_rules');
 			let proxy_router_traffic = string_arg(request, 'proxy_router_traffic');
+			let transparent_proxy_port = string_arg(request, 'transparent_proxy_port') || '12345';
+			let probe_enabled = string_arg(request, 'probe_enabled') || '1';
+			let probe_port = string_arg(request, 'probe_port') || '12346';
 			if (!valid_id(profile_id) || !valid_id(node_id))
 				return { success: false, error: 'Invalid profile or node id' };
 			if (name == '' || length(name) > 64)
 				return { success: false, error: 'Invalid profile name' };
 			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port);
 			if (policy_error != null)
 				return { success: false, error: policy_error };
 			let result = ctl([ 'update-profile', profile_id, name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic ]);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port ]);
 			return result.code == 0 ? { success: true, profile_id: profile_id } : failed(result);
 		}
 	},

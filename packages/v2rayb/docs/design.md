@@ -180,12 +180,12 @@ v2rayB owns only its own table, for example:
 
 ```text
 table inet v2rayB
-  set cn4
-  set pass4
-  set force_proxy4
-  set cn6
+  set direct4
+  set direct6
+  set direct_static4
+  set direct_static6
+  set pass
   set pass6
-  set force_proxy6
   chain prerouting
   chain output
 ```

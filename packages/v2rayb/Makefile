@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2rayb
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=126
+PKG_RELEASE:=127
 PKG_MAINTAINER:=local
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -26,7 +26,6 @@ endef
 
 define Package/v2rayb/conffiles
 /etc/v2rayB/rules/direct_domains.txt
-/etc/v2rayB/rules/force_proxy_domains.txt
 /etc/v2rayB/rules/direct_ipv4.txt
 /etc/v2rayB/rules/direct_ipv6.txt
 endef
@@ -35,6 +34,7 @@ define Package/v2rayb/install
 	$(INSTALL_DIR) $(1)/etc/v2rayB/rules
 	$(INSTALL_DATA) ./files/etc/v2rayB/schema.sql $(1)/etc/v2rayB/
 	$(INSTALL_DATA) ./files/etc/v2rayB/rules/*.txt $(1)/etc/v2rayB/rules/
+	rm -f $(1)/etc/v2rayB/rules/force_proxy_domains.txt
 	$(INSTALL_DIR) $(1)/usr/libexec/v2rayB
 	$(INSTALL_BIN) ./files/usr/libexec/v2rayB/v2rayBctl $(1)/usr/libexec/v2rayB/
 	$(INSTALL_BIN) ./files/usr/libexec/v2rayB/v2rayB-subscription $(1)/usr/libexec/v2rayB/

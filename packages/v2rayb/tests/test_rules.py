@@ -20,16 +20,17 @@ def main():
     assert not pattern.fullmatch("sn-2x3abcde.xn--ngstr-lra8j.com")
     assert not pattern.fullmatch("cdn.xn--ngstr-lra8j.com")
 
-    force_proxy = (RULES / "force_proxy_domains.txt").read_text(encoding="utf-8")
-    assert "services.googleapis.cn" not in force_proxy
-    assert "xn--ngstr-lra8j.com" not in force_proxy
-
     init_script = (ROOT / "files" / "etc" / "init.d" / "v2rayB").read_text(
         encoding="utf-8"
     )
     ctl_script = (ROOT / "files" / "usr" / "libexec" / "v2rayB" / "v2rayBctl").read_text(
         encoding="utf-8"
     )
+    assert "force_proxy4" not in ctl_script
+    assert "force-proxy-in" not in ctl_script
+    assert "force_proxy_seq" not in ctl_script
+    assert "remove_legacy_force_proxy_rule()" in init_script
+    assert 'nftset=/services.googleapis.cn/4#inet#v2rayB#force_proxy' in init_script
     assert "write_mosdns_forward_expected" in init_script
     assert "server=/%s/%s" in init_script
     assert "SUBSCRIPTION_DNS_FILE=" in init_script

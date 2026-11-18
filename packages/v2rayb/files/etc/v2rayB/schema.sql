@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS policies (
     routing_policy_json     TEXT NOT NULL DEFAULT '{}',
     direct_dns              TEXT,
     transparent_proxy_ports TEXT,
+    transparent_proxy_port  INTEGER NOT NULL DEFAULT 12345 CHECK (transparent_proxy_port BETWEEN 1 AND 65535),
+    probe_enabled           INTEGER NOT NULL DEFAULT 1 CHECK (probe_enabled IN (0, 1)),
+    probe_port              INTEGER NOT NULL DEFAULT 12346 CHECK (probe_port BETWEEN 1 AND 65535),
     bypass_china            INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)),
     use_v2ray_dns           INTEGER NOT NULL DEFAULT 1 CHECK (use_v2ray_dns IN (0, 1)),
     mosdns_enabled          INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1)),
@@ -113,6 +116,9 @@ CREATE TABLE IF NOT EXISTS draft_policies (
     routing_policy_json     TEXT NOT NULL DEFAULT '{}',
     direct_dns              TEXT,
     transparent_proxy_ports TEXT,
+    transparent_proxy_port  INTEGER NOT NULL DEFAULT 12345 CHECK (transparent_proxy_port BETWEEN 1 AND 65535),
+    probe_enabled           INTEGER NOT NULL DEFAULT 1 CHECK (probe_enabled IN (0, 1)),
+    probe_port              INTEGER NOT NULL DEFAULT 12346 CHECK (probe_port BETWEEN 1 AND 65535),
     bypass_china            INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)),
     use_v2ray_dns           INTEGER NOT NULL DEFAULT 1 CHECK (use_v2ray_dns IN (0, 1)),
     mosdns_enabled          INTEGER NOT NULL DEFAULT 1 CHECK (mosdns_enabled IN (0, 1)),
@@ -168,9 +174,7 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
     ('watchdog_enabled', '1'),
     ('fallback_on_failure', '1'),
     ('mosdns_listen', '127.0.0.1#5354'),
-    ('v2ray_dns_listen', '127.0.0.1#5353'),
-    ('transparent_proxy_port', '12345'),
-    ('force_proxy_port', '12346');
+    ('v2ray_dns_listen', '127.0.0.1#5353');
 
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
@@ -179,6 +183,7 @@ INSERT OR IGNORE INTO schema_migrations(version) VALUES (4);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (5);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (6);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (7);
-PRAGMA user_version = 7;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (8);
+PRAGMA user_version = 8;
 
 COMMIT;

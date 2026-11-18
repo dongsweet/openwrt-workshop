@@ -34,7 +34,7 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
         assert {
             "draft_nodes", "draft_policies", "draft_profiles",
             "draft_profile_nodes", "draft_source_deletions",
@@ -54,9 +54,10 @@ def main():
             for row in conn.execute("PRAGMA table_info(policies)")
         }
         assert {
-            "direct_dns", "transparent_proxy_ports", "bypass_china",
-            "use_v2ray_dns", "mosdns_enabled", "mosdns_domains",
-            "mosdns_match_rules", "proxy_router_traffic",
+            "direct_dns", "transparent_proxy_ports",
+            "transparent_proxy_port", "probe_enabled", "probe_port",
+            "bypass_china", "use_v2ray_dns", "mosdns_enabled",
+            "mosdns_domains", "mosdns_match_rules", "proxy_router_traffic",
         } <= policy_columns
 
         conn.execute(
@@ -94,8 +95,8 @@ def main():
             "SELECT value FROM settings WHERE key = 'active_engine'"
         ).fetchone()[0] == "v2ray"
         assert conn.execute(
-            "SELECT value FROM settings WHERE key = 'force_proxy_port'"
-        ).fetchone()[0] == "12346"
+            "SELECT COUNT(*) FROM settings WHERE key IN ('transparent_proxy_port', 'force_proxy_port')"
+        ).fetchone()[0] == 0
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'service_enabled'"
         ).fetchone()[0] == "0"

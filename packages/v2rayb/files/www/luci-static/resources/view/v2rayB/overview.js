@@ -144,10 +144,19 @@ const _zh = {
 	'Disabled: all intercepted traffic uses the proxy.': '关闭后，所有被拦截流量都走代理。',
 	'Disabled: domains and rules are inactive but retained.': '关闭后，域名和规则不生效，但会保留。',
 	'Direct: use Direct DNS and add the answer to the direct nft set.': '直连：使用直连 DNS，并将解析结果加入直连 nft 集合。',
-	'Force proxy: use V2Ray DNS and add the answer to the force_proxy nft set.': '强制代理：使用 V2Ray DNS，并将解析结果加入强制代理 nft 集合。',
 	'Handles the listed Google Play download suffixes separately so mainland cache addresses can stay direct. Disabled: settings are retained but inactive.': '单独处理列出的 Google Play 下载域名后缀，使返回国内缓存地址时保持直连。关闭后，设置会保留但不生效。',
 	'Suffixes forwarded to MosDNS, one per line.': '转发给 MosDNS 的域名后缀，每行一个。',
 	'Unmatched names use V2Ray DNS.': '未匹配的域名使用 V2Ray DNS。',
+	'Intercepted TCP destination ports': '拦截的 TCP 目标端口',
+	'Transparent proxy listener port': '透明代理监听端口',
+	'Loopback transparent proxy inbound port.': '透明代理入站的本地监听端口。',
+	'Verify proxy connectivity': '验证代理连通性',
+	'When disabled, traffic and DNS are imported immediately without an end-to-end proxy check.': '关闭后不进行端到端代理检查，直接导入流量和 DNS。',
+	'Connectivity probe': '连通性探测',
+	'Connectivity probe port': '连通性探测端口',
+	'Loopback-only SOCKS port used to verify that the proxy can reach the internet.': '仅监听回环地址的 SOCKS 端口，用于验证代理能否访问互联网。',
+	'Enter valid listener and probe ports.': '请输入有效的监听端口和探测端口。',
+	'Transparent proxy and probe ports must differ.': '透明代理端口和探测端口不能相同。',
 	'DNS': 'DNS',
 	'DNS / TCP / TLS / first byte / total': 'DNS / TCP / TLS / 首字节 / 总耗时',
 	'DNS branch': 'DNS 分支',
@@ -247,6 +256,9 @@ const _zh = {
 	'Pending changes: Save & Apply to activate, or Reset to discard.': '存在待应用的变更：点击“保存并应用”以生效，或点击“重置”放弃。',
 	'Policy': '策略',
 	'Ports': '端口',
+	'Listen': '监听',
+	'Probe': '探测',
+	'Probe off': '探测关闭',
 	'Primary node': '主节点',
 	'Probe detail': '诊断详情',
 	'Profile name': '配置名称',
@@ -384,14 +396,14 @@ const callAddProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'add_profile',
 	params: [ 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
 		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules',
-		'proxy_router_traffic' ],
+		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port' ],
 	expect: { '': {} }, reject: true
 });
 const callUpdateProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'update_profile',
 	params: [ 'profile_id', 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
 		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules',
-		'proxy_router_traffic' ],
+		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port' ],
 	expect: { '': {} }, reject: true
 });
 const callGetProfile = rpc.declare({
@@ -985,6 +997,23 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		class: 'cbi-input-text', type: 'text',
 		value: (existing && existing.transparent_proxy_ports) || defaults.transparent_proxy_ports
 	});
+	const transparentPort = E('input', {
+		class: 'cbi-input-text', type: 'number', min: '1', max: '65535',
+		value: (existing && existing.transparent_proxy_port) || 12345
+	});
+	const probeEnabled = checkbox({}, existing ? isEnabled(existing.probe_enabled) : true);
+	const probePort = E('input', {
+		class: 'cbi-input-text', type: 'number', min: '1', max: '65535',
+		value: (existing && existing.probe_port) || 12346
+	});
+	const probePortField = field(_('Connectivity probe port'), probePort,
+		_('Loopback-only SOCKS port used to verify that the proxy can reach the internet.'));
+	function refreshProbeFields() {
+		probePort.disabled = !probeEnabled.checked;
+		probePortField.classList.toggle('v2rayb-disabled-control', !probeEnabled.checked);
+	}
+	probeEnabled.addEventListener('change', refreshProbeFields);
+	refreshProbeFields();
 	const bypassChina = checkbox({}, existing ? isEnabled(existing.bypass_china) : true);
 	const proxyRouterTraffic = checkbox({}, existing ? isEnabled(existing.proxy_router_traffic) : false);
 	const useV2rayDns = checkbox({}, existing ? isEnabled(existing.use_v2ray_dns) : true);
@@ -1005,7 +1034,6 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	const mosdnsRulesHelp = E('div', {}, [
 		E('p', {}, _('One rule per line: domain:, full: or regexp:.')),
 		E('p', {}, _('Direct: use Direct DNS and add the answer to the direct nft set.')),
-		E('p', {}, _('Force proxy: use V2Ray DNS and add the answer to the force_proxy nft set.')),
 		E('p', {}, _('Unmatched names use V2Ray DNS.'))
 	]);
 	const mosdnsRulesField = field(_('MosDNS match rules'), mosdnsRules, mosdnsRulesHelp);
@@ -1022,6 +1050,17 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		const profileName = name.value.trim();
 		if (!profileName || !nodeSelect.value || !profileDns.value || !profilePorts.value) {
 			ui.addNotification(null, E('p', {}, _('Enter a profile name, primary node, DNS upstream and proxy ports.')), 'warning');
+			return;
+		}
+		const listenerPort = Number(transparentPort.value);
+		const healthPort = Number(probePort.value);
+		if (!listenerPort || listenerPort < 1 || listenerPort > 65535 ||
+			!healthPort || healthPort < 1 || healthPort > 65535) {
+			ui.addNotification(null, E('p', {}, _('Enter valid listener and probe ports.')), 'warning');
+			return;
+		}
+		if (probeEnabled.checked && listenerPort === healthPort) {
+			ui.addNotification(null, E('p', {}, _('Transparent proxy and probe ports must differ.')), 'warning');
 			return;
 		}
 		const bypass = bypassChina.checked ? '1' : '0';
@@ -1046,7 +1085,10 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 				mosdns_enabled: mosdns,
 				mosdns_domains: domains,
 				mosdns_match_rules: mosdnsRules.value.trim(),
-				proxy_router_traffic: routerTraffic
+				proxy_router_traffic: routerTraffic,
+				transparent_proxy_port: String(listenerPort),
+				probe_enabled: probeEnabled.checked ? '1' : '0',
+				probe_port: String(healthPort)
 			});
 	} }, existing ? _('Update pending changes') : _('Add to pending changes'));
 	ui.showModal(existing ? _('Edit profile') : _('Create a profile'), [
@@ -1058,8 +1100,13 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			E('h3', {}, _('Profile policy')),
 			field(_('Direct DNS upstream'), profileDns,
 				_('For MosDNS direct queries.')),
-			field(_('Transparent TCP ports'), profilePorts,
+			field(_('Intercepted TCP destination ports'), profilePorts,
 				_('Example: 80,443,8080-8443.')),
+			field(_('Transparent proxy listener port'), transparentPort,
+				_('Loopback transparent proxy inbound port.')),
+			field(_('Verify proxy connectivity'), probeEnabled,
+				_('When disabled, traffic and DNS are imported immediately without an end-to-end proxy check.')),
+			probePortField,
 			field(_('Bypass China IP'), bypassChina,
 				_('Disabled: all intercepted traffic uses the proxy.')),
 			field(_('Proxy router-originated TCP'), proxyRouterTraffic,
@@ -1162,7 +1209,9 @@ return view.extend({
 			const v2rayDns = isEnabled(row[9]) ? _('V2Ray DNS default') : _('Direct DNS default');
 			const mosdns = isEnabled(row[10]) ? _('MosDNS on') : _('MosDNS off');
 			const routerTraffic = isEnabled(row[12]) ? _('Router TCP on') : _('Router TCP off');
-			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
+			const listener = row[13] || '12345';
+			const probe = isEnabled(row[14]) ? `${_('Probe')} ${row[15] || '12346'}` : _('Probe off');
+			return `${_('DNS')} ${dns} · ${_('Ports')} ${ports} · ${_('Listen')} ${listener} · ${probe} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
 		}
 		const activeProfileRow = appliedProfileRows[0] || null;
 		const appliedProfileName = activeProfileRow
@@ -1361,14 +1410,16 @@ return view.extend({
 							const node = nodes.find(item => item[0] === profile.node_id);
 							const index = profiles.findIndex(item => item[0] === row[0]);
 							if (index >= 0)
-								profiles[index] = [ row[0], profile.name, 'v2ray', node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic ];
+								profiles[index] = [ row[0], profile.name, 'v2ray', node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port ];
 							pageView.localProfileDetails[row[0]] = Object.assign({ id: row[0], enabled: row[4] }, profile);
 							if (!isTempId(row[0]))
 								queuePendingOperation(() => callUpdateProfile(
 									pageView.resolveProfileId(row[0]), profile.name, pageView.resolveNodeId(profile.node_id),
 									profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china,
 									profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains,
-									profile.mosdns_match_rules, profile.proxy_router_traffic), 'profile-update:' + row[0]);
+									profile.mosdns_match_rules, profile.proxy_router_traffic,
+									profile.transparent_proxy_port, profile.probe_enabled,
+									profile.probe_port), 'profile-update:' + row[0]);
 							refreshProfileTable();
 							refreshProfileCard();
 						}, nodes, {
@@ -1718,7 +1769,8 @@ return view.extend({
 				profile.transparent_proxy_ports, profile.bypass_china,
 				profile.use_v2ray_dns, profile.mosdns_enabled,
 				profile.mosdns_domains, profile.mosdns_match_rules,
-				profile.proxy_router_traffic
+				profile.proxy_router_traffic, profile.transparent_proxy_port,
+				profile.probe_enabled, profile.probe_port
 			];
 			const id = row[0];
 			const index = profiles.findIndex(item => item[0] === id);
@@ -1732,7 +1784,9 @@ return view.extend({
 				profile.direct_dns, profile.transparent_proxy_ports,
 				profile.bypass_china, profile.use_v2ray_dns,
 				profile.mosdns_enabled, profile.mosdns_domains,
-				profile.mosdns_match_rules, profile.proxy_router_traffic
+				profile.mosdns_match_rules, profile.proxy_router_traffic,
+				profile.transparent_proxy_port, profile.probe_enabled,
+				profile.probe_port
 			).then(result => {
 				if (!result || !result.success)
 					return result;
@@ -1750,6 +1804,9 @@ return view.extend({
 			click: () => showProfileModal(onProfileSaved, nodes, {
 				direct_dns: '223.5.5.5:53',
 				transparent_proxy_ports: '80,443,8080,8443',
+				transparent_proxy_port: '12345',
+				probe_enabled: '1',
+				probe_port: '12346',
 				mosdns_domains: deferredDnsState.mosdns_route_suffix || 'xn--ngstr-lra8j.com',
 				mosdns_match_rules: deferredDnsState.direct_rule || ''
 			})
@@ -1841,8 +1898,7 @@ return view.extend({
 				E('div', { class: 'cbi-section' }, [
 					E('h3', {}, _('nftables Direct Sets')),
 					table([ _('Source'), _('Runtime set'), _('Static set') ], [
-						[ _('MosDNS direct answers'), deferredDnsState.nft_direct_sets || 'direct4,direct6', deferredDnsState.nft_direct_static_sets || 'direct_static4,direct_static6' ],
-						[ _('Force-proxy answers'), deferredDnsState.nft_force_proxy_sets || 'force_proxy4,force_proxy6,force_proxy', '-' ]
+						[ _('MosDNS direct answers'), deferredDnsState.nft_direct_sets || 'direct4,direct6', deferredDnsState.nft_direct_static_sets || 'direct_static4,direct_static6' ]
 					], _('No nftables set data available.'))
 				]),
 				E('div', { class: 'cbi-section' }, [
@@ -1850,7 +1906,10 @@ return view.extend({
 					table([ _('Item'), _('Effective value') ], [
 						[ _('Applied profile'), activeProfileRow ? activeProfileRow[1] : _('Not selected') ],
 						[ _('Direct DNS upstream'), effectiveDns ],
-						[ _('Transparent TCP ports'), activeProfileRow ? (activeProfileRow[7] || '-') : '-' ]
+						[ _('Intercepted TCP destination ports'), activeProfileRow ? (activeProfileRow[7] || '-') : '-' ],
+						[ _('Transparent proxy listener port'), activeProfileRow ? (activeProfileRow[13] || '12345') : '-' ],
+						[ _('Connectivity probe'), !activeProfileRow ? '-' : isEnabled(activeProfileRow[14])
+							? _('Enabled') + ' (' + (activeProfileRow[15] || '12346') + ')' : _('Disabled') ]
 					], _('No active profile policy available.'))
 				])
 			);

@@ -75,6 +75,7 @@ setup_case() {
 	BOOTSTRAP_DNS_EXPECTED="$RUNTIME/dnsmasq-bootstrap-expected"
 	SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/89-v2rayB-subscriptions.conf"
 	SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
+	LEGACY_FORCE_PROXY_FILE="$DNSMASQ_DIR/v2rayB-force-proxy.conf"
 	CTL="$TEST_DIR/ctl"
 	MOCK_SERVER=""
 	MOCK_NORESOLV=""
@@ -84,9 +85,12 @@ setup_case() {
 	TEST_MOSDNS_DOMAINS='xn--ngstr-lra8j.com'
 	TEST_BOOTSTRAP_DOMAIN='bootstrap.example.com'
 	TEST_SUBSCRIPTION_DOMAINS='sub.example.com,alternate.example.net'
+	TEST_TRANSPARENT_PROXY_PORT='12345'
+	TEST_PROBE_ENABLED='1'
+	TEST_PROBE_PORT='12346'
 	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
-		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED \
-		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS
+		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED LEGACY_FORCE_PROXY_FILE \
+		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
@@ -99,7 +103,20 @@ cat > "$TEST_DIR/ctl" <<'EOF'
 case "$1" in
 	set-state) printf '%s\n' "$2" > "$RUNTIME/state" ;;
 	status) printf 'state=%s\n' "$(sed -n '1p' "$RUNTIME/state")" ;;
+	get-setting)
+		case "$2" in
+			service_enabled) printf '1\n' ;;
+			watchdog_enabled) printf '0\n' ;;
+			fallback_on_failure) printf '1\n' ;;
+			*) return 1 ;;
+		esac
+		;;
 	set-setting) exit 0 ;;
+	init-db|render-all|test-v2ray) exit 0 ;;
+	apply-nft)
+		[ -z "${APPLY_NFT_LOG:-}" ] || printf 'called\n' >> "$APPLY_NFT_LOG"
+		exit 0
+		;;
 	delete-nft) [ "${FAIL_NFT:-0}" = 0 ] ;;
 	dns-settings)
 		printf '%s\n' 'runtime_state=starting' \
@@ -108,6 +125,8 @@ case "$1" in
 			"mosdns_enabled=$TEST_MOSDNS_ENABLED" \
 			"mosdns_domains=$TEST_MOSDNS_DOMAINS" \
 			'mosdns_listen=127.0.0.1#5354' 'v2ray_dns_listen=127.0.0.1#5353' \
+			"transparent_proxy_port=$TEST_TRANSPARENT_PROXY_PORT" \
+			"probe_enabled=$TEST_PROBE_ENABLED" "probe_port=$TEST_PROBE_PORT" \
 			"subscription_domains=$TEST_SUBSCRIPTION_DOMAINS"
 		;;
 	*) exit 2 ;;
@@ -196,6 +215,22 @@ if restore_dnsmasq; then
 fi
 grep -q 'server=/keep.example.com/9.9.9.9' "$SUBSCRIPTION_DNS_FILE"
 
+setup_case legacy-force-proxy
+printf '%s\n' \
+	"# Google Play's China-market control endpoint must use the proxy even though" \
+	'# its DNS answer belongs to a China IP range.' \
+	'nftset=/services.googleapis.cn/4#inet#v2rayB#force_proxy' \
+	'' \
+	'# Do not add xn--ngstr-lra8j.com here. Its mainland GGC download answers must' \
+	'# remain direct and are already covered by the normal cn address set.' > "$LEGACY_FORCE_PROXY_FILE"
+remove_legacy_force_proxy_rule
+[ ! -e "$LEGACY_FORCE_PROXY_FILE" ]
+
+setup_case modified-legacy-force-proxy
+printf '%s\n' '# User-owned rule' > "$LEGACY_FORCE_PROXY_FILE"
+remove_legacy_force_proxy_rule
+grep -q '^# User-owned rule$' "$LEGACY_FORCE_PROXY_FILE"
+
 setup_case dns-routing
 DNS_RELOAD_FAIL=0
 FAIL_NFT=0
@@ -262,8 +297,8 @@ restore_dnsmasq
 
 setup_case proxy-health
 curl() { [ "${PROXY_HEALTH_OK:-0}" = 1 ]; }
-PROXY_HEALTH_OK=1 proxy_connected
-if PROXY_HEALTH_OK=0 proxy_connected; then
+PROXY_HEALTH_OK=1 proxy_connected 12346
+if PROXY_HEALTH_OK=0 proxy_connected 12346; then
 	echo "failed proxy health probe unexpectedly succeeded" >&2
 	exit 1
 fi
@@ -316,6 +351,41 @@ rm -rf "$LOCK_DIR"
 setup_case legacy-procd
 stop_instances
 [ -e "$RUNTIME/legacy-cleaned" ]
+
+setup_case probe-disabled-start
+TEST_PROBE_ENABLED=0
+export TEST_PROBE_ENABLED
+printf 'normal\n' > "$RUNTIME/state"
+rm -rf "$DNS_BACKUP"
+prepare_engine_config_access() { return 0; }
+capture_dnsmasq_baseline() { return 0; }
+start_engine() { return 0; }
+port_ready() { return 0; }
+start_mosdns() { return 0; }
+set_proxy_dns() { return 0; }
+start_watchdog() { return 0; }
+proxy_connected() {
+	printf 'called\n' > "$RUNTIME/proxy-connected"
+	return 1
+}
+set_bootstrap_dns() { return 0; }
+start_service
+[ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
+[ ! -e "$RUNTIME/proxy-connected" ]
+
+setup_case probe-enabled-start-failure
+TEST_PROBE_ENABLED=1
+APPLY_NFT_LOG="$RUNTIME/apply-nft.called"
+export TEST_PROBE_ENABLED APPLY_NFT_LOG
+printf 'normal\n' > "$RUNTIME/state"
+rm -rf "$DNS_BACKUP"
+if start_service; then
+	echo "failed connectivity probe unexpectedly imported traffic" >&2
+	exit 1
+fi
+[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
+[ -e "$RUNTIME/proxy-connected" ]
+[ ! -e "$APPLY_NFT_LOG" ]
 
 if grep -q '"$CTL" test-dns' "$ROOT/files/etc/init.d/v2rayB"; then
 	echo "external DNS probe must not gate service startup" >&2

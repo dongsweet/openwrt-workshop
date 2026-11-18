@@ -47,25 +47,27 @@ grep -q '"protocol":"vless"' "$TEST_DIR/runtime/active/v2ray.json"
 "$ctl" status | grep -q '^profile_direct_dns=223.5.5.5:53$'
 "$ctl" dns-settings | grep -q '^subscription_domains=subscriptions.example.com$'
 "$ctl" status | grep -q '^profile_transparent_proxy_ports=80,443,8080,8443$'
+"$ctl" status | grep -q '^profile_transparent_proxy_port=12345$'
+"$ctl" status | grep -q '^profile_probe_enabled=1$'
+"$ctl" status | grep -q '^profile_probe_port=12346$'
 ! "$ctl" status | grep -q '^transparent_proxy_ports='
 grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'exec: "nftset inet,v2rayB,direct4,ipv4_addr,32' "$TEST_DIR/runtime/active/mosdns.yaml"
 ! grep -q 'type: nftset' "$TEST_DIR/runtime/active/mosdns.yaml"
-grep -q 'set force_proxy4' "$TEST_DIR/runtime/active/nftables.nft"
+! grep -q 'force_proxy' "$TEST_DIR/runtime/active/mosdns.yaml"
+! grep -q 'force_proxy' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set direct_static4' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'elements = { *}' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'flags timeout; timeout 12h' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set pass { type ipv4_addr; flags interval; elements = { 192.0.2.44 }; }' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'hk2.example.com' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set pass6 { type ipv6_addr; flags interval; elements = { 2001:db8::44 }; }' "$TEST_DIR/runtime/active/nftables.nft"
-grep -q 'set force_proxy { type ipv4_addr; flags interval; }' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
-grep -q 'ip daddr @force_proxy tcp dport { 80, 443, 8080, 8443 } redirect to :12346' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'ip daddr @pass return' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'tcp dport { 80, 443, 8080, 8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
-grep -q '"force-proxy-in"' "$TEST_DIR/runtime/active/v2ray.json"
-grep -q '"tag":"health-in","listen":"127.0.0.1","port":12347' "$TEST_DIR/runtime/active/v2ray.json"
-grep -q '"inboundTag":\["dns-in","health-in","force-proxy-in"\]' "$TEST_DIR/runtime/active/v2ray.json"
+! grep -q '"force-proxy-in"' "$TEST_DIR/runtime/active/v2ray.json"
+grep -q '"tag":"health-in","listen":"127.0.0.1","port":12346' "$TEST_DIR/runtime/active/v2ray.json"
+grep -q '"inboundTag":\["dns-in","health-in"\]' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
 
 "$ctl" update-node 1 hk-updated vless hk3.example.com 8443 '{"settings":{"vnext":[{"address":"hk3.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"ws"}}' >/dev/null
@@ -116,7 +118,16 @@ grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime
 "$ctl" dns-settings | grep -q '^dnsmasq_default=127.0.0.1#5353$'
 "$ctl" dns-settings | grep -q '^mosdns_enabled=0$'
 "$ctl" get-profile 1 | grep -q '^mosdns_domains=example.com$'
+"$ctl" get-profile 1 | grep -q '^transparent_proxy_port=12345$'
+"$ctl" get-profile 1 | grep -q '^probe_enabled=1$'
+"$ctl" get-profile 1 | grep -q '^probe_port=12346$'
 "$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
+"$ctl" update-profile 1 hk-profile-updated 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$' 0 22345 0 22346 >/dev/null
+"$ctl" apply-draft
+"$ctl" render-all
+grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :22345' "$TEST_DIR/runtime/active/nftables.nft"
+! grep -q '"tag":"health-in"' "$TEST_DIR/runtime/active/v2ray.json"
+"$ctl" status | grep -q '^profile_probe_enabled=0$'
 "$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 '' 'regexp:^cdn\.example\.com$' 0
 "$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
 if "$ctl" set-profile-enabled 1 0 >/dev/null 2>&1; then

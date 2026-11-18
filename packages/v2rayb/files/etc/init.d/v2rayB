@@ -16,9 +16,9 @@ BOOTSTRAP_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-bootstrap.conf"
 BOOTSTRAP_DNS_EXPECTED="$RUNTIME/dnsmasq-bootstrap-expected"
 SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/89-v2rayB-subscriptions.conf"
 SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
+LEGACY_FORCE_PROXY_FILE="$DNSMASQ_DIR/v2rayB-force-proxy.conf"
 V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 V2RAY_GROUP="${V2RAYB_V2RAY_GROUP:-nogroup}"
-HEALTH_PROBE_PORT="${V2RAYB_HEALTH_PROBE_PORT:-12347}"
 HEALTH_PROBE_URL="${V2RAYB_HEALTH_PROBE_URL:-https://www.gstatic.com/generate_204}"
 LOCK_INHERITED=0
 
@@ -29,6 +29,13 @@ log() {
 is_pid() {
 	case "$1" in
 		''|*[!0-9]*|0) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+is_uint() {
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
 		*) return 0 ;;
 	esac
 }
@@ -63,6 +70,29 @@ release_lock() {
 dnsmasq_reload() {
 	/etc/init.d/dnsmasq reload >/dev/null 2>&1 || \
 		/etc/init.d/dnsmasq restart >/dev/null 2>&1
+}
+
+remove_legacy_force_proxy_rule() {
+	[ -e "$LEGACY_FORCE_PROXY_FILE" ] || return 0
+	normalized="$RUNTIME/legacy-force-proxy.normalized"
+	expected="$RUNTIME/legacy-force-proxy.expected"
+	tr -d '\r' < "$LEGACY_FORCE_PROXY_FILE" > "$normalized" 2>/dev/null || return 0
+	cat > "$expected" <<'EOF'
+# Google Play's China-market control endpoint must use the proxy even though
+# its DNS answer belongs to a China IP range.
+nftset=/services.googleapis.cn/4#inet#v2rayB#force_proxy
+
+# Do not add xn--ngstr-lra8j.com here. Its mainland GGC download answers must
+# remain direct and are already covered by the normal cn address set.
+EOF
+	if cmp -s "$normalized" "$expected"; then
+		rm -f "$LEGACY_FORCE_PROXY_FILE" "$normalized" "$expected" || return 0
+		dnsmasq_reload || :
+		log "removed legacy force-proxy dnsmasq rule"
+	else
+		rm -f "$normalized" "$expected"
+		log "refusing to remove modified $LEGACY_FORCE_PROXY_FILE"
+	fi
 }
 
 uci_list_lines() {
@@ -345,8 +375,10 @@ port_ready() {
 }
 
 proxy_connected() {
+	probe_port="$1"
+	is_uint "$probe_port" || return 1
 	command -v curl >/dev/null 2>&1 || return 1
-	curl --socks5-hostname "127.0.0.1:$HEALTH_PROBE_PORT" \
+	curl --socks5-hostname "127.0.0.1:$probe_port" \
 		--fail --silent --show-error --output /dev/null \
 		--connect-timeout 8 --max-time 15 "$HEALTH_PROBE_URL"
 }
@@ -387,8 +419,11 @@ start_mosdns() {
 
 start_watchdog() {
 	[ "$("$CTL" get-setting watchdog_enabled 2>/dev/null || printf 0)" = 1 ] || return 0
+	[ "$(dns_policy_value probe_enabled)" = 1 ] || return 0
+	probe_port="$(dns_policy_value probe_port)"
+	is_uint "$probe_port" || return 1
 	mkdir -p "$PID_DIR" || return 1
-	/usr/bin/v2rayB-watchdog >>"$RUNTIME/watchdog.log" 2>&1 &
+	HEALTH_PROBE_PORT="$probe_port" /usr/bin/v2rayB-watchdog >>"$RUNTIME/watchdog.log" 2>&1 &
 	printf '%s\n' "$!" > "$PID_DIR/watchdog.pid"
 }
 
@@ -433,6 +468,7 @@ rollback_start() {
 start_service() {
 	acquire_lock || return 1
 	"$CTL" init-db >/dev/null 2>&1 || { release_lock; return 1; }
+	remove_legacy_force_proxy_rule
 	if [ "$("$CTL" get-setting service_enabled 2>/dev/null)" != 1 ]; then
 		release_lock
 		return 0
@@ -462,12 +498,19 @@ start_service() {
 	set_bootstrap_dns || { rollback_start; return 1; }
 	start_engine
 	port_ready 5353 || { rollback_start; return 1; }
-	port_ready "$HEALTH_PROBE_PORT" || { rollback_start; return 1; }
-	proxy_connected || {
-		log "proxy connectivity probe failed; traffic and DNS were not imported"
-		rollback_start suspended
-		return 1
-	}
+	probe_enabled="$(dns_policy_value probe_enabled)"
+	probe_port="$(dns_policy_value probe_port)"
+	if [ "$probe_enabled" = 1 ]; then
+		is_uint "$probe_port" || { rollback_start; return 1; }
+		port_ready "$probe_port" || { rollback_start; return 1; }
+		proxy_connected "$probe_port" || {
+			log "proxy connectivity probe failed; traffic and DNS were not imported"
+			rollback_start suspended
+			return 1
+		}
+	else
+		log "connectivity probe disabled; importing traffic and DNS without verification"
+	fi
 	"$CTL" apply-nft || { rollback_start; return 1; }
 	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
 		start_mosdns

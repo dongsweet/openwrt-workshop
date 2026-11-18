@@ -120,11 +120,11 @@ Stop and restore normal DNS:
 
 ## Test Scope
 
-The test build intercepts LAN TCP ports 80, 443, 8080, and 8443. It does not
-proxy router-originated traffic or UDP applications. `services.googleapis.cn`
-remains controlled by dnsmasq and a dedicated V2Ray inbound so it remains
-proxied even when its answer is a China IP. Other China IP traffic uses V2Ray's
-`geoip:cn` direct outbound rule.
+Each profile selects the intercepted TCP destination ports, a local transparent
+proxy listener port (default `12345`), and an optional loopback SOCKS
+connectivity-probe port (default `12346`). Disabling the probe imports traffic
+and DNS immediately without an end-to-end proxy check. China IP traffic can use
+V2Ray's `geoip:cn` direct outbound rule.
 
 Verify MosDNS `nftset` behavior, the device's WAN resolver, and LAN client
 traffic on the actual router before treating the package as production-ready.

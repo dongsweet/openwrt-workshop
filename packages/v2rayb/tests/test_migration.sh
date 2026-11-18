@@ -70,10 +70,13 @@ PRAGMA user_version=1;
 "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
 
 version=$("$sqlite" "$V2RAYB_DB" 'PRAGMA user_version;')
-[ "$version" = 7 ]
+[ "$version" = 8 ]
 columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(policies);')
 printf '%s\n' "$columns" | grep -q 'direct_dns'
 printf '%s\n' "$columns" | grep -q 'transparent_proxy_ports'
+printf '%s\n' "$columns" | grep -q 'transparent_proxy_port'
+printf '%s\n' "$columns" | grep -q 'probe_enabled'
+printf '%s\n' "$columns" | grep -q 'probe_port'
 printf '%s\n' "$columns" | grep -q 'bypass_china'
 printf '%s\n' "$columns" | grep -q 'use_v2ray_dns'
 printf '%s\n' "$columns" | grep -q 'mosdns_enabled'
@@ -82,7 +85,7 @@ printf '%s\n' "$columns" | grep -q 'mosdns_match_rules'
 printf '%s\n' "$columns" | grep -q 'proxy_router_traffic'
 source_columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(sources);')
 printf '%s\n' "$source_columns" | grep -q 'ipv4_only'
-"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^7$'
+"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^8$'
 
 # Old databases append new policy columns at the end, unlike freshly created
 # tables. Draft copies and apply-back must address columns explicitly.
@@ -126,8 +129,11 @@ INSERT INTO settings(key,value) VALUES("draft_pending","1");
 PRAGMA user_version=4;
 '
 V2RAYB_DB="$partial" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
-[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 7 ]
+[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 8 ]
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'proxy_router_traffic'
+printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'transparent_proxy_port'
+printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'probe_enabled'
+printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'probe_port'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(draft_policies);')" | grep -q 'proxy_router_traffic'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(sources);')" | grep -q 'ipv4_only'
 echo "migration tests: ok"

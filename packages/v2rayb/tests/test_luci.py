@@ -164,7 +164,9 @@ def main():
     assert 'ulimit -n "$max_fd"' in init_source
     assert 'start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP"' in init_source
     assert "proxy_connected()" in init_source
-    assert "port_ready \"$HEALTH_PROBE_PORT\"" in init_source
+    assert "port_ready \"$probe_port\"" in init_source
+    assert "proxy_connected \"$probe_port\"" in init_source
+    assert "dns_policy_value probe_enabled" in init_source
     assert "traffic and DNS were not imported" in init_source
     assert "rollback_start suspended" in init_source
     assert "suspend_service()" in init_source
@@ -218,7 +220,17 @@ def main():
     assert "Handles the listed Google Play download suffixes separately" in view_source
     assert "Unmatched names use V2Ray DNS." in view_source
     assert "Direct: use Direct DNS and add the answer to the direct nft set." in view_source
-    assert "Force proxy: use V2Ray DNS and add the answer to the force_proxy nft set." in view_source
+    assert "Transparent proxy listener port" in view_source
+    assert "Verify proxy connectivity" in view_source
+    assert "Connectivity probe port" in view_source
+    assert "transparent_proxy_port: String(listenerPort)" in view_source
+    assert "probe_enabled: probeEnabled.checked ? '1' : '0'" in view_source
+    assert "probe_port: String(healthPort)" in view_source
+    assert "const transparentPort = E('input'" in view_source
+    assert "const probeEnabled = checkbox" in view_source
+    assert "const probePort = E('input'" in view_source
+    assert "force-proxy-in" not in ctl_source
+    assert "force_proxy4" not in ctl_source
     assert "Direct match: Direct DNS + direct sets." in view_source
     assert "Fallback: V2Ray DNS, no direct sets." in view_source
     assert "E('h4', {}, _('Fixed evaluation order and actions'))" not in view_source
