@@ -8,10 +8,13 @@ FAIL_LIMIT="${V2RAYB_WATCHDOG_FAIL_LIMIT:-3}"
 INITIAL_DELAY="${V2RAYB_WATCHDOG_INITIAL_DELAY:-60}"
 PROBE_MIN="${V2RAYB_WATCHDOG_PROBE_MIN:-10}"
 PROBE_MAX="${V2RAYB_WATCHDOG_PROBE_MAX:-30}"
+MAX_CYCLES="${V2RAYB_WATCHDOG_MAX_CYCLES:-0}"
 STATE_FILE="$RUNTIME/watchdog.state"
 HEALTH_PROBE_PORT="${V2RAYB_HEALTH_PROBE_PORT:-12346}"
 HEALTH_PROBE_URL="${V2RAYB_HEALTH_PROBE_URL:-https://www.gstatic.com/generate_204}"
 failures=0
+cycles=0
+recovery_reported=0
 last_restart="$(sed -n '1p' "$STATE_FILE" 2>/dev/null || printf 0)"
 case "$last_restart" in ''|*[!0-9]*) last_restart=0 ;; esac
 
@@ -37,17 +40,41 @@ log "proxy connectivity probe interval is randomized from $PROBE_MIN to $PROBE_M
 
 while :; do
 	sleep "$(random_delay)"
-	[ "$(sed -n '1p' "$RUNTIME/state" 2>/dev/null)" = proxy ] || {
-		failures=0
-		continue
-	}
+	cycles=$((cycles + 1))
+	state="$(sed -n '1p' "$RUNTIME/state" 2>/dev/null)"
+	case "$state" in
+		proxy|suspended) ;;
+		*)
+			failures=0
+			recovery_reported=0
+			[ "$MAX_CYCLES" -le 0 ] 2>/dev/null || [ "$cycles" -lt "$MAX_CYCLES" ] || break
+			continue
+			;;
+	esac
 	now="$(date +%s)"
 
 	if probe_proxy; then
-		if [ "$failures" -gt 0 ]; then
+		if [ "$state" = suspended ]; then
+			auto_recover="$("$CTL" get-setting watchdog_auto_recover 2>/dev/null || printf 0)"
+			if [ "$auto_recover" = 1 ]; then
+				log "proxy connectivity recovered; attempting automatic takeover"
+				if "$INIT_SCRIPT" recover; then
+					log "automatic recovery completed"
+					failures=0
+					recovery_reported=0
+				else
+					log "automatic recovery failed; watchdog will retry"
+					failures="$FAIL_LIMIT"
+				fi
+			elif [ "$recovery_reported" = 0 ]; then
+				log "proxy connectivity recovered; automatic recovery is disabled"
+				recovery_reported=1
+			fi
+		elif [ "$failures" -gt 0 ]; then
 			log "proxy connectivity recovered after $failures consecutive failure(s)"
+			failures=0
 		fi
-		failures=0
+		[ "$MAX_CYCLES" -le 0 ] 2>/dev/null || [ "$cycles" -lt "$MAX_CYCLES" ] || break
 		continue
 	fi
 
@@ -55,7 +82,15 @@ while :; do
 		failures=$((failures + 1))
 		log "proxy connectivity probe failed ($failures/$FAIL_LIMIT)"
 	fi
-	[ "$failures" -ge "$FAIL_LIMIT" ] || continue
+	[ "$failures" -ge "$FAIL_LIMIT" ] || {
+		[ "$MAX_CYCLES" -le 0 ] 2>/dev/null || [ "$cycles" -lt "$MAX_CYCLES" ] || break
+		continue
+	}
+
+	if [ "$state" = suspended ]; then
+		[ "$MAX_CYCLES" -le 0 ] 2>/dev/null || [ "$cycles" -lt "$MAX_CYCLES" ] || break
+		continue
+	fi
 
 	last_restart="$now"
 	state_tmp="$STATE_FILE.tmp.$$"
@@ -65,12 +100,14 @@ while :; do
 	if [ "$fallback" = 1 ]; then
 		log "proxy connectivity failed $failures consecutive times; withdrawing traffic and DNS imports"
 		if "$INIT_SCRIPT" suspend; then
-			log "v2rayB suspended; normal networking restored"
+			log "traffic withdrawn; watchdog remains active"
+			failures=0
 		else
-			log "v2rayB suspend failed; inspect DNS and nftables state"
+			log "v2rayB suspend failed; watchdog will retry"
 		fi
-		exit 0
+	else
+		failures=0
+		log "proxy connectivity is failing but fallback_on_failure is disabled"
 	fi
-	failures=0
-	log "proxy connectivity is failing but fallback_on_failure is disabled"
+	[ "$MAX_CYCLES" -le 0 ] 2>/dev/null || [ "$cycles" -lt "$MAX_CYCLES" ] || break
 done

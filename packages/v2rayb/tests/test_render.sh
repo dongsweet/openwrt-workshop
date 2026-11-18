@@ -71,8 +71,11 @@ grep -q '"inboundTag":\["dns-in","health-in"\]' "$TEST_DIR/runtime/active/v2ray.
 grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
 
 "$ctl" set-setting watchdog_enabled 0
+"$ctl" set-setting watchdog_auto_recover 0
 "$ctl" status | grep -q '^watchdog_enabled=1$'
 "$ctl" status | grep -q '^draft_watchdog_enabled=0$'
+"$ctl" status | grep -q '^watchdog_auto_recover=1$'
+"$ctl" status | grep -q '^draft_watchdog_auto_recover=0$'
 "$ctl" set-setting direct_dns_upstreams '1.1.1.1:53, 9.9.9.9:53'
 "$ctl" status | grep -q '^direct_dns_upstreams=223.5.5.5:53$'
 "$ctl" status | grep -q '^draft_direct_dns_upstreams=1.1.1.1:53,9.9.9.9:53$'
@@ -80,6 +83,8 @@ grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
 "$ctl" apply-draft
 "$ctl" status | grep -q '^watchdog_enabled=0$'
 "$ctl" status | grep -q '^draft_watchdog_enabled=0$'
+"$ctl" status | grep -q '^watchdog_auto_recover=0$'
+"$ctl" status | grep -q '^draft_watchdog_auto_recover=0$'
 "$ctl" dns-settings | grep -q '^direct_dns_upstreams=1.1.1.1:53,9.9.9.9:53$'
 "$ctl" render-all
 grep -q 'addr: "udp://1.1.1.1:53"' "$TEST_DIR/runtime/active/mosdns.yaml"

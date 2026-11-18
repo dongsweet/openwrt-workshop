@@ -145,9 +145,19 @@ health-probe inbound, its port, and the startup connectivity check. The global
 
 The watchdog probes every 10 to 30 seconds. Three consecutive failures move the
 service to `suspended`: the original dnsmasq configuration is restored, the
-v2rayB nftables table is removed, and V2Ray/Xray and MosDNS are stopped. Ordinary
-start, restart, or reload operations do not retry a suspended proxy. Use an
-explicit resume or apply a profile change to retry.
+v2rayB nftables table is removed, and MosDNS is stopped. V2Ray/Xray and the
+watchdog remain running so the loopback health probe can continue.
+
+With **Automatically restore takeover** enabled, a successful probe in
+`suspended` repeats the startup connectivity check and restores nftables and DNS
+imports without restarting the proxy engine. A failed attempt remains safely
+suspended and is retried later. With automatic recovery disabled, the watchdog
+keeps monitoring but does not re-import traffic or DNS.
+
+A plain `/etc/init.d/v2rayB start` keeps a suspended service suspended. Use
+`/etc/init.d/v2rayB restart` or `reload`, the LuCI restart action, an explicit
+`resume`, or a profile Apply to retry manually through the full startup
+connectivity probe.
 
 Each profile also selects the intercepted TCP destination ports, its transparent
 proxy listener port (default `12345`), and its optional connectivity-probe port

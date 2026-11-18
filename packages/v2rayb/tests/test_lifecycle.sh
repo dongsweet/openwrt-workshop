@@ -115,7 +115,7 @@ case "$1" in
 					printf '1\n'
 				fi
 				;;
-			fallback_on_failure) printf '1\n' ;;
+			fallback_on_failure|watchdog_auto_recover) printf '1\n' ;;
 			*) return 1 ;;
 		esac
 		;;
@@ -339,11 +339,15 @@ set_proxy_dns
 spawn_managed v2ray
 spawn_managed mosdns
 spawn_managed watchdog
+engine_pid="$(cat "$PID_DIR/v2ray.pid")"
+watchdog_pid="$(cat "$PID_DIR/watchdog.pid")"
 suspend_service
 [ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
-[ ! -e "$PID_DIR/v2ray.pid" ]
+kill -0 "$engine_pid"
+kill -0 "$watchdog_pid"
+[ -e "$PID_DIR/v2ray.pid" ]
+[ -e "$PID_DIR/watchdog.pid" ]
 [ ! -e "$PID_DIR/mosdns.pid" ]
-[ ! -e "$PID_DIR/watchdog.pid" ]
 [ ! -e "$DNS_BACKUP" ]
 [ ! -e "$BOOTSTRAP_DNS_FILE" ]
 [ ! -e "$SUBSCRIPTION_DNS_FILE" ]
@@ -352,12 +356,50 @@ suspend_service
 
 setup_case suspended-reload
 printf 'suspended\n' > "$RUNTIME/state"
-reload_service
-[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
-restart
+(
+	resume_service() {
+		printf 'resume\n' >> "$RUNTIME/resume.calls"
+	}
+	reload_service
+	restart
+)
+[ "$(wc -l < "$RUNTIME/resume.calls" | tr -d '[:space:]')" = 2 ]
 [ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
 stop_service
 [ "$(sed -n '1p' "$RUNTIME/state")" = normal ]
+
+setup_case recover-preserves-engine
+spawn_managed v2ray
+spawn_managed watchdog
+engine_pid="$(cat "$PID_DIR/v2ray.pid")"
+watchdog_pid="$(cat "$PID_DIR/watchdog.pid")"
+printf 'suspended\n' > "$RUNTIME/state"
+start_mosdns() { spawn_managed mosdns; }
+port_ready() { return 0; }
+proxy_connected() { return 0; }
+set_proxy_dns() { return 0; }
+recover_service
+[ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
+kill -0 "$engine_pid"
+kill -0 "$watchdog_pid"
+[ -e "$PID_DIR/mosdns.pid" ]
+
+setup_case recover-failure-preserves-engine
+spawn_managed v2ray
+spawn_managed watchdog
+engine_pid="$(cat "$PID_DIR/v2ray.pid")"
+watchdog_pid="$(cat "$PID_DIR/watchdog.pid")"
+printf 'suspended\n' > "$RUNTIME/state"
+port_ready() { return 0; }
+proxy_connected() { return 1; }
+if recover_service; then
+	echo "failed automatic recovery unexpectedly restored imports" >&2
+	exit 1
+fi
+[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
+kill -0 "$engine_pid"
+kill -0 "$watchdog_pid"
+[ ! -e "$PID_DIR/mosdns.pid" ]
 
 setup_case inherited-lock
 mkdir -p "$LOCK_DIR"

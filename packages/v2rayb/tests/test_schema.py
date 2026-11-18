@@ -100,6 +100,9 @@ def main():
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'direct_dns_upstreams'"
         ).fetchone()[0] == "223.5.5.5:53"
+        assert conn.execute(
+            "SELECT value FROM settings WHERE key = 'watchdog_auto_recover'"
+        ).fetchone()[0] == "1"
 
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'service_enabled'"

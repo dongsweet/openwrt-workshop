@@ -508,7 +508,7 @@ start_service() {
 		return 0
 	fi
 	if [ "$current_state" = suspended ]; then
-		log "proxy is suspended; explicit resume or a profile change is required"
+		log "proxy is suspended; restart, reload, or resume is required"
 		release_lock
 		return 0
 	fi
@@ -611,7 +611,7 @@ suspend_service() {
 		release_lock
 		return 1
 	fi
-	if ! stop_instances; then
+	if ! stop_pid mosdns; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
 		release_lock
 		return 1
@@ -627,7 +627,63 @@ suspend_service() {
 		return 1
 	}
 	rm -rf "$DNS_BACKUP"
-	log "proxy connectivity failed; traffic and DNS imports suspended"
+	log "traffic and DNS imports withdrawn; proxy engine and watchdog remain active"
+	release_lock
+}
+
+recovery_rollback() {
+	if [ -d "$DNS_BACKUP" ] && ! restore_dnsmasq; then
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		log "recovery rollback could not restore DNS; proxy engine remains suspended"
+		release_lock
+		return 1
+	fi
+	if ! "$CTL" delete-nft >/dev/null 2>&1; then
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		log "recovery rollback could not remove nftables imports"
+		release_lock
+		return 1
+	fi
+	stop_pid mosdns || true
+	"$CTL" set-setting proxy_mode normal >/dev/null 2>&1 || true
+	"$CTL" set-state suspended >/dev/null 2>&1 || \
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+	rm -rf "$DNS_BACKUP"
+	log "automatic recovery failed; proxy remains suspended"
+	release_lock
+	return 1
+}
+
+recover_service() {
+	acquire_lock || return 1
+	if [ "$("$CTL" get-setting service_enabled 2>/dev/null)" != 1 ]; then
+		release_lock
+		return 0
+	fi
+	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
+	[ "$current_state" = suspended ] || { release_lock; return 1; }
+	process_alive v2ray || { release_lock; resume_service; return; }
+	"$CTL" set-state starting >/dev/null 2>&1 || { release_lock; return 1; }
+	load_dns_policy || { recovery_rollback; return 1; }
+	capture_dnsmasq_baseline || { recovery_rollback; return 1; }
+	set_bootstrap_dns || { recovery_rollback; return 1; }
+	port_ready 5353 || { recovery_rollback; return 1; }
+	probe_enabled="$(dns_policy_value probe_enabled)"
+	probe_port="$(dns_policy_value probe_port)"
+	if [ "$probe_enabled" = 1 ]; then
+		is_uint "$probe_port" || { recovery_rollback; return 1; }
+		port_ready "$probe_port" || { recovery_rollback; return 1; }
+		proxy_connected "$probe_port" || { recovery_rollback; return 1; }
+	fi
+	"$CTL" apply-nft || { recovery_rollback; return 1; }
+	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
+		start_mosdns || { recovery_rollback; return 1; }
+		port_ready 5354 || { recovery_rollback; return 1; }
+	fi
+	set_proxy_dns || { recovery_rollback; return 1; }
+	"$CTL" set-setting proxy_mode proxy >/dev/null 2>&1 || { recovery_rollback; return 1; }
+	"$CTL" set-state proxy >/dev/null 2>&1 || { recovery_rollback; return 1; }
+	log "proxy connectivity recovered; traffic and DNS imports restored"
 	release_lock
 }
 
@@ -638,6 +694,11 @@ resume_service() {
 		return 0
 	fi
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
+	if [ "$current_state" = suspended ] && process_alive v2ray; then
+		release_lock
+		recover_service
+		return
+	fi
 	if [ "$current_state" != normal ] || managed_processes_alive ||
 		[ -d "$DNS_BACKUP" ] || [ -f "$RUNTIME/nft-managed" ]; then
 		release_lock
@@ -651,8 +712,9 @@ resume_service() {
 reload_service() {
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
 	if [ "$current_state" = suspended ]; then
-		log "proxy remains suspended; reload does not retry it"
-		return 0
+		log "proxy is suspended; restart/reload retries through the normal startup probe"
+		resume_service
+		return
 	fi
 	stop_service || return 1
 	start_service
@@ -682,11 +744,16 @@ resume() {
 	resume_service "$@"
 }
 
+recover() {
+	recover_service "$@"
+}
+
 if command -v extra_command >/dev/null 2>&1; then
 	extra_command "status" "Show service status"
 	extra_command "running" "Check whether managed processes are running"
-	extra_command "suspend" "Withdraw traffic and DNS imports after a proxy failure"
+	extra_command "suspend" "Withdraw traffic and DNS imports while retaining proxy and watchdog"
 	extra_command "resume" "Retry a suspended proxy service"
+	extra_command "recover" "Restore imports for a running suspended proxy"
 fi
 
 running() {

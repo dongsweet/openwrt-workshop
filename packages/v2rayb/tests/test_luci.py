@@ -185,7 +185,11 @@ def main():
     assert "wasSuspended ? 'suspend'" in rpc_source
     assert "was_suspended ? 'resume'" in rpc_source
     assert 'extra_command "resume"' in init_source
-    assert "proxy remains suspended; reload does not retry it" in init_source
+    assert "restart/reload retries through the normal startup probe" in init_source
+    assert "resume_service\n\t\treturn" in init_source
+    assert "traffic and DNS imports withdrawn; proxy engine and watchdog remain active" in init_source
+    assert "recover_service()" in init_source
+    assert "automatic recovery failed; proxy remains suspended" in init_source
     watchdog_source = (FILES / "usr/bin/v2rayB-watchdog").read_text(encoding="utf-8")
     assert "probe_proxy()" in watchdog_source
     assert "--socks5-hostname \"127.0.0.1:$HEALTH_PROBE_PORT\"" in watchdog_source
@@ -376,8 +380,12 @@ def main():
     assert "configuredDirectDnsUpstreams" in view_source
     assert "const watchdogEnabled = checkbox" in view_source
     assert "field(_('Enable watchdog'), E('div'" in view_source
-    assert "需在 Profile 中启用连通性探测；连续 3 次探测失败后停止代理并撤销接管，恢复后需手动重试。" in view_source
+    assert "连续 3 次失败后保留代理和 watchdog 继续探测" in view_source
+    assert "field(_('Automatically restore takeover'), watchdogAutoRecover" in view_source
     assert "callSetSetting('watchdog_enabled', this.watchdogEnabledDesired ? '1' : '0')" in view_source
+    assert "callSetSetting('watchdog_auto_recover'" in view_source
+    assert "draft_watchdog_auto_recover" in ctl_source
+    assert "key != 'watchdog_auto_recover'" in rpc_source
     assert "field(_('Proxy engine'), profileEngine" in view_source
     assert "const profileEngine = E('select'" in view_source
     assert "profile.probe_port, profile.engine" in view_source
