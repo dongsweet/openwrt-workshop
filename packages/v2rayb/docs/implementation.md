@@ -72,6 +72,7 @@ sh tests/test_subscription.sh
 sh tests/test_network_probe.sh
 sh tests/test_render.sh
 sh tests/test_lifecycle.sh
+sh tests/test_watchdog.sh
 sh tests/test_migration.sh
 sh tests/test_draft.sh
 sh tests/test_apply_job.sh

@@ -1,11 +1,14 @@
 #!/bin/sh
 
 TAG="v2rayB-watchdog"
-CTL="/usr/libexec/v2rayB/v2rayBctl"
-FAIL_LIMIT=3
-COOLDOWN_SECONDS=600
-INITIAL_DELAY=60
-STATE_FILE="/tmp/v2rayB/watchdog.state"
+CTL="${V2RAYB_CTL:-/usr/libexec/v2rayB/v2rayBctl}"
+INIT_SCRIPT="${V2RAYB_INIT_SCRIPT:-/etc/init.d/v2rayB}"
+RUNTIME="${V2RAYB_RUNTIME_DIR:-/tmp/v2rayB}"
+FAIL_LIMIT="${V2RAYB_WATCHDOG_FAIL_LIMIT:-3}"
+INITIAL_DELAY="${V2RAYB_WATCHDOG_INITIAL_DELAY:-60}"
+PROBE_MIN="${V2RAYB_WATCHDOG_PROBE_MIN:-10}"
+PROBE_MAX="${V2RAYB_WATCHDOG_PROBE_MAX:-30}"
+STATE_FILE="$RUNTIME/watchdog.state"
 HEALTH_PROBE_PORT="${V2RAYB_HEALTH_PROBE_PORT:-12347}"
 HEALTH_PROBE_URL="${V2RAYB_HEALTH_PROBE_URL:-https://www.gstatic.com/generate_204}"
 failures=0
@@ -17,7 +20,8 @@ log() {
 }
 
 random_delay() {
-	awk 'BEGIN { srand(); print 10 + int(rand() * 21) }'
+	awk -v min="$PROBE_MIN" -v max="$PROBE_MAX" \
+		'BEGIN { srand(); print min + int(rand() * (max - min + 1)) }'
 }
 
 probe_proxy() {
@@ -29,11 +33,11 @@ probe_proxy() {
 
 log "started; waiting ${INITIAL_DELAY}s before the first proxy connectivity probe"
 sleep "$INITIAL_DELAY"
-log "proxy connectivity probe interval is randomized from 10 to 30 seconds"
+log "proxy connectivity probe interval is randomized from $PROBE_MIN to $PROBE_MAX seconds"
 
 while :; do
 	sleep "$(random_delay)"
-	[ "$(sed -n '1p' /tmp/v2rayB/state 2>/dev/null)" = proxy ] || {
+	[ "$(sed -n '1p' "$RUNTIME/state" 2>/dev/null)" = proxy ] || {
 		failures=0
 		continue
 	}
@@ -60,7 +64,7 @@ while :; do
 	fallback="$("$CTL" get-setting fallback_on_failure 2>/dev/null || printf 0)"
 	if [ "$fallback" = 1 ]; then
 		log "proxy connectivity failed $failures consecutive times; withdrawing traffic and DNS imports"
-		if /etc/init.d/v2rayB suspend; then
+		if "$INIT_SCRIPT" suspend; then
 			log "v2rayB suspended; normal networking restored"
 		else
 			log "v2rayB suspend failed; inspect DNS and nftables state"

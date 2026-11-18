@@ -187,7 +187,9 @@ def main():
     watchdog_source = (FILES / "usr/bin/v2rayB-watchdog").read_text(encoding="utf-8")
     assert "probe_proxy()" in watchdog_source
     assert "--socks5-hostname \"127.0.0.1:$HEALTH_PROBE_PORT\"" in watchdog_source
-    assert "/etc/init.d/v2rayB suspend" in watchdog_source
+    assert '"$INIT_SCRIPT" suspend' in watchdog_source
+    assert "V2RAYB_WATCHDOG_FAIL_LIMIT" in watchdog_source
+    assert "V2RAYB_RUNTIME_DIR" in watchdog_source
     assert "withdrawing traffic and DNS imports" in watchdog_source
     assert "'Suspended':" in view_source
     assert 'for log_name in v2ray.log v2ray-error.log; do' in init_source
