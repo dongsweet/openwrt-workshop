@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2rayb
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=131
+PKG_RELEASE:=132
 PKG_MAINTAINER:=local
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -48,6 +48,9 @@ endef
 define Package/v2rayb/postinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
+	# Engine services stay inactive; v2rayB starts the selected binary itself.
+	/etc/init.d/xray disable >/dev/null 2>&1 || true
+	/etc/init.d/v2ray disable >/dev/null 2>&1 || true
 	/usr/libexec/v2rayB/v2rayBctl init-db >/dev/null 2>&1 || exit 1
 	service_enabled="$$(/usr/libexec/v2rayB/v2rayBctl status 2>/dev/null | sed -n 's/^service_enabled=//p' | head -n1)"
 	if [ "$$service_enabled" = 1 ]; then

@@ -388,6 +388,8 @@ def main():
     assert 'XRAY_LOCATION_ASSET=/usr/share/v2ray' in init_source
     assert "run -test -c" in ctl_source
     assert "+xray-core" in makefile_source
+    assert "/etc/init.d/xray disable" in makefile_source
+    assert "/etc/init.d/v2ray disable" in makefile_source
     assert "this.watchdogEnabledDirty" in view_source
     assert "key != 'watchdog_enabled'" in rpc_source
     assert "setting draft_watchdog_enabled" in ctl_source
