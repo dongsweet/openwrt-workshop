@@ -120,6 +120,9 @@ Stop and restore normal DNS:
 
 ## Test Scope
 
+Each profile selects its proxy engine (`V2Ray` or `Xray`). Xray is required for
+REALITY nodes that fail the V2Ray compatibility path; switching profiles also
+switches the engine after Save & Apply.
 The watchdog is a global opt-in setting and does not start when disabled.
 Direct DNS upstreams are global and support an ordered list. The same list is
 used for node bootstrap, subscription-hostname forwarding and the MosDNS direct

@@ -92,7 +92,7 @@ def main():
         conn.commit()
 
         assert conn.execute(
-            "SELECT value FROM settings WHERE key = 'active_engine'"
+            "SELECT engine FROM profiles WHERE id = ?", (profile_id,)
         ).fetchone()[0] == "v2ray"
         assert conn.execute(
             "SELECT COUNT(*) FROM settings WHERE key IN ('transparent_proxy_port', 'force_proxy_port')"
@@ -100,6 +100,7 @@ def main():
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'direct_dns_upstreams'"
         ).fetchone()[0] == "223.5.5.5:53"
+
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'service_enabled'"
         ).fetchone()[0] == "0"

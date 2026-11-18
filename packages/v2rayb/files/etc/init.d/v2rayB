@@ -19,6 +19,8 @@ SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
 LEGACY_FORCE_PROXY_FILE="$DNSMASQ_DIR/v2rayB-force-proxy.conf"
 V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 V2RAY_GROUP="${V2RAYB_V2RAY_GROUP:-nogroup}"
+V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
+XRAY_BIN="${V2RAYB_XRAY_BIN:-/usr/bin/xray}"
 HEALTH_PROBE_URL="${V2RAYB_HEALTH_PROBE_URL:-https://www.gstatic.com/generate_204}"
 LOCK_INHERITED=0
 
@@ -387,6 +389,14 @@ proxy_connected() {
 		--connect-timeout 8 --max-time 15 "$HEALTH_PROBE_URL"
 }
 
+selected_engine() {
+	_engine="$("$CTL" get-active-engine 2>/dev/null || printf v2ray)"
+	case "$_engine" in
+		v2ray|xray) printf '%s\n' "$_engine" ;;
+		*) printf '%s\n' v2ray ;;
+	esac
+}
+
 start_engine() {
 	mkdir -p "$PID_DIR" || return 1
 	max_fd="$(ulimit -Hn 2>/dev/null || true)"
@@ -397,9 +407,24 @@ start_engine() {
 		chmod 600 "$RUNTIME/$log_name" || return 1
 	done
 	rm -f "$PID_DIR/v2ray.pid"
-	env 'v2ray.local.asset=/usr/share/v2ray' V2RAY_CONF_GEOLOADER=memconservative \
-		start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP" \
-		-x /usr/bin/v2ray -O "$RUNTIME/v2ray.log" \
+	engine="$(selected_engine)"
+	case "$engine" in
+		xray)
+			engine_bin="$XRAY_BIN"
+			engine_env="XRAY_LOCATION_ASSET=/usr/share/v2ray"
+			;;
+		*)
+			engine_bin="$V2RAY_BIN"
+			engine_env="v2ray.local.asset=/usr/share/v2ray V2RAY_CONF_GEOLOADER=memconservative"
+			;;
+	esac
+	[ -x "$engine_bin" ] || {
+		log "selected engine binary is missing: $engine_bin"
+		return 1
+	}
+	# shellcheck disable=SC2086
+	env $engine_env start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP" \
+		-x "$engine_bin" -O "$RUNTIME/v2ray.log" \
 		-m -p "$PID_DIR/v2ray.pid" -- \
 		run -c "$RUNTIME/active/v2ray.json" || return 1
 	is_pid "$(sed -n '1p' "$PID_DIR/v2ray.pid" 2>/dev/null || true)"

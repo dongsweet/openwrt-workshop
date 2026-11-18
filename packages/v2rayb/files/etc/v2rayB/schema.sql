@@ -162,7 +162,6 @@ CREATE INDEX IF NOT EXISTS idx_nodes_source_enabled ON nodes(source_id, enabled)
 CREATE INDEX IF NOT EXISTS idx_profile_nodes_priority ON profile_nodes(profile_id, priority);
 
 INSERT OR IGNORE INTO settings(key, value) VALUES
-    ('active_engine', 'v2ray'),
     ('active_profile', ''),
     ('service_enabled', '0'),
     ('draft_service_enabled', '0'),

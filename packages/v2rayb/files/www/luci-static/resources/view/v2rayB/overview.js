@@ -39,6 +39,8 @@ const _zh = {
 	'All components': '全部组件',
 	'v2rayB': 'v2rayB',
 	'V2Ray': 'V2Ray',
+	'Proxy engine': '代理引擎',
+	'Use Xray for REALITY nodes that fail with the V2Ray compatibility engine.': 'V2Ray 兼容引擎无法连接 REALITY 节点时请选择 Xray。',
 	'MosDNS': 'MosDNS',
 	'dnsmasq': 'dnsmasq',
 	'System log': '系统日志',
@@ -401,14 +403,14 @@ const callAddProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'add_profile',
 	params: [ 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
 		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules',
-		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port' ],
+		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port', 'engine' ],
 	expect: { '': {} }, reject: true
 });
 const callUpdateProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'update_profile',
 	params: [ 'profile_id', 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
 		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules',
-		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port' ],
+		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port', 'engine' ],
 	expect: { '': {} }, reject: true
 });
 const callGetProfile = rpc.declare({
@@ -994,6 +996,11 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	const name = E('input', { class: 'cbi-input-text', type: 'text', maxlength: '64', required: true, value: existing ? existing.name : '' });
 	const nodeOptions = groupedNodeOptions(nodes, existing ? existing.node_id : '');
 	const nodeSelect = E('select', { class: 'cbi-input-select' }, nodeOptions);
+	const profileEngine = E('select', { class: 'cbi-input-select' }, [
+		E('option', { value: 'v2ray' }, 'V2Ray'),
+		E('option', { value: 'xray' }, 'Xray')
+	]);
+	profileEngine.value = (existing && existing.engine === 'xray') ? 'xray' : 'v2ray';
 	const profileDns = E('input', {
 		class: 'cbi-input-text', type: 'hidden',
 		value: (existing && existing.direct_dns) || defaults.direct_dns || '223.5.5.5:53'
@@ -1083,6 +1090,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 				id: existing ? existing.id : null,
 				name: profileName,
 				node_id: nodeSelect.value,
+				engine: profileEngine.value,
 				direct_dns: profileDns.value,
 				transparent_proxy_ports: profilePorts.value,
 				bypass_china: bypass,
@@ -1099,7 +1107,9 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	ui.showModal(existing ? _('Edit profile') : _('Create a profile'), [
 		E('div', { class: 'cbi-section' }, [
 			field(_('Profile name'), name),
-			field(_('Primary node'), nodeSelect)
+			field(_('Primary node'), nodeSelect),
+			field(_('Proxy engine'), profileEngine,
+				_('Use Xray for REALITY nodes that fail with the V2Ray compatibility engine.'))
 		]),
 		E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('Profile policy')),
@@ -1214,7 +1224,8 @@ return view.extend({
 			const routerTraffic = isEnabled(row[12]) ? _('Router TCP on') : _('Router TCP off');
 			const listener = row[13] || '12345';
 			const probe = isEnabled(row[14]) ? `${_('Probe')} ${row[15] || '12346'}` : _('Probe off');
-			return `${_('Ports')} ${ports} · ${_('Listen')} ${listener} · ${probe} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
+			const engine = row[2] === 'xray' ? 'Xray' : 'V2Ray';
+			return `${engine} · ${_('Ports')} ${ports} · ${_('Listen')} ${listener} · ${probe} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
 		}
 		const activeProfileRow = appliedProfileRows[0] || null;
 		const appliedProfileName = activeProfileRow
@@ -1452,7 +1463,7 @@ return view.extend({
 							const node = nodes.find(item => item[0] === profile.node_id);
 							const index = profiles.findIndex(item => item[0] === row[0]);
 							if (index >= 0)
-								profiles[index] = [ row[0], profile.name, 'v2ray', node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port ];
+								profiles[index] = [ row[0], profile.name, profile.engine, node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port ];
 							pageView.localProfileDetails[row[0]] = Object.assign({ id: row[0], enabled: row[4] }, profile);
 							if (!isTempId(row[0]))
 								queuePendingOperation(() => callUpdateProfile(
@@ -1461,7 +1472,7 @@ return view.extend({
 									profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains,
 									profile.mosdns_match_rules, profile.proxy_router_traffic,
 									profile.transparent_proxy_port, profile.probe_enabled,
-									profile.probe_port), 'profile-update:' + row[0]);
+									profile.probe_port, profile.engine), 'profile-update:' + row[0]);
 							refreshProfileTable();
 							refreshProfileCard();
 						}, nodes, {
@@ -1806,7 +1817,7 @@ return view.extend({
 		function onProfileSaved(profile) {
 			const node = nodes.find(item => item[0] === profile.node_id);
 			const row = [
-				profile.id || pageView.nextTempId('profile'), profile.name, 'v2ray',
+				profile.id || pageView.nextTempId('profile'), profile.name, profile.engine,
 				node ? node[1] : '', '1', profile.node_id, profile.direct_dns,
 				profile.transparent_proxy_ports, profile.bypass_china,
 				profile.use_v2ray_dns, profile.mosdns_enabled,
@@ -1828,7 +1839,7 @@ return view.extend({
 				profile.mosdns_enabled, profile.mosdns_domains,
 				profile.mosdns_match_rules, profile.proxy_router_traffic,
 				profile.transparent_proxy_port, profile.probe_enabled,
-				profile.probe_port
+				profile.probe_port, profile.engine
 			).then(result => {
 				if (!result || !result.success)
 					return result;

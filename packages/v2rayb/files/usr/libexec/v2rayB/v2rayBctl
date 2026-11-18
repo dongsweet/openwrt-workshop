@@ -18,6 +18,7 @@ SUBSCRIPTION_DOWNLOAD_USER="${V2RAYB_SUBSCRIPTION_DOWNLOAD_USER:-nobody}"
 SUBSCRIPTION_DOWNLOAD_GROUP="${V2RAYB_SUBSCRIPTION_DOWNLOAD_GROUP:-nogroup}"
 SQLITE3="${V2RAYB_SQLITE3:-sqlite3}"
 V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
+XRAY_BIN="${V2RAYB_XRAY_BIN:-/usr/bin/xray}"
 MOSDNS_BIN="${V2RAYB_MOSDNS_BIN:-/usr/bin/mosdns}"
 DNSMASQ_CONFIG_DIR="${V2RAYB_DNSMASQ_DIR:-/etc/dnsmasq.d}"
 LOGREAD="${V2RAYB_LOGREAD:-logread}"
@@ -84,6 +85,13 @@ is_server() {
 is_protocol() {
 	case "$1" in
 		vless|vmess|trojan|shadowsocks) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+is_engine() {
+	case "$1" in
+		v2ray|xray) return 0 ;;
 		*) return 1 ;;
 	esac
 }
@@ -347,6 +355,19 @@ discard_drafts() {
 		COMMIT;"
 }
 
+selected_engine() {
+	_engine="$(db_sql "SELECT COALESCE(p.engine, 'v2ray') FROM profiles p WHERE p.id=(SELECT value FROM settings WHERE key='active_profile') AND p.enabled=1 LIMIT 1;" | sed -n '1p')"
+	is_engine "$_engine" || _engine=v2ray
+	printf '%s\n' "$_engine"
+}
+
+selected_engine_bin() {
+	case "$(selected_engine)" in
+		xray) printf '%s\n' "$XRAY_BIN" ;;
+		*) printf '%s\n' "$V2RAY_BIN" ;;
+	esac
+}
+
 set_draft_setting() {
 	key="$1"
 	value="$2"
@@ -490,7 +511,7 @@ cmd_set_setting() {
 		watchdog_enabled)
 			case "$value" in 0|1) ;; *) die "watchdog_enabled must be 0 or 1" ;; esac
 			;;
-	esac
+		esac
 	case "$key" in
 		active_profile|service_enabled|direct_dns_upstreams|watchdog_enabled)
 			draft_change_begin
@@ -783,7 +804,9 @@ cmd_add_profile() {
 	transparent_proxy_port="${11:-12345}"
 	probe_enabled="${12:-1}"
 	probe_port="${13:-12346}"
+	engine="${14:-v2ray}"
 	is_name "$name" || die "invalid profile name"
+	is_engine "$engine" || die "invalid profile engine: $engine"
 	is_uint "$node_id" || die "node id must be numeric"
 	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic" \
@@ -793,7 +816,7 @@ cmd_add_profile() {
 	[ "$count" = 1 ] || die "node not found or disabled: $node_id"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE name=$(sql_quote "$name");" | tr -d '[:space:]')"
 	[ "$count" = 0 ] || die "profile already exists: $name"
-	db_sql "INSERT INTO draft_profiles(name, engine, updated_at) VALUES($(sql_quote "$name"), 'v2ray', CURRENT_TIMESTAMP);"
+	db_sql "INSERT INTO draft_profiles(name, engine, updated_at) VALUES($(sql_quote "$name"), $(sql_quote "$engine"), CURRENT_TIMESTAMP);"
 	profile_id="$(db_sql "SELECT id FROM draft_profiles WHERE name=$(sql_quote "$name");" | sed -n '1p')"
 	db_sql "DELETE FROM draft_profile_nodes WHERE profile_id=$profile_id; INSERT INTO draft_profile_nodes(profile_id, node_id, role, priority) VALUES($profile_id, $node_id, 'primary', 0);"
 	cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
@@ -884,7 +907,14 @@ cmd_update_profile() {
 	[ "$count" = 1 ] || die "node not found or disabled: $node_id"
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE name=$(sql_quote "$name") AND id<>$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 0 ] || die "profile already exists: $name"
-	db_sql "UPDATE draft_profiles SET name=$(sql_quote "$name"), updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id; DELETE FROM draft_profile_nodes WHERE profile_id=$profile_id; INSERT INTO draft_profile_nodes(profile_id, node_id, role, priority) VALUES($profile_id, $node_id, 'primary', 0);"
+	engine="${15:-}"
+	if [ -n "$engine" ]; then
+		is_engine "$engine" || die "invalid profile engine: $engine"
+	else
+		engine="$(db_sql "SELECT engine FROM draft_profiles WHERE id=$profile_id;" | sed -n '1p')"
+		is_engine "$engine" || engine=v2ray
+	fi
+	db_sql "UPDATE draft_profiles SET name=$(sql_quote "$name"), engine=$(sql_quote "$engine"), updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id; DELETE FROM draft_profile_nodes WHERE profile_id=$profile_id; INSERT INTO draft_profile_nodes(profile_id, node_id, role, priority) VALUES($profile_id, $node_id, 'primary', 0);"
 	if [ "$#" -ge 4 ]; then
 		direct_dns="$4"
 		transparent_proxy_ports="$5"
@@ -1304,7 +1334,7 @@ cmd_get_profile() {
 		profile_nodes_table=draft_profile_nodes
 		policies_table=draft_policies
 	fi
-	row="$(db_sql "SELECT 'name=' || p.name || char(10) || 'node_id=' || COALESCE(pn.node_id, '') || char(10) || 'enabled=' || p.enabled || char(10) || 'direct_dns=' || COALESCE(pol.direct_dns, '') || char(10) || 'transparent_proxy_ports=' || COALESCE(pol.transparent_proxy_ports, '') || char(10) || 'bypass_china=' || COALESCE(pol.bypass_china, 1) || char(10) || 'use_v2ray_dns=' || COALESCE(pol.use_v2ray_dns, 1) || char(10) || 'mosdns_enabled=' || COALESCE(pol.mosdns_enabled, 1) || char(10) || 'mosdns_domains=' || COALESCE(pol.mosdns_domains, '') || char(10) || 'proxy_router_traffic=' || COALESCE(pol.proxy_router_traffic, 0) || char(10) || 'transparent_proxy_port=' || COALESCE(pol.transparent_proxy_port, 12345) || char(10) || 'probe_enabled=' || COALESCE(pol.probe_enabled, 1) || char(10) || 'probe_port=' || COALESCE(pol.probe_port, 12346) FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $policies_table pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
+	row="$(db_sql "SELECT 'name=' || p.name || char(10) || 'node_id=' || COALESCE(pn.node_id, '') || char(10) || 'enabled=' || p.enabled || char(10) || 'direct_dns=' || COALESCE(pol.direct_dns, '') || char(10) || 'transparent_proxy_ports=' || COALESCE(pol.transparent_proxy_ports, '') || char(10) || 'bypass_china=' || COALESCE(pol.bypass_china, 1) || char(10) || 'use_v2ray_dns=' || COALESCE(pol.use_v2ray_dns, 1) || char(10) || 'mosdns_enabled=' || COALESCE(pol.mosdns_enabled, 1) || char(10) || 'mosdns_domains=' || COALESCE(pol.mosdns_domains, '') || char(10) || 'proxy_router_traffic=' || COALESCE(pol.proxy_router_traffic, 0) || char(10) || 'transparent_proxy_port=' || COALESCE(pol.transparent_proxy_port, 12345) || char(10) || 'probe_enabled=' || COALESCE(pol.probe_enabled, 1) || char(10) || 'probe_port=' || COALESCE(pol.probe_port, 12346) || char(10) || 'engine=' || COALESCE(p.engine, 'v2ray') FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $policies_table pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
 	[ -n "$row" ] || die "profile not found: $profile_id"
 	printf '%s\n' "$row"
 }
@@ -1327,7 +1357,7 @@ cmd_get_profile_rules() {
 active_profile() {
 	profile_id="$(setting active_profile)"
 	is_uint "$profile_id" || die "no active profile selected"
-	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, '223.5.5.5:53') || char(9) || COALESCE(pol.transparent_proxy_ports, '80,443,8080,8443') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, 'xn--ngstr-lra8j.com') || char(9) || COALESCE(pol.proxy_router_traffic, 0) || char(9) || COALESCE(pol.transparent_proxy_port, 12345) || char(9) || COALESCE(pol.probe_enabled, 1) || char(9) || COALESCE(pol.probe_port, 12346) FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
+	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, '223.5.5.5:53') || char(9) || COALESCE(pol.transparent_proxy_ports, '80,443,8080,8443') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, 'xn--ngstr-lra8j.com') || char(9) || COALESCE(pol.proxy_router_traffic, 0) || char(9) || COALESCE(pol.transparent_proxy_port, 12345) || char(9) || COALESCE(pol.probe_enabled, 1) || char(9) || COALESCE(pol.probe_port, 12346) || char(9) || COALESCE(p.engine, 'v2ray') FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
 	[ -n "$row" ] || die "active profile has no enabled node"
 	printf '%s\n' "$row"
 }
@@ -1345,7 +1375,7 @@ cmd_render_v2ray() {
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1460,7 +1490,7 @@ cmd_dns_settings() {
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1494,7 +1524,7 @@ cmd_render_mosdns() {
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1584,7 +1614,7 @@ cmd_render_nft() {
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1739,9 +1769,14 @@ cmd_get_v2ray_config() {
 cmd_test_v2ray() {
 	ensure_db
 	[ -f "$ACTIVE_DIR/v2ray.json" ] || cmd_render_v2ray
-	[ -x "$V2RAY_BIN" ] || die "missing executable: $V2RAY_BIN"
-	env 'v2ray.local.asset=/usr/share/v2ray' V2RAY_CONF_GEOLOADER=memconservative \
-		"$V2RAY_BIN" test -c "$ACTIVE_DIR/v2ray.json"
+	_engine_bin="$(selected_engine_bin)"
+	[ -x "$_engine_bin" ] || die "missing executable for $(selected_engine): $_engine_bin"
+	if [ "$(selected_engine)" = xray ]; then
+		XRAY_LOCATION_ASSET=/usr/share/v2ray "$_engine_bin" run -test -c "$ACTIVE_DIR/v2ray.json"
+	else
+		env 'v2ray.local.asset=/usr/share/v2ray' V2RAY_CONF_GEOLOADER=memconservative \
+			"$_engine_bin" test -c "$ACTIVE_DIR/v2ray.json"
+	fi
 }
 
 cmd_test_dns() {
@@ -2100,7 +2135,7 @@ cmd_network_probe() {
 		IFS="$(printf '\t')"
 		read -r _profile_protocol _profile_server _profile_port _profile_data _profile_direct_dns _profile_proxy_ports _bypass_china \
 			use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_engine <<EOF
 $active_row
 EOF
 		IFS="$old_ifs"
@@ -2324,7 +2359,7 @@ cmd_dns_state() {
 	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -2370,7 +2405,7 @@ cmd_status() {
 	printf 'state=%s\n' "$(get_state)"
 	printf 'direct_dns_upstreams=%s\n' "$(setting direct_dns_upstreams)"
 	printf 'draft_direct_dns_upstreams=%s\n' "$(setting draft_direct_dns_upstreams)"
-	printf 'active_engine=%s\n' "$(setting active_engine)"
+	printf 'active_engine=%s\n' "$(selected_engine)"
 	printf 'active_profile=%s\n' "$(setting active_profile)"
 	printf 'service_enabled=%s\n' "$(setting service_enabled)"
 	if draft_pending; then draft_state=1; else draft_state=0; fi
@@ -2388,7 +2423,7 @@ cmd_status() {
 		read -r profile_protocol profile_server profile_port profile_data \
 			profile_direct_dns profile_proxy_ports profile_bypass_china \
 			profile_use_v2ray_dns profile_mosdns_enabled profile_mosdns_domains profile_proxy_router_traffic \
-			profile_transparent_proxy_port profile_probe_enabled profile_probe_port <<EOF
+			profile_transparent_proxy_port profile_probe_enabled profile_probe_port profile_engine <<EOF
 $row
 EOF
 		IFS="$old_ifs"
@@ -2402,6 +2437,7 @@ EOF
 		printf 'profile_transparent_proxy_port=%s\n' "$profile_transparent_proxy_port"
 		printf 'profile_probe_enabled=%s\n' "$profile_probe_enabled"
 		printf 'profile_probe_port=%s\n' "$profile_probe_port"
+		printf 'profile_engine=%s\n' "$profile_engine"
 	fi
 }
 
@@ -2494,6 +2530,7 @@ Usage:
   v2rayBctl get-node NODE_ID
   v2rayBctl list-profiles
   v2rayBctl get-applied-profile
+  v2rayBctl get-active-engine
   v2rayBctl get-profile PROFILE_ID
   v2rayBctl get-profile-rules PROFILE_ID
   v2rayBctl dns-state
@@ -2536,8 +2573,8 @@ case "$command" in
 	update-node) [ "$#" -eq 6 ] || usage; cmd_update_node "$@" ;;
 	set-node-enabled) [ "$#" -eq 2 ] || usage; cmd_set_node_enabled "$@" ;;
 	delete-node) [ "$#" -eq 1 ] || usage; cmd_delete_node "$1" ;;
-	add-profile) [ "$#" -ge 2 ] && [ "$#" -le 13 ] || usage; cmd_add_profile "$@" ;;
-	update-profile) [ "$#" -ge 3 ] && [ "$#" -le 14 ] || usage; cmd_update_profile "$@" ;;
+	add-profile) [ "$#" -ge 2 ] && [ "$#" -le 14 ] || usage; cmd_add_profile "$@" ;;
+	update-profile) [ "$#" -ge 3 ] && [ "$#" -le 15 ] || usage; cmd_update_profile "$@" ;;
 	set-profile-policy) [ "$#" -ge 4 ] && [ "$#" -le 12 ] || usage; cmd_set_profile_policy "$@" ;;
 	set-profile-enabled) [ "$#" -eq 2 ] || usage; cmd_set_profile_enabled "$@" ;;
 	delete-profile) [ "$#" -eq 1 ] || usage; cmd_delete_profile "$1" ;;
@@ -2554,6 +2591,7 @@ case "$command" in
 	list-profiles) [ "$#" -eq 0 ] || usage; cmd_list_profiles ;;
 	get-applied-profile) [ "$#" -eq 0 ] || usage; cmd_get_applied_profile ;;
 	get-profile) [ "$#" -eq 1 ] || usage; cmd_get_profile "$1" ;;
+	get-active-engine) [ "$#" -eq 0 ] || usage; ensure_db; selected_engine ;;
 	get-profile-rules) [ "$#" -eq 1 ] || usage; cmd_get_profile_rules "$1" ;;
 	render-v2ray) [ "$#" -eq 0 ] || usage; cmd_render_v2ray ;;
 	render-mosdns) [ "$#" -eq 0 ] || usage; cmd_render_mosdns ;;

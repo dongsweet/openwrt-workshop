@@ -28,6 +28,9 @@ an unprivileged helper. Subscription hostnames resolve through WAN DNS and their
 addresses are added to the v2rayB direct sets so retries bypass the router traffic
 proxy; proxy traffic itself is not affected.
 
+The active profile owns the engine choice (`v2ray` or `xray`). The lifecycle
+resolves the binary and config-test mode from the applied profile, with Xray
+using `/usr/share/v2ray` for geo data.
 A global, ordered direct-DNS upstream list is shared by node bootstrap, subscription
 downloads and the MosDNS direct branch. Each profile policy stores the transparent
 proxy listener port, the connectivity probe enable flag, and the probe port. When the probe is enabled, an isolated local

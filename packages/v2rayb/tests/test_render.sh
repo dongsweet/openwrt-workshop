@@ -98,13 +98,17 @@ for ports in '80,,443' '8443-8080' '0-443' '1-2-3'; do
 		exit 1
 	fi
 done
-"$ctl" update-profile 1 hk-profile-updated 1 1.1.1.1:53 '80,443,8080-8443' 0 0 1 'example.com,xn--ngstr-lra8j.com' 'regexp:^cdn\.example\.com$' >/dev/null
+"$ctl" update-profile 1 hk-profile-updated 1 1.1.1.1:53 '80,443,8080-8443' 0 0 1 'example.com,xn--ngstr-lra8j.com' 'regexp:^cdn\.example\.com$' 0 12345 1 12346 xray >/dev/null
 "$ctl" get-profile 1 | grep -q '^name=hk-profile-updated$'
 "$ctl" get-profile 1 | grep -q '^node_id=1$'
+"$ctl" get-profile 1 | grep -q '^engine=xray$'
+"$ctl" status | grep -q '^active_engine=v2ray$'
 "$ctl" get-profile 1 | grep -q '^use_v2ray_dns=0$'
 "$ctl" get-profile 1 | grep -q '^mosdns_domains=example.com,xn--ngstr-lra8j.com$'
 "$ctl" get-profile-rules 1 | grep -q '^regexp:\^cdn\\.example\\.com\$'
 "$ctl" apply-draft
+"$ctl" status | grep -q '^active_engine=xray$'
+"$ctl" get-active-engine | grep -qx xray
 "$ctl" dns-settings | grep -q '^dnsmasq_default=1.1.1.1#53$'
 "$ctl" dns-settings | grep -q '^use_v2ray_dns=0$'
 "$ctl" dns-settings | grep -q '^mosdns_enabled=1$'

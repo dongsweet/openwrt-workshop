@@ -377,6 +377,17 @@ def main():
     assert "const watchdogEnabled = checkbox" in view_source
     assert "field(_('Enable watchdog'), watchdogEnabled" in view_source
     assert "callSetSetting('watchdog_enabled', this.watchdogEnabledDesired ? '1' : '0')" in view_source
+    assert "field(_('Proxy engine'), profileEngine" in view_source
+    assert "const profileEngine = E('select'" in view_source
+    assert "profile.probe_port, profile.engine" in view_source
+    assert "engine: fields.engine || 'v2ray'" in rpc_source
+    assert "callSetSetting('active_engine'" not in view_source
+    assert "get-active-engine" in ctl_source
+    assert "engine=$(sql_quote \"$engine\")" in ctl_source
+    assert "XRAY_BIN=" in init_source
+    assert 'XRAY_LOCATION_ASSET=/usr/share/v2ray' in init_source
+    assert "run -test -c" in ctl_source
+    assert "+xray-core" in makefile_source
     assert "this.watchdogEnabledDirty" in view_source
     assert "key != 'watchdog_enabled'" in rpc_source
     assert "setting draft_watchdog_enabled" in ctl_source

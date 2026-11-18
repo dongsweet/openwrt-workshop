@@ -406,7 +406,8 @@ const methods = {
 					proxy_router_traffic: fields.proxy_router_traffic || '0',
 					transparent_proxy_port: fields.transparent_proxy_port || '12345',
 					probe_enabled: fields.probe_enabled || '1',
-					probe_port: fields.probe_port || '12346'
+					probe_port: fields.probe_port || '12346',
+					engine: fields.engine || 'v2ray'
 				}
 			};
 		}
@@ -578,7 +579,7 @@ const methods = {
 	},
 
 	add_profile: {
-		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346' },
+		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346', engine: 'v2ray' },
 		call: function(request) {
 			let name = string_arg(request, 'name');
 			let node_id = string_arg(request, 'node_id');
@@ -593,6 +594,9 @@ const methods = {
 			let transparent_proxy_port = string_arg(request, 'transparent_proxy_port') || '12345';
 			let probe_enabled = string_arg(request, 'probe_enabled') || '1';
 			let probe_port = string_arg(request, 'probe_port') || '12346';
+			let engine = string_arg(request, 'engine') || 'v2ray';
+			if (engine != 'v2ray' && engine != 'xray')
+				return { success: false, error: 'Select a valid proxy engine' };
 			if (length(name) > 64)
 				return { success: false, error: 'Profile name is too long' };
 			if (!match(node_id, /^[0-9]+$/))
@@ -615,7 +619,7 @@ const methods = {
 
 			let result = ctl([ 'add-profile', name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port ]);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, engine ]);
 			if (result.code != 0)
 				return failed(result);
 
@@ -666,7 +670,7 @@ const methods = {
 	},
 
 	update_profile: {
-		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346' },
+		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346', engine: 'v2ray' },
 		call: function(request) {
 			let profile_id = string_arg(request, 'profile_id');
 			let name = string_arg(request, 'name');
@@ -682,6 +686,9 @@ const methods = {
 			let transparent_proxy_port = string_arg(request, 'transparent_proxy_port') || '12345';
 			let probe_enabled = string_arg(request, 'probe_enabled') || '1';
 			let probe_port = string_arg(request, 'probe_port') || '12346';
+			let engine = string_arg(request, 'engine') || 'v2ray';
+			if (engine != 'v2ray' && engine != 'xray')
+				return { success: false, error: 'Select a valid proxy engine' };
 			if (!valid_id(profile_id) || !valid_id(node_id))
 				return { success: false, error: 'Invalid profile or node id' };
 			if (name == '' || length(name) > 64)
@@ -693,7 +700,7 @@ const methods = {
 				return { success: false, error: policy_error };
 			let result = ctl([ 'update-profile', profile_id, name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port ]);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, engine ]);
 			return result.code == 0 ? { success: true, profile_id: profile_id } : failed(result);
 		}
 	},
