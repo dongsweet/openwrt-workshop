@@ -115,7 +115,7 @@ case "$1" in
 					printf '1\n'
 				fi
 				;;
-			fallback_on_failure|watchdog_auto_recover) printf '1\n' ;;
+			fallback_on_failure|watchdog_auto_recover|watchdog_restart_engine) printf '1\n' ;;
 			*) return 1 ;;
 		esac
 		;;
@@ -400,6 +400,23 @@ fi
 kill -0 "$engine_pid"
 kill -0 "$watchdog_pid"
 [ ! -e "$PID_DIR/mosdns.pid" ]
+
+setup_case recover-restart-hung-engine
+spawn_managed v2ray
+printf 'suspended\n' > "$RUNTIME/state"
+port_ready() { return 0; }
+restart_engine_called="$RUNTIME/restart-engine.called"
+restart_engine() {
+	printf 'called\n' > "$restart_engine_called"
+	return 0
+}
+proxy_connected() {
+	[ -e "$restart_engine_called" ]
+}
+set_proxy_dns() { return 0; }
+recover_service restart
+[ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
+[ -e "$restart_engine_called" ]
 
 setup_case inherited-lock
 mkdir -p "$LOCK_DIR"

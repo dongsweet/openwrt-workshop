@@ -172,6 +172,7 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
     ('proxy_mode', 'normal'),
     ('watchdog_enabled', '1'),
     ('watchdog_auto_recover', '1'),
+    ('watchdog_restart_engine', '1'),
     ('fallback_on_failure', '1'),
     ('mosdns_listen', '127.0.0.1#5354'),
     ('v2ray_dns_listen', '127.0.0.1#5353'),

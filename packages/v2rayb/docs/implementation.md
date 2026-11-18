@@ -48,12 +48,14 @@ When continuous monitoring is enabled, three consecutive probe failures move the
 service to `suspended`,
 restore the dnsmasq baseline, remove the v2rayB nftables table and stop the managed
 MosDNS while retaining the enabled service setting, proxy engine and watchdog.
-The watchdog continues probing. When `watchdog_auto_recover=1`, a successful
-probe calls the recovery path, which repeats the startup probe and restores DNS
-and nftables imports without restarting the engine. Failed recovery remains
-suspended and is retried. A plain start leaves suspended unchanged. Restart and
-reload invoke resume; an explicit resume or applying a profile change does the
-same. Mux defaults to disabled and is enabled only when a URI query
+The watchdog continues probing. When `watchdog_restart_engine=1`, repeated
+probe failures in suspended restart an engine whose PID still exists. Restarts
+are limited to one per five-minute backoff, after which the startup probe is
+repeated. A missing engine uses the normal resume/start path. When
+`watchdog_auto_recover=1`, a reachable engine calls recovery to restore DNS and
+nftables imports. Failed recovery remains suspended and is retried. A plain start
+leaves suspended unchanged. Restart and reload invoke resume; an explicit resume
+or applying a profile change does the same. Mux defaults to disabled and is enabled only when a URI query
 or VMess payload explicitly requests it. JSON subscription formats and automatic
 periodic refresh remain future work.
 The optional legacy importer normalizes an explicitly selected file into the

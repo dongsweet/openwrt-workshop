@@ -431,6 +431,11 @@ start_engine() {
 	is_pid "$(sed -n '1p' "$PID_DIR/v2ray.pid" 2>/dev/null || true)"
 }
 
+restart_engine() {
+	stop_pid v2ray || return 1
+	start_engine
+}
+
 prepare_engine_config_access() {
 	[ -d "$RUNTIME/active" ] || return 1
 	chown root:"$V2RAY_GROUP" "$RUNTIME/active" || return 1
@@ -656,6 +661,7 @@ recovery_rollback() {
 }
 
 recover_service() {
+	recover_restart_engine="${1:-}"
 	acquire_lock || return 1
 	if [ "$("$CTL" get-setting service_enabled 2>/dev/null)" != 1 ]; then
 		release_lock
@@ -674,7 +680,21 @@ recover_service() {
 	if [ "$probe_enabled" = 1 ]; then
 		is_uint "$probe_port" || { recovery_rollback; return 1; }
 		port_ready "$probe_port" || { recovery_rollback; return 1; }
-		proxy_connected "$probe_port" || { recovery_rollback; return 1; }
+		if ! proxy_connected "$probe_port"; then
+			if [ "$recover_restart_engine" = restart ]; then
+				log "proxy is still unreachable; restarting the engine before retrying"
+				if ! restart_engine; then
+					recovery_rollback
+					return 1
+				fi
+				port_ready 5353 || { recovery_rollback; return 1; }
+				port_ready "$probe_port" || { recovery_rollback; return 1; }
+			fi
+		fi
+		if ! proxy_connected "$probe_port"; then
+			recovery_rollback
+			return 1
+		fi
 	fi
 	"$CTL" apply-nft || { recovery_rollback; return 1; }
 	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then

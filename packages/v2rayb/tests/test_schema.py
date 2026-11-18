@@ -103,6 +103,9 @@ def main():
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'watchdog_auto_recover'"
         ).fetchone()[0] == "1"
+        assert conn.execute(
+            "SELECT value FROM settings WHERE key = 'watchdog_restart_engine'"
+        ).fetchone()[0] == "1"
 
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'service_enabled'"

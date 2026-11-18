@@ -332,6 +332,8 @@ const _zh = {
 	'Watchdog': '看门狗',
 	'Enable watchdog': '启用看门狗',
 	'Automatically restore takeover': '自动恢复代理接管',
+	'Restart engine during recovery': '恢复时重启代理引擎',
+	'After a recovered probe, restart V2Ray/Xray before restoring takeover. This handles a running but hung engine; retries are throttled.': '恢复探测成功后先重启 V2Ray/Xray 再重新接管，用于处理进程仍在但已经卡死的情况；重启重试有冷却间隔。',
 	'After a fail-open suspension, automatically restore traffic and DNS takeover when proxy connectivity returns.': '进入安全暂停后持续探测，连接恢复时自动重新接管流量和 DNS。',
 	'Automatically withdraws traffic and DNS imports after repeated proxy connectivity failures.': '代理连续连通失败时，自动撤销流量和 DNS 接管。',
 	'WebSocket host': 'WebSocket 主机',
@@ -1269,6 +1271,20 @@ return view.extend({
 		const watchdogAutoRecover = checkbox({}, configuredAutoRecover);
 		pageView.watchdogAutoRecoverDesired = configuredAutoRecover;
 		pageView.watchdogAutoRecoverDirty = false;
+		const configuredRestartEngine = draftPending
+			? status.draft_watchdog_restart_engine !== '0'
+			: status.watchdog_restart_engine !== '0';
+		const watchdogRestartEngine = checkbox({}, configuredRestartEngine);
+		pageView.watchdogRestartEngineDesired = configuredRestartEngine;
+		pageView.watchdogRestartEngineDirty = false;
+		const watchdogRestartField = field(_('Restart engine during recovery'), watchdogRestartEngine,
+			_('After a recovered probe, restart V2Ray/Xray before restoring takeover. This handles a running but hung engine; retries are throttled.'));
+		function refreshWatchdogRestartField() {
+			watchdogRestartEngine.disabled = !watchdogAutoRecover.checked;
+			watchdogRestartField.classList.toggle('v2rayb-disabled-control', !watchdogAutoRecover.checked);
+		}
+		watchdogAutoRecover.addEventListener('change', refreshWatchdogRestartField);
+		refreshWatchdogRestartField();
 		const configuredDirectDnsUpstreams = draftPending
 			? (status.draft_direct_dns_upstreams || status.direct_dns_upstreams || '223.5.5.5:53')
 			: (status.direct_dns_upstreams || '223.5.5.5:53');
@@ -1306,8 +1322,9 @@ return view.extend({
 		pageView.activeProfileDirty = false;
 		pageView.hasLocalChanges = function() {
 			return this.serviceEnabledDirty || this.watchdogEnabledDirty ||
-				this.watchdogAutoRecoverDirty || this.activeProfileDirty ||
-				this.directDnsDirty || this.pendingOperations.length > 0;
+				this.watchdogAutoRecoverDirty || this.watchdogRestartEngineDirty ||
+				this.activeProfileDirty || this.directDnsDirty ||
+				this.pendingOperations.length > 0;
 		};
 		pageView.refreshActiveProfileSelect = function() {
 			const current = String(activeProfile || '');
@@ -1323,6 +1340,8 @@ return view.extend({
 				chain = chain.then(() => callSetSetting('watchdog_enabled', this.watchdogEnabledDesired ? '1' : '0'));
 			if (this.watchdogAutoRecoverDirty)
 				chain = chain.then(() => callSetSetting('watchdog_auto_recover', this.watchdogAutoRecoverDesired ? '1' : '0'));
+			if (this.watchdogRestartEngineDirty)
+				chain = chain.then(() => callSetSetting('watchdog_restart_engine', this.watchdogRestartEngineDesired ? '1' : '0'));
 			if (this.directDnsDirty)
 				chain = chain.then(() => callSetSetting('direct_dns_upstreams', this.directDnsDesired));
 			for (const operation of this.pendingOperations)
@@ -1340,6 +1359,7 @@ return view.extend({
 					this.serviceEnabledDirty = false;
 					this.watchdogEnabledDirty = false;
 					this.watchdogAutoRecoverDirty = false;
+					this.watchdogRestartEngineDirty = false;
 					this.directDnsDirty = false;
 					this.pendingOperations = [];
 				}
@@ -1387,6 +1407,12 @@ return view.extend({
 		watchdogAutoRecover.addEventListener('change', () => {
 			pageView.watchdogAutoRecoverDesired = watchdogAutoRecover.checked;
 			pageView.watchdogAutoRecoverDirty = watchdogAutoRecover.checked !== configuredAutoRecover;
+			refreshWatchdogRestartField();
+			updateLocalChangesNotice();
+		});
+		watchdogRestartEngine.addEventListener('change', () => {
+			pageView.watchdogRestartEngineDesired = watchdogRestartEngine.checked;
+			pageView.watchdogRestartEngineDirty = watchdogRestartEngine.checked !== configuredRestartEngine;
 			updateLocalChangesNotice();
 		});
 		directDnsInput.addEventListener('input', () => {
@@ -1419,7 +1445,8 @@ return view.extend({
 						'需在 Profile 中启用连通性探测；连续 3 次失败后保留代理和 watchdog 继续探测，同时撤销流量与 DNS 接管。')
 				])),
 				field(_('Automatically restore takeover'), watchdogAutoRecover,
-					_('After a fail-open suspension, automatically restore traffic and DNS takeover when proxy connectivity returns.'))
+					_('After a fail-open suspension, automatically restore traffic and DNS takeover when proxy connectivity returns.')),
+				watchdogRestartField
 			]),
 			table([ _('Property'), _('Current value') ], [
 				[ _('Engine'), status.active_engine || '-' ], [ _('Proxy mode'), status.proxy_mode || '-' ],

@@ -148,11 +148,17 @@ service to `suspended`: the original dnsmasq configuration is restored, the
 v2rayB nftables table is removed, and MosDNS is stopped. V2Ray/Xray and the
 watchdog remain running so the loopback health probe can continue.
 
-With **Automatically restore takeover** enabled, a successful probe in
-`suspended` repeats the startup connectivity check and restores nftables and DNS
-imports without restarting the proxy engine. A failed attempt remains safely
-suspended and is retried later. With automatic recovery disabled, the watchdog
-keeps monitoring but does not re-import traffic or DNS.
+While suspended, a failed probe still checks whether the engine process is
+alive. With **Restart engine during recovery** enabled, watchdog restarts a
+running engine that remains unreachable, then repeats the connectivity probe.
+Restarts are throttled to one attempt every five minutes. This handles a process
+that exists but is hung; a missing engine is started through the normal resume
+path.
+
+After the engine becomes reachable, **Automatically restore takeover** repeats
+the startup connectivity check and restores nftables and DNS imports. A failed
+attempt remains safely suspended. With automatic recovery disabled, watchdog
+continues monitoring but does not re-import traffic or DNS.
 
 A plain `/etc/init.d/v2rayB start` keeps a suspended service suspended. Use
 `/etc/init.d/v2rayB restart` or `reload`, the LuCI restart action, an explicit
