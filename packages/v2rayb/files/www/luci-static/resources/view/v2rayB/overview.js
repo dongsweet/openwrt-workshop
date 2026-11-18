@@ -125,6 +125,7 @@ const _zh = {
 	'Default upstream': '默认上游',
 	'Defaults to the server address.': '默认使用服务器地址。',
 	'Degraded': '异常降级',
+	'Suspended': '已暂停接管',
 	'Delete node "%s"?': '删除节点“%s”？',
 	'Delete profile "%s"?': '删除配置“%s”？',
 	'Delete subscription "%s" and its unreferenced nodes?': '删除订阅“%s”及其未被配置引用的节点？',
@@ -513,8 +514,8 @@ function field(label, control, help) {
 function statusBadge(state) {
 	let cls = 'v2rayb-status-off';
 	if (state === 'proxy') cls = 'v2rayb-status-ok';
-	else if (state === 'starting' || state === 'stopping' || state === 'degraded') cls = 'v2rayb-status-warn';
-	const labels = { normal: _('Normal mode'), starting: _('Starting'), proxy: _('Proxy mode'), stopping: _('Stopping'), degraded: _('Degraded') };
+	else if (state === 'starting' || state === 'stopping' || state === 'degraded' || state === 'suspended') cls = 'v2rayb-status-warn';
+	const labels = { normal: _('Normal mode'), starting: _('Starting'), proxy: _('Proxy mode'), stopping: _('Stopping'), degraded: _('Degraded'), suspended: _('Suspended') };
 	return E('span', { class: 'v2rayb-status ' + cls }, labels[state] || state || _('Unknown'));
 }
 

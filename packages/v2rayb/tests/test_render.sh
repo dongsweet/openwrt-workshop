@@ -64,6 +64,8 @@ grep -q 'ip daddr @force_proxy tcp dport { 80, 443, 8080, 8443 } redirect to :12
 grep -q 'ip daddr @pass return' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'tcp dport { 80, 443, 8080, 8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q '"force-proxy-in"' "$TEST_DIR/runtime/active/v2ray.json"
+grep -q '"tag":"health-in","listen":"127.0.0.1","port":12347' "$TEST_DIR/runtime/active/v2ray.json"
+grep -q '"inboundTag":\["dns-in","health-in","force-proxy-in"\]' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
 
 "$ctl" update-node 1 hk-updated vless hk3.example.com 8443 '{"settings":{"vnext":[{"address":"hk3.example.com","port":8443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"ws"}}' >/dev/null

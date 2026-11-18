@@ -16,6 +16,7 @@ SUBSCRIPTION_PARSER="${V2RAYB_SUBSCRIPTION_PARSER:-/usr/libexec/v2rayB/v2rayB-su
 SUBSCRIPTION_DOWNLOADER="${V2RAYB_SUBSCRIPTION_DOWNLOADER:-/usr/libexec/v2rayB/v2rayB-subscription-download}"
 SUBSCRIPTION_DOWNLOAD_USER="${V2RAYB_SUBSCRIPTION_DOWNLOAD_USER:-nobody}"
 SUBSCRIPTION_DOWNLOAD_GROUP="${V2RAYB_SUBSCRIPTION_DOWNLOAD_GROUP:-nogroup}"
+HEALTH_PROBE_PORT="${V2RAYB_HEALTH_PROBE_PORT:-12347}"
 SQLITE3="${V2RAYB_SQLITE3:-sqlite3}"
 V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 MOSDNS_BIN="${V2RAYB_MOSDNS_BIN:-/usr/bin/mosdns}"
@@ -1273,13 +1274,14 @@ EOF
 		printf '%s\n' '  "inbounds": ['
 		printf '    {"tag":"redir-in","port":%s,"protocol":"dokodemo-door","settings":{"network":"tcp","followRedirect":true}},\n' "$(setting transparent_proxy_port)"
 		printf '%s\n' '    {"tag":"dns-in","listen":"127.0.0.1","port":5353,"protocol":"dokodemo-door","settings":{"address":"8.8.8.8","port":53,"network":"tcp,udp","followRedirect":false}},'
+		printf '    {"tag":"health-in","listen":"127.0.0.1","port":%s,"protocol":"socks","settings":{"auth":"noauth","udp":false}},\n' "$HEALTH_PROBE_PORT"
 		printf '    {"tag":"force-proxy-in","port":%s,"protocol":"dokodemo-door","settings":{"network":"tcp","followRedirect":true}}\n' "$(setting force_proxy_port)"
 		printf '%s\n' '  ],'
 		printf '  "outbounds": [{"tag":"proxy","protocol":"%s",%s},\n' "$protocol" "$data_body"
 		printf '%s\n' '    {"tag":"direct","protocol":"freedom","settings":{}},'
 		printf '%s\n' '    {"tag":"blocked","protocol":"blackhole","settings":{}}],'
 		printf '%s\n' '  "routing": {"domainStrategy":"IPIfNonMatch","rules":['
-		printf '%s\n' '    {"type":"field","inboundTag":["dns-in","force-proxy-in"],"outboundTag":"proxy"},'
+		printf '%s\n' '    {"type":"field","inboundTag":["dns-in","health-in","force-proxy-in"],"outboundTag":"proxy"},'
 		printf '%s\n' '    {"type":"field","ip":["geoip:private"],"outboundTag":"direct"},'
 		if [ "$bypass_china" = 1 ]; then
 			printf '%s\n' '    {"type":"field","ip":["geoip:cn"],"outboundTag":"direct"},'

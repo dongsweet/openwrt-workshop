@@ -259,6 +259,37 @@ restore_dnsmasq
 [ -z "$MOCK_SERVER" ]
 [ -z "$MOCK_NORESOLV" ]
 
+setup_case proxy-health
+curl() { [ "${PROXY_HEALTH_OK:-0}" = 1 ]; }
+PROXY_HEALTH_OK=1 proxy_connected
+if PROXY_HEALTH_OK=0 proxy_connected; then
+	echo "failed proxy health probe unexpectedly succeeded" >&2
+	exit 1
+fi
+unset -f curl
+
+setup_case suspend
+DNS_RELOAD_FAIL=0
+FAIL_NFT=0
+export FAIL_NFT
+printf '%s\n' '/example.cn/223.5.5.5' '127.0.0.1#5353' > "$DNS_BACKUP/server"
+printf '1\n' > "$DNS_BACKUP/noresolv"
+printf '1\n' > "$DNS_BACKUP/stale"
+set_proxy_dns
+spawn_managed v2ray
+spawn_managed mosdns
+spawn_managed watchdog
+suspend_service
+[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
+[ ! -e "$PID_DIR/v2ray.pid" ]
+[ ! -e "$PID_DIR/mosdns.pid" ]
+[ ! -e "$PID_DIR/watchdog.pid" ]
+[ ! -e "$DNS_BACKUP" ]
+[ ! -e "$BOOTSTRAP_DNS_FILE" ]
+[ ! -e "$SUBSCRIPTION_DNS_FILE" ]
+[ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
+[ -z "$MOCK_NORESOLV" ]
+
 setup_case inherited-lock
 mkdir -p "$LOCK_DIR"
 printf '%s\n' "$$" > "$LOCK_DIR/pid"

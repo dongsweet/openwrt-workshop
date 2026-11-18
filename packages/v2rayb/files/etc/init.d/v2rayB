@@ -18,6 +18,8 @@ SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/89-v2rayB-subscriptions.conf"
 SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
 V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 V2RAY_GROUP="${V2RAYB_V2RAY_GROUP:-nogroup}"
+HEALTH_PROBE_PORT="${V2RAYB_HEALTH_PROBE_PORT:-12347}"
+HEALTH_PROBE_URL="${V2RAYB_HEALTH_PROBE_URL:-https://www.gstatic.com/generate_204}"
 LOCK_INHERITED=0
 
 log() {
@@ -342,6 +344,13 @@ port_ready() {
 	return 1
 }
 
+proxy_connected() {
+	command -v curl >/dev/null 2>&1 || return 1
+	curl --socks5-hostname "127.0.0.1:$HEALTH_PROBE_PORT" \
+		--fail --silent --show-error --output /dev/null \
+		--connect-timeout 8 --max-time 15 "$HEALTH_PROBE_URL"
+}
+
 start_engine() {
 	mkdir -p "$PID_DIR" || return 1
 	max_fd="$(ulimit -Hn 2>/dev/null || true)"
@@ -384,7 +393,9 @@ start_watchdog() {
 }
 
 rollback_start() {
-	log "start failed; rolling back to normal mode"
+	final_state="${1:-normal}"
+	case "$final_state" in normal|suspended) ;; *) final_state=normal ;; esac
+	log "start failed; rolling back traffic and DNS imports"
 	if [ -d "$DNS_BACKUP" ] && ! restore_dnsmasq; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
 		log "rollback paused: DNS baseline could not be restored; keeping local services alive"
@@ -408,7 +419,7 @@ rollback_start() {
 		release_lock
 		return 1
 	fi
-	if ! "$CTL" set-state normal >/dev/null 2>&1; then
+	if ! "$CTL" set-state "$final_state" >/dev/null 2>&1; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
 		release_lock
 		return 1
@@ -446,6 +457,12 @@ start_service() {
 	set_bootstrap_dns || { rollback_start; return 1; }
 	start_engine
 	port_ready 5353 || { rollback_start; return 1; }
+	port_ready "$HEALTH_PROBE_PORT" || { rollback_start; return 1; }
+	proxy_connected || {
+		log "proxy connectivity probe failed; traffic and DNS were not imported"
+		rollback_start suspended
+		return 1
+	}
 	"$CTL" apply-nft || { rollback_start; return 1; }
 	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
 		start_mosdns
@@ -504,6 +521,39 @@ stop_service() {
 	release_lock
 }
 
+suspend_service() {
+	acquire_lock || return 1
+	"$CTL" set-state stopping >/dev/null 2>&1 || { release_lock; return 1; }
+	if [ -d "$DNS_BACKUP" ] && ! restore_dnsmasq; then
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		release_lock
+		return 1
+	fi
+	if ! "$CTL" delete-nft >/dev/null 2>&1; then
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		release_lock
+		return 1
+	fi
+	if ! stop_instances; then
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		release_lock
+		return 1
+	fi
+	"$CTL" set-setting proxy_mode normal >/dev/null 2>&1 || {
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		release_lock
+		return 1
+	}
+	"$CTL" set-state suspended >/dev/null 2>&1 || {
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		release_lock
+		return 1
+	}
+	rm -rf "$DNS_BACKUP"
+	log "proxy connectivity failed; traffic and DNS imports suspended"
+	release_lock
+}
+
 reload_service() {
 	stop_service || return 1
 	start_service
@@ -528,6 +578,7 @@ reload() {
 if command -v extra_command >/dev/null 2>&1; then
 	extra_command "status" "Show service status"
 	extra_command "running" "Check whether managed processes are running"
+	extra_command "suspend" "Withdraw traffic and DNS imports after a proxy failure"
 fi
 
 running() {
