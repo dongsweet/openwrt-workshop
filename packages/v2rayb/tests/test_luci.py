@@ -170,6 +170,10 @@ def main():
     assert "suspend_service()" in init_source
     assert '"$CTL" set-state suspended' in init_source
     assert "normal|starting|proxy|stopping|degraded|suspended" in ctl_source
+    makefile_source = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert 'state="$$(/usr/libexec/v2rayB/v2rayBctl status' in makefile_source
+    assert '[ "$$state" = suspended ] || exit 1' in makefile_source
+    assert "proxy unavailable, traffic and DNS imports suspended" in makefile_source
     watchdog_source = (FILES / "usr/bin/v2rayB-watchdog").read_text(encoding="utf-8")
     assert "probe_proxy()" in watchdog_source
     assert "--socks5-hostname \"127.0.0.1:$HEALTH_PROBE_PORT\"" in watchdog_source
