@@ -9,9 +9,29 @@ export V2RAYB_SCHEMA="$ROOT/files/etc/v2rayB/schema.sql"
 export V2RAYB_STATE_DIR="$TEST_DIR/runtime"
 export V2RAYB_RULE_DIR="$TEST_DIR-rules"
 export V2RAYB_SQLITE3="$ROOT/tests/sqlite3-wrapper.py"
+mkdir -p "$TEST_DIR/bin"
+cat > "$TEST_DIR/bin/dig" <<'EOF'
+#!/bin/sh
+name=''
+type=''
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		A|AAAA) type="$1"; shift ;;
+		@*) shift ;;
+		+*) shift ;;
+		*) name="$1"; shift ;;
+	esac
+done
+if [ "$name" = subscriptions.example.com ]; then
+	if [ "$type" = A ]; then printf '%s\n' 192.0.2.44; else printf '%s\n' 2001:db8::44; fi
+fi
+EOF
+chmod +x "$TEST_DIR/bin/dig"
+export PATH="$TEST_DIR/bin:$PATH"
 
 ctl="$ROOT/files/usr/libexec/v2rayB/v2rayBctl"
 "$ctl" init-db
+"$ctl" add-source subscription sub https://subscriptions.example.com/api/v1/sub/v2ray auto 1
 "$ctl" add-node hk vless hk2.example.com 443 '{"settings":{"vnext":[{"address":"hk2.example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]},"streamSettings":{"network":"tcp"}}'
 "$ctl" add-profile hk-profile 1 >/dev/null
 "$ctl" apply-draft
@@ -25,6 +45,7 @@ python3 -m json.tool "$TEST_DIR/runtime/active/v2ray.json" >/dev/null
 grep -q '"protocol":"vless"' "$TEST_DIR/runtime/active/v2ray.json"
 "$ctl" get-v2ray-config | python3 -m json.tool >/dev/null
 "$ctl" status | grep -q '^profile_direct_dns=223.5.5.5:53$'
+"$ctl" dns-settings | grep -q '^subscription_domains=subscriptions.example.com$'
 "$ctl" status | grep -q '^profile_transparent_proxy_ports=80,443,8080,8443$'
 ! "$ctl" status | grep -q '^transparent_proxy_ports='
 grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
@@ -34,9 +55,9 @@ grep -q 'set force_proxy4' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set direct_static4' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'elements = { *}' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'flags timeout; timeout 12h' "$TEST_DIR/runtime/active/nftables.nft"
-grep -q 'set pass { type ipv4_addr; flags interval;' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'set pass { type ipv4_addr; flags interval; elements = { 192.0.2.44 }; }' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'hk2.example.com' "$TEST_DIR/runtime/active/nftables.nft"
-grep -q 'set pass6 { type ipv6_addr; flags interval;' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'set pass6 { type ipv6_addr; flags interval; elements = { 2001:db8::44 }; }' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set force_proxy { type ipv4_addr; flags interval; }' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'chain output' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'ip daddr @force_proxy tcp dport { 80, 443, 8080, 8443 } redirect to :12346' "$TEST_DIR/runtime/active/nftables.nft"

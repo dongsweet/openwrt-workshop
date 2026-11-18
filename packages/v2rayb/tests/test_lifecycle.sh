@@ -73,6 +73,8 @@ setup_case() {
 	MOSDNS_FORWARD_EXPECTED="$RUNTIME/dnsmasq-mosdns-expected"
 	BOOTSTRAP_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-bootstrap.conf"
 	BOOTSTRAP_DNS_EXPECTED="$RUNTIME/dnsmasq-bootstrap-expected"
+	SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-subscriptions.conf"
+	SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
 	CTL="$TEST_DIR/ctl"
 	MOCK_SERVER=""
 	MOCK_NORESOLV=""
@@ -81,9 +83,10 @@ setup_case() {
 	TEST_MOSDNS_ENABLED=1
 	TEST_MOSDNS_DOMAINS='xn--ngstr-lra8j.com'
 	TEST_BOOTSTRAP_DOMAIN='bootstrap.example.com'
+	TEST_SUBSCRIPTION_DOMAINS='sub.example.com,alternate.example.net'
 	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
-		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED \
-		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN
+		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED \
+		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
@@ -103,7 +106,8 @@ case "$1" in
 			'direct_dns=223.5.5.5:53' "bootstrap_domain=$TEST_BOOTSTRAP_DOMAIN" 'use_v2ray_dns=1' \
 			"mosdns_enabled=$TEST_MOSDNS_ENABLED" \
 			"mosdns_domains=$TEST_MOSDNS_DOMAINS" \
-			'mosdns_listen=127.0.0.1#5354' 'v2ray_dns_listen=127.0.0.1#5353'
+			'mosdns_listen=127.0.0.1#5354' 'v2ray_dns_listen=127.0.0.1#5353' \
+			"subscription_domains=$TEST_SUBSCRIPTION_DOMAINS"
 		;;
 	*) exit 2 ;;
 esac
@@ -153,6 +157,10 @@ cp "$MOSDNS_FORWARD_EXPECTED" "$MOSDNS_FORWARD_FILE"
 printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 	'server=/bootstrap.example.com/223.5.5.5#53' > "$BOOTSTRAP_DNS_EXPECTED"
 cp "$BOOTSTRAP_DNS_EXPECTED" "$BOOTSTRAP_DNS_FILE"
+printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
+	'server=/sub.example.com/223.5.5.5#53' \
+	'server=/alternate.example.net/223.5.5.5#53' > "$SUBSCRIPTION_DNS_EXPECTED"
+cp "$SUBSCRIPTION_DNS_EXPECTED" "$SUBSCRIPTION_DNS_FILE"
 printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
 stop_service
 [ -e "$RUNTIME/legacy-cleaned" ]
@@ -162,6 +170,8 @@ stop_service
 [ ! -e "$DNS_BACKUP" ]
 [ ! -e "$BOOTSTRAP_DNS_FILE" ]
 [ ! -e "$BOOTSTRAP_DNS_EXPECTED" ]
+[ ! -e "$SUBSCRIPTION_DNS_FILE" ]
+[ ! -e "$SUBSCRIPTION_DNS_EXPECTED" ]
 [ "$(sed -n '1p' "$RUNTIME/state")" = normal ]
 
 setup_case dns-routing
@@ -176,6 +186,8 @@ MOCK_NORESOLV=1
 set_proxy_dns
 cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
 cmp -s "$BOOTSTRAP_DNS_FILE" "$BOOTSTRAP_DNS_EXPECTED"
+grep -q 'server=/sub.example.com/223.5.5.5#53' "$SUBSCRIPTION_DNS_FILE"
+grep -q 'server=/alternate.example.net/223.5.5.5#53' "$SUBSCRIPTION_DNS_FILE"
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5
 127.0.0.1#5353' ]
 [ "$MOCK_NORESOLV" = 1 ]
@@ -183,6 +195,8 @@ restore_dnsmasq
 [ ! -e "$MOSDNS_FORWARD_FILE" ]
 [ ! -e "$BOOTSTRAP_DNS_FILE" ]
 [ ! -e "$BOOTSTRAP_DNS_EXPECTED" ]
+[ ! -e "$SUBSCRIPTION_DNS_FILE" ]
+[ ! -e "$SUBSCRIPTION_DNS_EXPECTED" ]
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
 [ -z "$MOCK_NORESOLV" ]
 

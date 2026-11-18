@@ -14,6 +14,8 @@ MOSDNS_FORWARD_FILE="$DNSMASQ_DIR/90-v2rayB-mosdns.conf"
 MOSDNS_FORWARD_EXPECTED="$RUNTIME/dnsmasq-mosdns-expected"
 BOOTSTRAP_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-bootstrap.conf"
 BOOTSTRAP_DNS_EXPECTED="$RUNTIME/dnsmasq-bootstrap-expected"
+SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-subscriptions.conf"
+SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
 V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 V2RAY_GROUP="${V2RAYB_V2RAY_GROUP:-nogroup}"
 LOCK_INHERITED=0
@@ -101,14 +103,43 @@ write_bootstrap_dns_expected() {
 	} > "$BOOTSTRAP_DNS_EXPECTED"
 }
 
+wan_dns_endpoint() {
+	awk '$1 == "nameserver" && $2 != "" { print $2; exit }' /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null |
+		sed 's/:\([0-9][0-9]*\)$/#\1/'
+}
+
+write_subscription_dns_expected() {
+	direct_dns="$(dns_policy_value direct_dns)"
+	dns_server="$(wan_dns_endpoint)"
+	[ -n "$dns_server" ] || dns_server="$(printf '%s\n' "$direct_dns" | sed 's/:\([0-9][0-9]*\)$/#\1/')"
+	subscription_domains="$(dns_policy_value subscription_domains)"
+	[ -n "$dns_server" ] || return 1
+	{
+		printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.'
+		printf '%s\n' "$subscription_domains" | tr ',' '\n' | while IFS= read -r domain; do
+			case "$domain" in
+				''|*[!A-Za-z0-9._:-]*|.*|*.) continue ;;
+				*) printf 'server=/%s/%s\n' "$domain" "$dns_server" ;;
+			esac
+		done
+	} > "$SUBSCRIPTION_DNS_EXPECTED"
+}
+
 set_bootstrap_dns() {
 	write_bootstrap_dns_expected || return 1
-	if [ -e "$BOOTSTRAP_DNS_FILE" ] && ! cmp -s "$BOOTSTRAP_DNS_FILE" "$BOOTSTRAP_DNS_EXPECTED"; then
-		log "refusing to overwrite existing $BOOTSTRAP_DNS_FILE"
-		return 1
-	fi
-	cp "$BOOTSTRAP_DNS_EXPECTED" "$BOOTSTRAP_DNS_FILE.tmp.$$" || return 1
-	mv "$BOOTSTRAP_DNS_FILE.tmp.$$" "$BOOTSTRAP_DNS_FILE" || return 1
+	write_subscription_dns_expected || return 1
+	for rule in \
+		"$BOOTSTRAP_DNS_FILE:$BOOTSTRAP_DNS_EXPECTED" \
+		"$SUBSCRIPTION_DNS_FILE:$SUBSCRIPTION_DNS_EXPECTED"; do
+		target="${rule%%:*}"
+		expected="${rule#*:}"
+		if [ -e "$target" ] && ! cmp -s "$target" "$expected"; then
+			log "refusing to overwrite existing $target"
+			return 1
+		fi
+		cp "$expected" "$target.tmp.$$" || return 1
+		mv "$target.tmp.$$" "$target" || return 1
+	done
 	dnsmasq_reload
 }
 
@@ -218,14 +249,20 @@ restore_dnsmasq() {
 		fi
 		rm -f "$MOSDNS_FORWARD_FILE" || return 1
 	fi
-	if [ -e "$BOOTSTRAP_DNS_FILE" ]; then
-		if [ ! -f "$BOOTSTRAP_DNS_EXPECTED" ] || ! cmp -s "$BOOTSTRAP_DNS_FILE" "$BOOTSTRAP_DNS_EXPECTED"; then
-			log "refusing to remove modified $BOOTSTRAP_DNS_FILE"
-			return 1
+	for rule in \
+		"$BOOTSTRAP_DNS_FILE:$BOOTSTRAP_DNS_EXPECTED" \
+		"$SUBSCRIPTION_DNS_FILE:$SUBSCRIPTION_DNS_EXPECTED"; do
+		target="${rule%%:*}"
+		expected="${rule#*:}"
+		if [ -e "$target" ]; then
+			if [ ! -f "$expected" ] || ! cmp -s "$target" "$expected"; then
+				log "refusing to remove modified $target"
+				return 1
+			fi
+			rm -f "$target" || return 1
 		fi
-		rm -f "$BOOTSTRAP_DNS_FILE" || return 1
-	fi
-	rm -f "$RUNTIME/dnsmasq-mosdns-rule" "$MOSDNS_FORWARD_EXPECTED" "$BOOTSTRAP_DNS_EXPECTED"
+	done
+	rm -f "$RUNTIME/dnsmasq-mosdns-rule" "$MOSDNS_FORWARD_EXPECTED" "$BOOTSTRAP_DNS_EXPECTED" "$SUBSCRIPTION_DNS_EXPECTED"
 	dnsmasq_reload || {
 		log "dnsmasq reload failed while restoring its baseline"
 		return 1

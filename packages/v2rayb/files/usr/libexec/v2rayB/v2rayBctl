@@ -1308,6 +1308,26 @@ dnsmasq_endpoint() {
 	printf '%s\n' "$1" | sed 's/:\([0-9][0-9]*\)$/#\1/'
 }
 
+subscription_url_host() {
+	printf '%s\n' "$1" | sed -n 's#^[A-Za-z][A-Za-z0-9+.-]*://\(\[[^]]*\]\)[:/].*#\1#p; s#^[A-Za-z][A-Za-z0-9+.-]*://\([^/:?#]*\).*#\1#p' | sed -n '1p' | sed 's/^\[//;s/\]$//' | tr '[:upper:]' '[:lower:]'
+}
+
+subscription_hosts() {
+	db_sql "SELECT url FROM sources WHERE type='subscription' AND url IS NOT NULL ORDER BY id;" | while IFS= read -r url; do
+		subscription_url_host "$url"
+	done | awk '
+		function valid(host) {
+			return length(host) <= 253 && host !~ /^[.]/ && host !~ /[.]$/ && host !~ /[^A-Za-z0-9._:-]/
+		}
+		NF && valid($0) { print }
+	' | sort -u
+}
+
+dns_subscription_hosts() {
+	hosts="$(subscription_hosts | tr '\n' ',' | sed 's/,$//')"
+	printf '%s\n' "$hosts"
+}
+
 cmd_dns_settings() {
 	ensure_db
 	row="$(active_profile)"
@@ -1332,6 +1352,7 @@ EOF
 	printf 'mosdns_domains=%s\n' "$mosdns_domains"
 	printf 'mosdns_listen=%s\n' "$(setting mosdns_listen)"
 	printf 'v2ray_dns_listen=%s\n' "$(setting v2ray_dns_listen)"
+	printf 'subscription_domains=%s\n' "$(dns_subscription_hosts)"
 }
 
 cmd_render_mosdns() {
@@ -1452,6 +1473,23 @@ EOF
 			printf '%s\n' "$server" >> "$pass4_file"
 			;;
 	esac
+	subscription_hosts | while IFS= read -r subscription_host; do
+		[ -n "$subscription_host" ] || continue
+		case "$subscription_host" in
+			*:*)
+				printf '%s\n' "$subscription_host" >> "$pass6_file"
+				;;
+			*[!0-9.]*)
+				dig +short +time=2 +tries=1 @127.0.0.1 "$subscription_host" A 2>/dev/null |
+					awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ { print }' >> "$pass4_file" || :
+				dig +short +time=2 +tries=1 @127.0.0.1 "$subscription_host" AAAA 2>/dev/null |
+					awk '/:/ { print }' >> "$pass6_file" || :
+				;;
+			*)
+				printf '%s\n' "$subscription_host" >> "$pass4_file"
+				;;
+		esac
+	done
 	sort -u "$pass4_file" -o "$pass4_file"
 	sort -u "$pass6_file" -o "$pass6_file"
 	direct4_static_elements="$(nft_element_list "$RULE_DIR/direct_ipv4.txt")"

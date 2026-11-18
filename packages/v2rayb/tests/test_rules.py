@@ -27,8 +27,17 @@ def main():
     init_script = (ROOT / "files" / "etc" / "init.d" / "v2rayB").read_text(
         encoding="utf-8"
     )
+    ctl_script = (ROOT / "files" / "usr" / "libexec" / "v2rayB" / "v2rayBctl").read_text(
+        encoding="utf-8"
+    )
     assert "write_mosdns_forward_expected" in init_script
     assert "server=/%s/%s" in init_script
+    assert "SUBSCRIPTION_DNS_FILE=" in init_script
+    assert "wan_dns_endpoint()" in init_script
+    assert "write_subscription_dns_expected()" in init_script
+    assert "subscription_domains" in init_script
+    assert "subscription_url_host()" in ctl_script
+    assert "subscription_hosts" in ctl_script
     assert 'default_upstream="$(dns_policy_value dnsmasq_default)"' in init_script
     assert "mosdns_enabled" in init_script
     assert "start_mosdns" in init_script
