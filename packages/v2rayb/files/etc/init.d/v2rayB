@@ -89,6 +89,17 @@ write_mosdns_forward_expected() {
 	} > "$MOSDNS_FORWARD_EXPECTED"
 }
 
+write_dns_domain_rules() {
+	domain="$1"
+	dns_server="$2"
+	case "$domain" in
+		''|*[!A-Za-z0-9._-]*|.*|*.) return 0 ;;
+	esac
+	printf 'server=/%s/%s\n' "$domain" "$dns_server"
+	printf 'nftset=/%s/4#inet#v2rayB#pass\n' "$domain"
+	printf 'nftset=/%s/6#inet#v2rayB#pass6\n' "$domain"
+}
+
 write_bootstrap_dns_expected() {
 	direct_dns="$(dns_policy_value direct_dns)"
 	bootstrap_domain="$(dns_policy_value bootstrap_domain)"
@@ -96,10 +107,7 @@ write_bootstrap_dns_expected() {
 	[ -n "$dns_server" ] || return 1
 	{
 		printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.'
-		case "$bootstrap_domain" in
-			''|*[!A-Za-z0-9._-]*|.*|*.) ;;
-			*[A-Za-z-]*) printf 'server=/%s/%s\n' "$bootstrap_domain" "$dns_server" ;;
-		esac
+		write_dns_domain_rules "$bootstrap_domain" "$dns_server"
 	} > "$BOOTSTRAP_DNS_EXPECTED"
 }
 
@@ -117,10 +125,7 @@ write_subscription_dns_expected() {
 	{
 		printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.'
 		printf '%s\n' "$subscription_domains" | tr ',' '\n' | while IFS= read -r domain; do
-			case "$domain" in
-				''|*[!A-Za-z0-9._:-]*|.*|*.) continue ;;
-				*) printf 'server=/%s/%s\n' "$domain" "$dns_server" ;;
-			esac
+			write_dns_domain_rules "$domain" "$dns_server"
 		done
 	} > "$SUBSCRIPTION_DNS_EXPECTED"
 }
@@ -259,7 +264,7 @@ restore_dnsmasq() {
 				rm -f "$target" || return 1
 			elif [ "$target" = "$SUBSCRIPTION_DNS_FILE" ] &&
 				[ "$(sed -n '1p' "$target" 2>/dev/null)" = '# Managed by v2rayB; removed when proxy mode stops.' ] &&
-				! sed -n '2,$p' "$target" | grep -Eqv '^server=/[A-Za-z0-9._:-]+/[A-Za-z0-9._:#-]+$'; then
+				! sed -n '2,$p' "$target" | grep -Eqv '^(server=/[A-Za-z0-9._:-]+/[A-Za-z0-9._:#-]+|nftset=/[A-Za-z0-9._:-]+/[46]#inet#v2rayB#pass6?)$'; then
 				rm -f "$target" || return 1
 			else
 				log "refusing to remove modified $target"

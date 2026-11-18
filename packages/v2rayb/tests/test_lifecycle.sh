@@ -155,11 +155,17 @@ printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 	'server=/xn--ngstr-lra8j.com/127.0.0.1#5354' > "$MOSDNS_FORWARD_EXPECTED"
 cp "$MOSDNS_FORWARD_EXPECTED" "$MOSDNS_FORWARD_FILE"
 printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
-	'server=/bootstrap.example.com/223.5.5.5#53' > "$BOOTSTRAP_DNS_EXPECTED"
+	'server=/bootstrap.example.com/223.5.5.5#53' \
+	'nftset=/bootstrap.example.com/4#inet#v2rayB#pass' \
+	'nftset=/bootstrap.example.com/6#inet#v2rayB#pass6' > "$BOOTSTRAP_DNS_EXPECTED"
 cp "$BOOTSTRAP_DNS_EXPECTED" "$BOOTSTRAP_DNS_FILE"
 printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 	'server=/sub.example.com/223.5.5.5#53' \
-	'server=/alternate.example.net/223.5.5.5#53' > "$SUBSCRIPTION_DNS_EXPECTED"
+	'nftset=/sub.example.com/4#inet#v2rayB#pass' \
+	'nftset=/sub.example.com/6#inet#v2rayB#pass6' \
+	'server=/alternate.example.net/223.5.5.5#53' \
+	'nftset=/alternate.example.net/4#inet#v2rayB#pass' \
+	'nftset=/alternate.example.net/6#inet#v2rayB#pass6' > "$SUBSCRIPTION_DNS_EXPECTED"
 cp "$SUBSCRIPTION_DNS_EXPECTED" "$SUBSCRIPTION_DNS_FILE"
 printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
 stop_service
@@ -202,7 +208,13 @@ set_proxy_dns
 cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
 cmp -s "$BOOTSTRAP_DNS_FILE" "$BOOTSTRAP_DNS_EXPECTED"
 grep -q 'server=/sub.example.com/223.5.5.5#53' "$SUBSCRIPTION_DNS_FILE"
+grep -q 'nftset=/sub.example.com/4#inet#v2rayB#pass' "$SUBSCRIPTION_DNS_FILE"
+grep -q 'nftset=/sub.example.com/6#inet#v2rayB#pass6' "$SUBSCRIPTION_DNS_FILE"
 grep -q 'server=/alternate.example.net/223.5.5.5#53' "$SUBSCRIPTION_DNS_FILE"
+grep -q 'nftset=/alternate.example.net/4#inet#v2rayB#pass' "$SUBSCRIPTION_DNS_FILE"
+grep -q 'nftset=/alternate.example.net/6#inet#v2rayB#pass6' "$SUBSCRIPTION_DNS_FILE"
+grep -q 'nftset=/bootstrap.example.com/4#inet#v2rayB#pass' "$BOOTSTRAP_DNS_FILE"
+grep -q 'nftset=/bootstrap.example.com/6#inet#v2rayB#pass6' "$BOOTSTRAP_DNS_FILE"
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5
 127.0.0.1#5353' ]
 [ "$MOCK_NORESOLV" = 1 ]
