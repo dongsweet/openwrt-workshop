@@ -488,7 +488,9 @@ const methods = {
 				let restoreBoot = run(init_path, [ wasEnabled ? 'enable' : 'disable' ]);
 				if (restoreBoot.code != 0)
 					return { success: false, error: message + '; database rolled back but boot state restoration failed: ' + (restoreBoot.output || 'unknown error') };
-				let restored = run(init_path, [ wasProxy ? 'restart' : wasSuspended ? 'suspend' : 'stop' ]);
+				let restored = wasProxy
+					? run(init_path, [ 'restart', 'refresh' ])
+					: run(init_path, [ wasSuspended ? 'suspend' : 'stop' ]);
 				if (restored.code != 0)
 					return { success: false, error: message + '; configuration rolled back but service restoration failed: ' + (restored.output || 'unknown error') };
 				ctl([ 'clear-apply-backup' ]);
@@ -509,13 +511,8 @@ const methods = {
 				return rollbackAppliedChange(boot.output || 'Applied, but boot state update failed');
 
 			if (enabled) {
-				let was_proxy = match(before.output, /(^|\n)state=proxy(\n|$)/);
-				let was_suspended = match(before.output, /(^|\n)state=suspended(\n|$)/);
-				let old_profile = replace(before.output, /^[\s\S]*\nactive_profile=([^\n]*)[\s\S]*$/, '$1');
-				let new_profile = replace(status.output, /^[\s\S]*\nactive_profile=([^\n]*)[\s\S]*$/, '$1');
-				let action = was_proxy || (was_suspended && old_profile != new_profile) ? 'restart'
-					: was_suspended ? 'resume' : 'start';
-				let current = run(init_path, [ action ]);
+				let action = 'restart';
+				let current = run(init_path, [ action, 'refresh' ]);
 				if (current.code != 0)
 					return rollbackAppliedChange(current.output || 'Applied, but service start failed');
 			}

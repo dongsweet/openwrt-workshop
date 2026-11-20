@@ -1108,17 +1108,27 @@ apply_job_fail_and_rollback() {
 		return 1
 	}
 	apply_job_output "$apply_job_dir" "$apply_job_boot_output"
+	apply_job_restore_refresh=0
 	case "$apply_job_before_state" in
-		proxy) apply_job_restore_action=restart ;;
+		proxy) apply_job_restore_action=restart; apply_job_restore_refresh=1 ;;
 		suspended) apply_job_restore_action=suspend ;;
 		*) apply_job_restore_action=stop ;;
 	esac
-	apply_job_restore_output="$("$INIT_SCRIPT" "$apply_job_restore_action" 2>&1)" || {
+	if [ "${apply_job_restore_refresh:-0}" = 1 ]; then
+		apply_job_restore_output="$("$INIT_SCRIPT" "$apply_job_restore_action" refresh 2>&1)" || {
+			apply_job_message="$apply_job_reason; configuration rolled back but service restoration failed: ${apply_job_restore_output:-unknown error}"
+			apply_job_output "$apply_job_dir" "$apply_job_restore_output"
+			apply_job_finish "$apply_job_dir" failed 1 "$apply_job_message"
+			return 1
+		}
+	else
+		apply_job_restore_output="$("$INIT_SCRIPT" "$apply_job_restore_action" 2>&1)" || {
 		apply_job_message="$apply_job_reason; configuration rolled back but service restoration failed: ${apply_job_restore_output:-unknown error}"
 		apply_job_output "$apply_job_dir" "$apply_job_restore_output"
 		apply_job_finish "$apply_job_dir" failed 1 "$apply_job_message"
 		return 1
 	}
+	fi
 	apply_job_output "$apply_job_dir" "$apply_job_restore_output"
 	cmd_clear_apply_backup >/dev/null 2>&1 || :
 	apply_job_finish "$apply_job_dir" failed 1 "$apply_job_message"
@@ -1147,7 +1157,6 @@ cmd_apply_draft_run() {
 	apply_job_set_stage "$apply_job_dir" preparing
 	apply_job_before_state="$(get_state)"
 	apply_job_before_enabled="$(setting service_enabled)"
-	apply_job_before_profile="$(setting active_profile)"
 	cmd_clear_apply_backup >/dev/null 2>&1 || :
 
 	apply_job_set_stage "$apply_job_dir" saving-database
@@ -1173,28 +1182,9 @@ cmd_apply_draft_run() {
 	apply_job_output "$apply_job_dir" "$apply_job_step_output"
 
 	if [ "$apply_job_enabled" = 1 ]; then
-		apply_job_profile="$(setting active_profile)"
-		if [ "$apply_job_before_state" = suspended ] &&
-			[ "$apply_job_before_profile" != "$apply_job_profile" ]; then
-			apply_job_action=restart
-			apply_job_set_stage "$apply_job_dir" restarting-service
-		else
-			case "$apply_job_before_state" in
-				proxy)
-					apply_job_action=restart
-					apply_job_set_stage "$apply_job_dir" restarting-service
-					;;
-				suspended)
-					apply_job_action=resume
-					apply_job_set_stage "$apply_job_dir" resuming-service
-					;;
-				*)
-					apply_job_action=start
-					apply_job_set_stage "$apply_job_dir" starting-service
-					;;
-			esac
-		fi
-		apply_job_step_output="$("$INIT_SCRIPT" "$apply_job_action" 2>&1)" || {
+		apply_job_action=restart
+		apply_job_set_stage "$apply_job_dir" restarting-service
+		apply_job_step_output="$("$INIT_SCRIPT" "$apply_job_action" refresh 2>&1)" || {
 			apply_job_fail_keep_config "$apply_job_dir" "Configuration applied, but proxy startup failed; the new configuration was kept" "$apply_job_step_output"
 			return 1
 		}

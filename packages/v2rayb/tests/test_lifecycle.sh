@@ -128,9 +128,13 @@ case "$1" in
 	init-db|render-all|test-v2ray) exit 0 ;;
 	apply-nft)
 		[ -z "${APPLY_NFT_LOG:-}" ] || printf 'called\n' >> "$APPLY_NFT_LOG"
+		[ -z "${LIFECYCLE_EVENT_LOG:-}" ] || printf 'nft\n' >> "$LIFECYCLE_EVENT_LOG"
 		exit 0
 		;;
-	delete-nft) [ "${FAIL_NFT:-0}" = 0 ] ;;
+	delete-nft)
+		[ -z "${DELETE_NFT_LOG:-}" ] || printf 'called\n' >> "$DELETE_NFT_LOG"
+		[ "${FAIL_NFT:-0}" = 0 ]
+		;;
 	dns-settings)
 		printf '%s\n' 'runtime_state=starting' \
 			"dnsmasq_default=$TEST_DNSMASQ_DEFAULT" \
@@ -372,18 +376,86 @@ kill -0 "$watchdog_pid"
 [ -z "$MOCK_NORESOLV" ]
 grep -qx commit "$UCI_CALL_LOG"
 
+setup_case proxy-restart-engine-only
+TEST_MOSDNS_ENABLED=0
+export TEST_MOSDNS_ENABLED
+mkdir -p "$RUNTIME/active"
+printf '%s\n' '{}' > "$RUNTIME/active/v2ray.json"
+printf '/example.cn/223.5.5.5\n' > "$DNS_BACKUP/server"
+printf '0\n' > "$DNS_BACKUP/noresolv"
+LIFECYCLE_EVENT_LOG="$RUNTIME/events"
+DELETE_NFT_LOG="$RUNTIME/delete-nft.calls"
+export LIFECYCLE_EVENT_LOG DELETE_NFT_LOG
+prepare_engine_config_access() { return 0; }
+restart_engine() { printf 'engine\n' >> "$LIFECYCLE_EVENT_LOG"; }
+port_ready() { printf 'port:%s\n' "$1" >> "$LIFECYCLE_EVENT_LOG"; }
+proxy_connected() { printf 'health\n' >> "$LIFECYCLE_EVENT_LOG"; }
+set_proxy_dns() { printf 'dns\n' >> "$LIFECYCLE_EVENT_LOG"; }
+restore_dnsmasq() { printf 'called\n' > "$RUNTIME/restore-dns.called"; }
+restart
+printf '%s\n' engine port:5353 port:12346 health > "$RUNTIME/events.expected"
+cmp -s "$LIFECYCLE_EVENT_LOG" "$RUNTIME/events.expected"
+[ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
+[ -d "$DNS_BACKUP" ]
+[ ! -e "$RUNTIME/restore-dns.called" ]
+[ ! -e "$DELETE_NFT_LOG" ]
+[ ! -d "$LOCK_DIR" ]
+
+setup_case proxy-restart-in-place
+TEST_MOSDNS_ENABLED=0
+export TEST_MOSDNS_ENABLED
+mkdir -p "$RUNTIME/active"
+printf '%s\n' '{}' > "$RUNTIME/active/v2ray.json"
+printf '/example.cn/223.5.5.5\n' > "$DNS_BACKUP/server"
+printf '0\n' > "$DNS_BACKUP/noresolv"
+LIFECYCLE_EVENT_LOG="$RUNTIME/events"
+DELETE_NFT_LOG="$RUNTIME/delete-nft.calls"
+export LIFECYCLE_EVENT_LOG DELETE_NFT_LOG
+prepare_engine_config_access() { return 0; }
+restart_engine() { printf 'engine\n' >> "$LIFECYCLE_EVENT_LOG"; }
+port_ready() { printf 'port:%s\n' "$1" >> "$LIFECYCLE_EVENT_LOG"; }
+proxy_connected() { printf 'health\n' >> "$LIFECYCLE_EVENT_LOG"; }
+set_proxy_dns() { printf 'dns\n' >> "$LIFECYCLE_EVENT_LOG"; }
+restore_dnsmasq() { printf 'called\n' > "$RUNTIME/restore-dns.called"; }
+restart refresh
+printf '%s\n' engine port:5353 port:12346 health nft dns > "$RUNTIME/events.expected"
+cmp -s "$LIFECYCLE_EVENT_LOG" "$RUNTIME/events.expected"
+[ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
+[ -d "$DNS_BACKUP" ]
+[ ! -e "$RUNTIME/restore-dns.called" ]
+[ ! -e "$DELETE_NFT_LOG" ]
+[ ! -d "$LOCK_DIR" ]
+
+setup_case proxy-restart-failure
+TEST_MOSDNS_ENABLED=0
+export TEST_MOSDNS_ENABLED
+mkdir -p "$RUNTIME/active"
+printf '%s\n' '{}' > "$RUNTIME/active/v2ray.json"
+printf 'baseline\n' > "$DNS_BACKUP/server"
+printf '0\n' > "$DNS_BACKUP/noresolv"
+DELETE_NFT_LOG="$RUNTIME/delete-nft.calls"
+export DELETE_NFT_LOG
+prepare_engine_config_access() { return 0; }
+restart_engine() { return 1; }
+restore_dnsmasq() { rm -rf "$DNS_BACKUP"; }
+if restart_proxy_service; then
+	echo "failed proxy restart unexpectedly succeeded" >&2
+	exit 1
+fi
+[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
+[ ! -d "$DNS_BACKUP" ]
+[ -e "$DELETE_NFT_LOG" ]
+[ ! -d "$LOCK_DIR" ]
+
 setup_case suspended-reload
 printf 'suspended\n' > "$RUNTIME/state"
 (
-	stop_service() { printf 'stop\n' >> "$RUNTIME/reload.calls"; }
-	start_service() { printf 'start\n' >> "$RUNTIME/reload.calls"; }
+	recover_service() { printf 'recover\n' >> "$RUNTIME/reload.calls"; }
 	reload_service
 	restart
 )
-[ "$(sed -n '1p' "$RUNTIME/reload.calls")" = stop ]
-[ "$(sed -n '2p' "$RUNTIME/reload.calls")" = start ]
-[ "$(sed -n '3p' "$RUNTIME/reload.calls")" = stop ]
-[ "$(sed -n '4p' "$RUNTIME/reload.calls")" = start ]
+[ "$(sed -n '1p' "$RUNTIME/reload.calls")" = recover ]
+[ "$(sed -n '2p' "$RUNTIME/reload.calls")" = recover ]
 
 setup_case recover-preserves-engine
 spawn_managed v2ray
@@ -397,8 +469,11 @@ start_mosdns() { spawn_managed mosdns; }
 port_ready() { return 0; }
 proxy_connected() { return 0; }
 set_proxy_dns() { return 0; }
+prepare_engine_config_access() { return 0; }
+restart_engine() { printf 'called\n' > "$RUNTIME/restart-engine.called"; }
 recover_service
 [ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
+[ -e "$RUNTIME/restart-engine.called" ]
 kill -0 "$engine_pid"
 kill -0 "$watchdog_pid"
 [ -e "$PID_DIR/mosdns.pid" ]
@@ -413,11 +488,14 @@ printf '%s\n' '{}' > "$RUNTIME/active/v2ray.json"
 printf 'suspended\n' > "$RUNTIME/state"
 port_ready() { return 0; }
 proxy_connected() { return 1; }
+prepare_engine_config_access() { return 0; }
+restart_engine() { printf 'called\n' > "$RUNTIME/restart-engine.called"; }
 if recover_service; then
 	echo "failed automatic recovery unexpectedly restored imports" >&2
 	exit 1
 fi
 [ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
+[ -e "$RUNTIME/restart-engine.called" ]
 kill -0 "$engine_pid"
 kill -0 "$watchdog_pid"
 [ ! -e "$PID_DIR/mosdns.pid" ]
@@ -438,7 +516,9 @@ proxy_connected() {
 }
 set_proxy_dns() { return 0; }
 test_engine_ok() { return 0; }
-recover_service restart
+prepare_engine_config_access() { return 0; }
+start_mosdns() { spawn_managed mosdns; }
+recover_service
 [ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
 [ -e "$restart_engine_called" ]
 
@@ -454,7 +534,9 @@ restart_engine() {
 }
 proxy_connected() { [ -e "$restart_engine_called" ]; }
 set_proxy_dns() { return 0; }
-recover_service restart
+prepare_engine_config_access() { return 0; }
+start_mosdns() { spawn_managed mosdns; }
+recover_service
 [ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
 [ -e "$restart_engine_called" ]
 

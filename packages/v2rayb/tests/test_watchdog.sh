@@ -39,11 +39,10 @@ case "$1" in
 		printf 'suspended\n' > "$WATCHDOG_RUNTIME/state"
 		;;
 	recover)
-		if [ "${2:-}" = restart ]; then
-			printf 'restart\n' > "$WATCHDOG_RESTART_MARKER"
-			printf 'ok\n' > "$WATCHDOG_CURL_MODE"
-			printf 'proxy\n' > "$WATCHDOG_RUNTIME/state"
-		fi
+		[ "${WATCHDOG_RECOVER_FAIL:-0}" = 0 ] || exit 1
+		printf 'restart\n' > "$WATCHDOG_RESTART_MARKER"
+		printf 'ok\n' > "$WATCHDOG_CURL_MODE"
+		printf 'proxy\n' > "$WATCHDOG_RUNTIME/state"
 		;;
 	*) exit 2 ;;
 esac
@@ -77,9 +76,26 @@ grep -q 'proxy connectivity probe failed (1/3)' "$WATCHDOG_TEST_LOG"
 grep -q 'proxy connectivity probe failed (3/3)' "$WATCHDOG_TEST_LOG"
 grep -q 'withdrawing traffic and DNS imports' "$WATCHDOG_TEST_LOG"
 grep -q 'traffic withdrawn; watchdog remains active' "$WATCHDOG_TEST_LOG"
-grep -q 'suspended proxy is still unreachable; restarting the running engine before probing again' "$WATCHDOG_TEST_LOG"
+grep -q 'suspended proxy is still unreachable; restarting the selected engine after the retry interval' "$WATCHDOG_TEST_LOG"
 grep -q 'suspended engine restarted; takeover restored after successful probe' "$WATCHDOG_TEST_LOG"
 grep -qx restart "$WATCHDOG_RESTART_MARKER"
 ! grep -Eq '^(start|restart|resume)$' "$WATCHDOG_INIT_CALLS"
+
+# A transient positive probe must not cause repeated engine restarts when
+# the recovery health check itself continues to fail.
+RECOVERY_RUNTIME="$TEST_DIR/recovery-runtime"
+mkdir -p "$RECOVERY_RUNTIME"
+printf 'suspended\n' > "$RECOVERY_RUNTIME/state"
+printf 'ok\n' > "$TEST_DIR/recovery-curl-mode"
+: > "$TEST_DIR/recovery-init.calls"
+export WATCHDOG_RUNTIME="$RECOVERY_RUNTIME"
+export V2RAYB_RUNTIME_DIR="$RECOVERY_RUNTIME"
+export WATCHDOG_CURL_MODE="$TEST_DIR/recovery-curl-mode"
+export WATCHDOG_INIT_CALLS="$TEST_DIR/recovery-init.calls"
+export WATCHDOG_RECOVER_FAIL=1
+export V2RAYB_WATCHDOG_MAX_CYCLES=6
+"$ROOT/files/usr/bin/v2rayB-watchdog"
+[ "$(grep -c '^recover$' "$WATCHDOG_INIT_CALLS")" -eq 1 ]
+grep -q 'automatic recovery is waiting for its retry interval' "$WATCHDOG_TEST_LOG"
 
 echo "watchdog tests: ok"

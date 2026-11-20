@@ -622,37 +622,39 @@ stop_service() {
 	release_lock
 }
 
-suspend_service() {
-	acquire_lock || return 1
-	"$CTL" set-state stopping >/dev/null 2>&1 || { release_lock; return 1; }
+suspend_service_locked() {
+	"$CTL" set-state stopping >/dev/null 2>&1 || { return 1; }
 	if [ -d "$DNS_BACKUP" ] && ! restore_dnsmasq; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
-		release_lock
 		return 1
 	fi
 	if ! "$CTL" delete-nft >/dev/null 2>&1; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
-		release_lock
 		return 1
 	fi
 	if ! stop_pid mosdns; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
-		release_lock
 		return 1
 	fi
 	"$CTL" set-setting proxy_mode normal >/dev/null 2>&1 || {
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
-		release_lock
 		return 1
 	}
 	"$CTL" set-state suspended >/dev/null 2>&1 || {
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
-		release_lock
 		return 1
 	}
 	rm -rf "$DNS_BACKUP"
 	log "traffic and DNS imports withdrawn; proxy engine and watchdog remain active"
+	return 0
+}
+
+suspend_service() {
+	acquire_lock || return 1
+	suspend_service_locked
+	result=$?
 	release_lock
+	return "$result"
 }
 
 recovery_rollback() {
@@ -678,8 +680,94 @@ recovery_rollback() {
 	return 1
 }
 
+refresh_takeover() {
+	"$CTL" apply-nft || return 1
+	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
+		stop_pid mosdns || return 1
+		start_mosdns || return 1
+		port_ready 5354 || return 1
+	else
+		stop_pid mosdns || return 1
+	fi
+	set_proxy_dns
+}
+
+restart_proxy_service() {
+	restart_refresh_takeover=0
+	[ "${1:-}" = refresh ] && restart_refresh_takeover=1
+	[ "$("$CTL" get-setting service_enabled 2>/dev/null)" = 1 ] || {
+		stop_service
+		return $?
+	}
+	acquire_lock || return 1
+	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
+	case "$current_state" in
+		suspended)
+			release_lock
+			recover_service
+			return $?
+			;;
+		proxy) ;;
+		normal)
+			release_lock
+			start_service
+			return $?
+			;;
+		*)
+			release_lock
+			stop_service || return 1
+			start_service
+			return $?
+			;;
+	esac
+	"$CTL" render-all || { release_lock; return 1; }
+	prepare_engine_config_access || { release_lock; return 1; }
+	"$CTL" test-v2ray || { release_lock; return 1; }
+	load_dns_policy || { release_lock; return 1; }
+	"$CTL" set-state starting >/dev/null 2>&1 || { release_lock; return 1; }
+	if ! restart_engine || ! port_ready 5353; then
+		log "engine restart failed; withdrawing traffic and DNS takeover"
+		suspend_service_locked || :
+		release_lock
+		return 1
+	fi
+	probe_enabled="$(dns_policy_value probe_enabled)"
+	probe_port="$(dns_policy_value probe_port)"
+	if [ "$probe_enabled" = 1 ]; then
+		if ! is_uint "$probe_port" || ! port_ready "$probe_port" || ! proxy_connected "$probe_port"; then
+			log "engine health check failed after restart; withdrawing traffic and DNS takeover"
+			suspend_service_locked || :
+			release_lock
+			return 1
+		fi
+	fi
+	if [ "$restart_refresh_takeover" = 1 ]; then
+		if ! refresh_takeover; then
+			log "takeover refresh failed after engine restart; withdrawing traffic and DNS takeover"
+			suspend_service_locked || :
+			release_lock
+			return 1
+		fi
+	fi
+	"$CTL" set-setting proxy_mode proxy >/dev/null 2>&1 || {
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		release_lock
+		return 1
+	}
+	"$CTL" set-state proxy >/dev/null 2>&1 || {
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		release_lock
+		return 1
+	}
+	if [ "$restart_refresh_takeover" = 1 ]; then
+		log "proxy engine restarted; traffic and DNS policy refreshed"
+	else
+		log "proxy engine restarted; existing traffic and DNS takeover retained"
+	fi
+	release_lock
+}
+
 recover_service() {
-	recover_restart_engine="${1:-}"
 	acquire_lock || return 1
 	if [ "$("$CTL" get-setting service_enabled 2>/dev/null)" != 1 ]; then
 		release_lock
@@ -687,22 +775,15 @@ recover_service() {
 	fi
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
 	[ "$current_state" = suspended ] || { release_lock; return 1; }
-	# Reuse the live engine only when it was started from the currently
-	# applied profile. Config/profile changes require a full restart.
-	if process_alive v2ray && [ -f "$RUNTIME/active/v2ray.json" ] &&
-		"$CTL" test-v2ray >/dev/null 2>&1; then
-		:
-	else
-		log "suspended engine is missing or stale; using a full restart"
-		release_lock
-		stop_service || return 1
-		start_service
-		return
-	fi
-	"$CTL" set-state starting >/dev/null 2>&1 || { release_lock; return 1; }
+	"$CTL" render-all || { release_lock; return 1; }
+	prepare_engine_config_access || { release_lock; return 1; }
+	"$CTL" test-v2ray >/dev/null 2>&1 || { release_lock; return 1; }
 	load_dns_policy || { recovery_rollback; return 1; }
 	capture_dnsmasq_baseline || { recovery_rollback; return 1; }
 	set_bootstrap_dns || { recovery_rollback; return 1; }
+	"$CTL" set-state starting >/dev/null 2>&1 || { recovery_rollback; return 1; }
+	log "restarting the selected proxy engine from the current active configuration"
+	restart_engine || { recovery_rollback; return 1; }
 	port_ready 5353 || { recovery_rollback; return 1; }
 	probe_enabled="$(dns_policy_value probe_enabled)"
 	probe_port="$(dns_policy_value probe_port)"
@@ -710,27 +791,11 @@ recover_service() {
 		is_uint "$probe_port" || { recovery_rollback; return 1; }
 		port_ready "$probe_port" || { recovery_rollback; return 1; }
 		if ! proxy_connected "$probe_port"; then
-			if [ "$recover_restart_engine" = restart ]; then
-				log "proxy is still unreachable; restarting the engine before retrying"
-				if ! restart_engine; then
-					recovery_rollback
-					return 1
-				fi
-				port_ready 5353 || { recovery_rollback; return 1; }
-				port_ready "$probe_port" || { recovery_rollback; return 1; }
-			fi
-		fi
-		if ! proxy_connected "$probe_port"; then
 			recovery_rollback
 			return 1
 		fi
 	fi
-	"$CTL" apply-nft || { recovery_rollback; return 1; }
-	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
-		start_mosdns || { recovery_rollback; return 1; }
-		port_ready 5354 || { recovery_rollback; return 1; }
-	fi
-	set_proxy_dns || { recovery_rollback; return 1; }
+	refresh_takeover || { recovery_rollback; return 1; }
 	"$CTL" set-setting proxy_mode proxy >/dev/null 2>&1 || { recovery_rollback; return 1; }
 	"$CTL" set-state proxy >/dev/null 2>&1 || { recovery_rollback; return 1; }
 	log "proxy connectivity recovered; traffic and DNS imports restored"
@@ -744,8 +809,7 @@ resume_service() {
 		return 0
 	fi
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
-	if [ "$current_state" = suspended ] && process_alive v2ray &&
-		[ -f "$RUNTIME/active/v2ray.json" ] && "$CTL" test-v2ray >/dev/null 2>&1; then
+	if [ "$current_state" = suspended ]; then
 		release_lock
 		recover_service
 		return
@@ -761,15 +825,7 @@ resume_service() {
 }
 
 reload_service() {
-	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
-	if [ "$current_state" = suspended ]; then
-		log "proxy is suspended; restart/reload uses a full stop/start cycle"
-		stop_service || return 1
-		start_service
-		return
-	fi
-	stop_service || return 1
-	start_service
+	restart_proxy_service "$@"
 }
 
 status() {

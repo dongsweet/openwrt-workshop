@@ -102,8 +102,7 @@ const _zh = {
 	'Preparing configuration': '正在准备配置',
 	'Queued': '等待执行',
 	'Rendering configuration': '正在生成配置',
-	'Restarting service': '正在重启服务',
-	'Resuming service': '正在恢复服务',
+	'Restarting proxy engine': '正在重启代理引擎',
 	'Restoring service': '正在恢复服务',
 	'Rolling back changes': '正在回滚变更',
 	'Saving configuration': '正在保存配置',
@@ -335,8 +334,8 @@ const _zh = {
 	'Enable watchdog': '启用看门狗',
 	'Requires connectivity probing in the profile. After three failures, withdraw traffic and DNS takeover while keeping the proxy and watchdog running.': '需在 Profile 中启用连通性探测；连续 3 次失败后保留代理和 watchdog 继续探测，同时撤销流量与 DNS 接管。',
 	'Automatically restore takeover': '自动恢复代理接管',
-	'Restart engine during recovery': '恢复时重启代理引擎',
-	'After a recovered probe, restart V2Ray/Xray before restoring takeover. This handles a running but hung engine; retries are throttled.': '安全暂停后探测仍失败且引擎进程存在时，先重启 V2Ray/Xray 再重新探测；重启尝试有冷却间隔。',
+	'Restart engine while suspended': '暂停期间定时重启代理引擎',
+	'When probes keep failing in suspended mode, retry by restarting the selected V2Ray/Xray engine at a throttled interval. Every recovery attempt restarts the engine before restoring takeover.': '暂停状态下探测持续失败时，按冷却间隔重启当前选定的 V2Ray/Xray；每次恢复接管前都会先重启引擎。',
 	'After a fail-open suspension, automatically restore traffic and DNS takeover when proxy connectivity returns.': '进入安全暂停后持续探测，连接恢复时自动重新接管流量和 DNS。',
 	'Automatically withdraws traffic and DNS imports after repeated proxy connectivity failures.': '代理连续连通失败时，自动撤销流量和 DNS 接管。',
 	'WebSocket host': 'WebSocket 主机',
@@ -651,8 +650,8 @@ function applyStageText(stage) {
 	case 'rendering': return _('Rendering configuration');
 	case 'updating-boot': return _('Updating boot state');
 	case 'starting-service': return _('Starting service');
-	case 'restarting-service': return _('Restarting service');
-	case 'resuming-service': return _('Resuming service');
+	case 'restarting-service': return _('Restarting proxy engine');
+	case 'resuming-service': return _('Restarting proxy engine');
 	case 'stopping-service': return _('Stopping service');
 	case 'verifying': return _('Verifying service');
 	case 'rolling-back': return _('Rolling back changes');
@@ -1305,8 +1304,8 @@ return view.extend({
 		const watchdogRestartEngine = checkbox({}, configuredRestartEngine);
 		pageView.watchdogRestartEngineDesired = configuredRestartEngine;
 		pageView.watchdogRestartEngineDirty = false;
-		const watchdogRestartField = field(_('Restart engine during recovery'), watchdogRestartEngine,
-			_('After a recovered probe, restart V2Ray/Xray before restoring takeover. This handles a running but hung engine; retries are throttled.'));
+		const watchdogRestartField = field(_('Restart engine while suspended'), watchdogRestartEngine,
+			_('When probes keep failing in suspended mode, retry by restarting the selected V2Ray/Xray engine at a throttled interval. Every recovery attempt restarts the engine before restoring takeover.'));
 		function refreshWatchdogRestartField() {
 			watchdogRestartEngine.disabled = !watchdogAutoRecover.checked;
 			watchdogRestartField.classList.toggle('v2rayb-disabled-control', !watchdogAutoRecover.checked);

@@ -25,6 +25,12 @@ log() {
 	logger -t "$TAG" "$*"
 }
 
+save_restart_times() {
+	state_tmp="$STATE_FILE.tmp.$$"
+	printf '%s\n%s\n' "$last_restart" "$last_engine_restart" > "$state_tmp"
+	mv "$state_tmp" "$STATE_FILE"
+}
+
 random_delay() {
 	awk -v min="$PROBE_MIN" -v max="$PROBE_MAX" \
 		'BEGIN { srand(); print min + int(rand() * (max - min + 1)) }'
@@ -60,14 +66,21 @@ while :; do
 		if [ "$state" = suspended ]; then
 			auto_recover="$("$CTL" get-setting watchdog_auto_recover 2>/dev/null || printf 0)"
 			if [ "$auto_recover" = 1 ]; then
-				log "proxy connectivity recovered; attempting automatic takeover"
-				if "$INIT_SCRIPT" recover; then
-					log "automatic recovery completed"
-					failures=0
-					recovery_reported=0
-				else
-					log "automatic recovery failed; watchdog will retry"
-					failures="$FAIL_LIMIT"
+				if [ "$((now - last_engine_restart))" -ge "$RESTART_BACKOFF" ]; then
+					log "proxy connectivity recovered; attempting throttled automatic recovery"
+					last_engine_restart="$now"
+					save_restart_times
+					if "$INIT_SCRIPT" recover; then
+						log "automatic recovery completed"
+						failures=0
+						recovery_reported=0
+					else
+						log "automatic recovery failed; watchdog will retry after the recovery interval"
+						failures="$FAIL_LIMIT"
+					fi
+				elif [ "$recovery_reported" = 0 ]; then
+					log "proxy connectivity recovered; automatic recovery is waiting for its retry interval"
+					recovery_reported=1
 				fi
 			elif [ "$recovery_reported" = 0 ]; then
 				log "proxy connectivity recovered; automatic recovery is disabled"
@@ -93,8 +106,10 @@ while :; do
 	if [ "$state" = suspended ]; then
 		restart_engine="$("$CTL" get-setting watchdog_restart_engine 2>/dev/null || printf 0)"
 		if [ "$restart_engine" = 1 ] && [ "$((now - last_engine_restart))" -ge "$RESTART_BACKOFF" ]; then
-			log "suspended proxy is still unreachable; restarting the running engine before probing again"
-			if "$INIT_SCRIPT" recover restart; then
+			log "suspended proxy is still unreachable; restarting the selected engine after the retry interval"
+			last_engine_restart="$now"
+			save_restart_times
+			if "$INIT_SCRIPT" recover; then
 				log "suspended engine restarted; takeover restored after successful probe"
 				failures=0
 				recovery_reported=0
@@ -102,19 +117,13 @@ while :; do
 				log "suspended engine restart did not restore connectivity; retry is throttled"
 				failures="$FAIL_LIMIT"
 			fi
-			last_engine_restart="$now"
-			state_tmp="$STATE_FILE.tmp.$$"
-			printf '%s\n%s\n' "$last_restart" "$last_engine_restart" > "$state_tmp"
-			mv "$state_tmp" "$STATE_FILE"
 		fi
 		[ "$MAX_CYCLES" -le 0 ] 2>/dev/null || [ "$cycles" -lt "$MAX_CYCLES" ] || break
 		continue
 	fi
 
 	last_restart="$now"
-	state_tmp="$STATE_FILE.tmp.$$"
-	printf '%s\n' "$last_restart" > "$state_tmp"
-	mv "$state_tmp" "$STATE_FILE"
+	save_restart_times
 	fallback="$("$CTL" get-setting fallback_on_failure 2>/dev/null || printf 0)"
 	if [ "$fallback" = 1 ]; then
 		log "proxy connectivity failed $failures consecutive times; withdrawing traffic and DNS imports"

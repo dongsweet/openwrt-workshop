@@ -17,6 +17,7 @@ export PATH="$BIN:$PATH"
 cat >"$BIN/init" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$1" >>"$V2RAYB_TEST_DIR/init.calls"
+[ -z "${2:-}" ] || printf '%s\n' "$2" >>"$V2RAYB_TEST_DIR/init.args"
 [ "${V2RAYB_LOCK_HELD:-0}" = 1 ] || exit 70
 if [ -f "$V2RAYB_TEST_DIR/init.fail.$1" ]; then
 	rm -f "$V2RAYB_TEST_DIR/init.fail.$1"
@@ -147,6 +148,7 @@ while [ "$i" -lt 100 ]; do
 done
 printf '%s\n' "$status" | grep -q '^status=done$'
 grep -q '^restart$' "$TEST_DIR/init.calls"
+grep -q '^refresh$' "$TEST_DIR/init.args"
 ! grep -q '^resume$' "$TEST_DIR/init.calls"
 "$ctl" status | grep -q '^active_profile=2$'
 "$ctl" status | grep -q '^draft_pending=0$'
