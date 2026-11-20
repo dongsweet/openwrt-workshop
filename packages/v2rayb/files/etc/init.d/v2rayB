@@ -687,7 +687,18 @@ recover_service() {
 	fi
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
 	[ "$current_state" = suspended ] || { release_lock; return 1; }
-	process_alive v2ray || { release_lock; resume_service; return; }
+	# Reuse the live engine only when it was started from the currently
+	# applied profile. Config/profile changes require a full restart.
+	if process_alive v2ray && [ -f "$RUNTIME/active/v2ray.json" ] &&
+		"$CTL" test-v2ray >/dev/null 2>&1; then
+		:
+	else
+		log "suspended engine is missing or stale; using a full restart"
+		release_lock
+		stop_service || return 1
+		start_service
+		return
+	fi
 	"$CTL" set-state starting >/dev/null 2>&1 || { release_lock; return 1; }
 	load_dns_policy || { recovery_rollback; return 1; }
 	capture_dnsmasq_baseline || { recovery_rollback; return 1; }
@@ -733,7 +744,8 @@ resume_service() {
 		return 0
 	fi
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
-	if [ "$current_state" = suspended ] && process_alive v2ray; then
+	if [ "$current_state" = suspended ] && process_alive v2ray &&
+		[ -f "$RUNTIME/active/v2ray.json" ] && "$CTL" test-v2ray >/dev/null 2>&1; then
 		release_lock
 		recover_service
 		return
@@ -751,8 +763,9 @@ resume_service() {
 reload_service() {
 	current_state="$("$CTL" status 2>/dev/null | sed -n 's/^state=//p' | head -n1)"
 	if [ "$current_state" = suspended ]; then
-		log "proxy is suspended; restart/reload retries through the normal startup probe"
-		resume_service
+		log "proxy is suspended; restart/reload uses a full stop/start cycle"
+		stop_service || return 1
+		start_service
 		return
 	fi
 	stop_service || return 1

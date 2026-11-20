@@ -1147,6 +1147,7 @@ cmd_apply_draft_run() {
 	apply_job_set_stage "$apply_job_dir" preparing
 	apply_job_before_state="$(get_state)"
 	apply_job_before_enabled="$(setting service_enabled)"
+	apply_job_before_profile="$(setting active_profile)"
 	cmd_clear_apply_backup >/dev/null 2>&1 || :
 
 	apply_job_set_stage "$apply_job_dir" saving-database
@@ -1172,20 +1173,27 @@ cmd_apply_draft_run() {
 	apply_job_output "$apply_job_dir" "$apply_job_step_output"
 
 	if [ "$apply_job_enabled" = 1 ]; then
-		case "$apply_job_before_state" in
-			proxy)
-				apply_job_action=restart
-				apply_job_set_stage "$apply_job_dir" restarting-service
-				;;
-			suspended)
-				apply_job_action=resume
-				apply_job_set_stage "$apply_job_dir" resuming-service
-				;;
-			*)
-				apply_job_action=start
-				apply_job_set_stage "$apply_job_dir" starting-service
-				;;
-		esac
+		apply_job_profile="$(setting active_profile)"
+		if [ "$apply_job_before_state" = suspended ] &&
+			[ "$apply_job_before_profile" != "$apply_job_profile" ]; then
+			apply_job_action=restart
+			apply_job_set_stage "$apply_job_dir" restarting-service
+		else
+			case "$apply_job_before_state" in
+				proxy)
+					apply_job_action=restart
+					apply_job_set_stage "$apply_job_dir" restarting-service
+					;;
+				suspended)
+					apply_job_action=resume
+					apply_job_set_stage "$apply_job_dir" resuming-service
+					;;
+				*)
+					apply_job_action=start
+					apply_job_set_stage "$apply_job_dir" starting-service
+					;;
+			esac
+		fi
 		apply_job_step_output="$("$INIT_SCRIPT" "$apply_job_action" 2>&1)" || {
 			apply_job_fail_keep_config "$apply_job_dir" "Configuration applied, but proxy startup failed; the new configuration was kept" "$apply_job_step_output"
 			return 1

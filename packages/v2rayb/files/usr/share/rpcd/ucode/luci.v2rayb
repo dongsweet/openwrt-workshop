@@ -511,7 +511,10 @@ const methods = {
 			if (enabled) {
 				let was_proxy = match(before.output, /(^|\n)state=proxy(\n|$)/);
 				let was_suspended = match(before.output, /(^|\n)state=suspended(\n|$)/);
-				let action = was_proxy ? 'restart' : was_suspended ? 'resume' : 'start';
+				let old_profile = replace(before.output, /^[\s\S]*\nactive_profile=([^\n]*)[\s\S]*$/, '$1');
+				let new_profile = replace(status.output, /^[\s\S]*\nactive_profile=([^\n]*)[\s\S]*$/, '$1');
+				let action = was_proxy || (was_suspended && old_profile != new_profile) ? 'restart'
+					: was_suspended ? 'resume' : 'start';
 				let current = run(init_path, [ action ]);
 				if (current.code != 0)
 					return rollbackAppliedChange(current.output || 'Applied, but service start failed');

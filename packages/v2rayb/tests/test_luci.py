@@ -101,7 +101,7 @@ def main():
     assert "set_service_enabled" not in rpc_source
     assert "key != 'service_enabled'" in rpc_source
     assert "enabled ? 'enable' : 'disable'" in rpc_source
-    assert "was_proxy ? 'restart' : was_suspended ? 'resume' : 'start'" in rpc_source
+    assert "was_proxy || (was_suspended && old_profile != new_profile) ? 'restart'" in rpc_source
     assert "run(init_path, [ 'stop' ])" in rpc_source
     assert "method: 'apply_draft_start'" in view_source
     assert "method: 'apply_draft_status'" in view_source
@@ -195,8 +195,11 @@ def main():
     assert 'extra_command "resume"' in init_source
     assert 'EXTRA_COMMANDS="status running suspend resume recover"' in init_source
     assert "suspend() {\n\tsuspend_service" in init_source
-    assert "restart/reload retries through the normal startup probe" in init_source
-    assert "resume_service\n\t\treturn" in init_source
+    assert "restart/reload uses a full stop/start cycle" in init_source
+    assert "was_proxy || (was_suspended && old_profile != new_profile) ? 'restart'" in rpc_source
+    assert "apply_job_before_profile" in ctl_source
+    assert "suspended engine is missing or stale; using a full restart" in init_source
+    assert "restart/reload uses a full stop/start cycle" in init_source
     assert "traffic and DNS imports withdrawn; proxy engine and watchdog remain active" in init_source
     assert "recover_service()" in init_source
     assert "automatic recovery failed; proxy remains suspended" in init_source
@@ -411,6 +414,8 @@ def main():
     assert "field(_('Proxy engine'), profileEngine" in view_source
     assert "const profileEngine = E('select'" in view_source
     assert "profile.probe_port, profile.engine" in view_source
+    assert "let old_profile = replace(before.output" in rpc_source
+    assert "let new_profile = replace(status.output" in rpc_source
     assert "engine: fields.engine || 'v2ray'" in rpc_source
     assert "callSetSetting('active_engine'" not in view_source
     assert "get-active-engine" in ctl_source

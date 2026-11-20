@@ -20,6 +20,8 @@ printf '%s\n' "$1" >>"$V2RAYB_TEST_DIR/init.calls"
 [ "${V2RAYB_LOCK_HELD:-0}" = 1 ] || exit 70
 if [ -f "$V2RAYB_TEST_DIR/init.fail.$1" ]; then
 	rm -f "$V2RAYB_TEST_DIR/init.fail.$1"
+	[ "$1" = start ] || [ "$1" = restart ] || [ "$1" = resume ] || [ "$1" = stop ] || exit 1
+	printf 'suspended\n' >"$V2RAYB_TEST_DIR/state/state"
 	exit 1
 fi
 if [ "$1" = start ] || [ "$1" = restart ] || [ "$1" = resume ]; then
@@ -40,6 +42,10 @@ ctl="$ROOT/files/usr/libexec/v2rayB/v2rayBctl"
 "$ctl" add-node old vless old.example.com 443 \
 	'{"settings":{"vnext":[{"address":"old.example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
 "$ctl" add-profile old-profile 1 >/dev/null
+"$ctl" add-node second vless second.example.com 443 \
+	'{"settings":{"vnext":[{"address":"second.example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
+"$ctl" add-profile second-profile 2 >/dev/null
+"$ctl" select-profile 1 >/dev/null
 "$ctl" apply-draft
 printf 'proxy\n' > "$TEST_DIR/state/state"
 
@@ -122,14 +128,38 @@ rm -f "$TEST_DIR/init.fail.stop"
 "$ctl" list-nodes | grep -q 'new.example.com'
 ! "$ctl" list-nodes | grep -q 'newer.example.com'
 
-# A startup failure keeps the newly applied configuration and clears pending.
+# A suspended profile change must use a full restart, not reuse the old engine.
 "$ctl" set-setting service_enabled 1 >/dev/null
 "$ctl" apply-draft
+printf 'suspended\n' > "$TEST_DIR/state/state"
+"$ctl" select-profile 2 >/dev/null
+: > "$TEST_DIR/init.calls"
+job="$("$ctl" apply-draft-start)"
+status=''
+i=0
+while [ "$i" -lt 100 ]; do
+	status="$("$ctl" apply-draft-status "$job")"
+	if printf '%s\n' "$status" | grep -Eq '^status=(done|failed)$'; then
+		break
+	fi
+	i=$((i + 1))
+	sleep 0.1
+done
+printf '%s\n' "$status" | grep -q '^status=done$'
+grep -q '^restart$' "$TEST_DIR/init.calls"
+! grep -q '^resume$' "$TEST_DIR/init.calls"
+"$ctl" status | grep -q '^active_profile=2$'
+"$ctl" status | grep -q '^draft_pending=0$'
+
+# A startup failure keeps the newly applied configuration and clears pending.
+"$ctl" select-profile 2 >/dev/null
+"$ctl" apply-draft
+"$ctl" select-profile 1 >/dev/null
 printf 'suspended\n' > "$TEST_DIR/state/state"
 "$ctl" update-node 1 resume-failed vless failed.example.com 443 \
 	'{"settings":{"vnext":[{"address":"failed.example.com","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000000","encryption":"none"}]}]}}' >/dev/null
 : > "$TEST_DIR/init.calls"
-: > "$TEST_DIR/init.fail.resume"
+: > "$TEST_DIR/init.fail.restart"
 job="$("$ctl" apply-draft-start)"
 status=''
 i=0
@@ -143,8 +173,7 @@ while [ "$i" -lt 100 ]; do
 done
 printf '%s\n' "$status" | grep -q '^status=failed$'
 printf '%s\n' "$status" | grep -q '^stage=service-start-failed$'
-grep -q '^resume$' "$TEST_DIR/init.calls"
-! grep -q '^suspend$' "$TEST_DIR/init.calls"
+grep -q '^restart$' "$TEST_DIR/init.calls"
 [ "$(sed -n '1p' "$TEST_DIR/state/state")" = suspended ]
 "$ctl" status | grep -q '^draft_pending=0$'
 "$ctl" status | grep -q '^service_enabled=1$'

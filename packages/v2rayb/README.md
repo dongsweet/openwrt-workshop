@@ -170,10 +170,11 @@ the startup connectivity check and restores nftables and DNS imports. A failed
 attempt remains safely suspended. With automatic recovery disabled, watchdog
 continues monitoring but does not re-import traffic or DNS.
 
-A plain `/etc/init.d/v2rayB start` keeps a suspended service suspended. Use
-`/etc/init.d/v2rayB restart` or `reload`, the LuCI restart action, an explicit
-`resume`, or a profile Apply to retry manually through the full startup
-connectivity probe.
+A plain `/etc/init.d/v2rayB start` keeps a suspended service suspended. On Apply,
+switching to a different profile performs a full restart so the new engine and
+node configuration are loaded. Retrying the same profile uses resume/recovery.
+`restart` and `reload` always use a full stop/start cycle. The LuCI restart
+action and an explicit `resume` are also available.
 
 Each profile also selects the intercepted TCP destination ports, its transparent
 proxy listener port (default `12345`), and its optional connectivity-probe port

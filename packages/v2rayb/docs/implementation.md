@@ -55,10 +55,11 @@ repeated. A missing engine uses the normal resume/start path. When
 `watchdog_auto_recover=1`, a reachable engine calls recovery to restore DNS and
 nftables imports. Failed recovery remains suspended and is retried. A plain start
 leaves suspended unchanged. Restart and reload invoke resume; an explicit resume
-or applying a profile change does the same. Apply preserves the newly committed
-configuration when only service startup or connectivity fails: the job reports
-`service-start-failed`, clears the draft, and leaves the service fail-open rather
-than rolling the database back. Mux defaults to disabled and is enabled only when a URI query
+or applying a profile change does the same. During Apply, a suspended state uses
+resume only when the active-profile ID is unchanged; a different profile forces a
+full restart. Apply preserves the newly committed configuration when only service
+startup or connectivity fails: the job reports `service-start-failed`, clears the
+draft, and leaves the service fail-open rather than rolling the database back. Mux defaults to disabled and is enabled only when a URI query
 or VMess payload explicitly requests it. JSON subscription formats and automatic
 periodic refresh remain future work.
 The optional legacy importer normalizes an explicitly selected file into the

@@ -375,22 +375,23 @@ grep -qx commit "$UCI_CALL_LOG"
 setup_case suspended-reload
 printf 'suspended\n' > "$RUNTIME/state"
 (
-	resume_service() {
-		printf 'resume\n' >> "$RUNTIME/resume.calls"
-	}
+	stop_service() { printf 'stop\n' >> "$RUNTIME/reload.calls"; }
+	start_service() { printf 'start\n' >> "$RUNTIME/reload.calls"; }
 	reload_service
 	restart
 )
-[ "$(wc -l < "$RUNTIME/resume.calls" | tr -d '[:space:]')" = 2 ]
-[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
-stop_service
-[ "$(sed -n '1p' "$RUNTIME/state")" = normal ]
+[ "$(sed -n '1p' "$RUNTIME/reload.calls")" = stop ]
+[ "$(sed -n '2p' "$RUNTIME/reload.calls")" = start ]
+[ "$(sed -n '3p' "$RUNTIME/reload.calls")" = stop ]
+[ "$(sed -n '4p' "$RUNTIME/reload.calls")" = start ]
 
 setup_case recover-preserves-engine
 spawn_managed v2ray
 spawn_managed watchdog
 engine_pid="$(cat "$PID_DIR/v2ray.pid")"
 watchdog_pid="$(cat "$PID_DIR/watchdog.pid")"
+mkdir -p "$RUNTIME/active"
+printf '%s\n' '{}' > "$RUNTIME/active/v2ray.json"
 printf 'suspended\n' > "$RUNTIME/state"
 start_mosdns() { spawn_managed mosdns; }
 port_ready() { return 0; }
@@ -407,6 +408,8 @@ spawn_managed v2ray
 spawn_managed watchdog
 engine_pid="$(cat "$PID_DIR/v2ray.pid")"
 watchdog_pid="$(cat "$PID_DIR/watchdog.pid")"
+mkdir -p "$RUNTIME/active"
+printf '%s\n' '{}' > "$RUNTIME/active/v2ray.json"
 printf 'suspended\n' > "$RUNTIME/state"
 port_ready() { return 0; }
 proxy_connected() { return 1; }
@@ -421,6 +424,8 @@ kill -0 "$watchdog_pid"
 
 setup_case recover-restart-hung-engine
 spawn_managed v2ray
+mkdir -p "$RUNTIME/active"
+printf '%s\n' '{}' > "$RUNTIME/active/v2ray.json"
 printf 'suspended\n' > "$RUNTIME/state"
 port_ready() { return 0; }
 restart_engine_called="$RUNTIME/restart-engine.called"
@@ -432,12 +437,15 @@ proxy_connected() {
 	[ -e "$restart_engine_called" ]
 }
 set_proxy_dns() { return 0; }
+test_engine_ok() { return 0; }
 recover_service restart
 [ "$(sed -n '1p' "$RUNTIME/state")" = proxy ]
 [ -e "$restart_engine_called" ]
 
 setup_case recover-restart-hung-engine-after-manual-suspend
 spawn_managed v2ray
+mkdir -p "$RUNTIME/active"
+printf '%s\n' '{}' > "$RUNTIME/active/v2ray.json"
 printf 'suspended\n' > "$RUNTIME/state"
 restart_engine_called="$RUNTIME/restart-engine.called"
 restart_engine() {
