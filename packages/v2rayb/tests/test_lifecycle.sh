@@ -10,8 +10,7 @@ trap 'rm -rf "$TEST_DIR"' EXIT HUP INT TERM
 
 log() { :; }
 uci() {
-	[ "$1" = -q ] || return 2
-	shift
+	[ "$1" = -q ] && shift
 	case "$1" in
 		show) return 0 ;;
 		get)
@@ -47,6 +46,9 @@ ${2#*=}"
 			case "$2" in
 				"${DNSMASQ_SECTION}.noresolv="*) MOCK_NORESOLV="${2#*=}" ;;
 			esac
+			;;
+		commit)
+			[ "${UCI_COMMIT_FAIL:-0}" = 0 ] && printf 'commit\n' >> "$UCI_CALL_LOG"
 			;;
 		*) return 2 ;;
 	esac
@@ -90,7 +92,9 @@ setup_case() {
 	TEST_PROBE_PORT='12346'
 	TEST_DIRECT_DNS_UPSTREAMS='223.5.5.5:53'
 	TEST_ENGINE='v2ray'
-	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
+	UCI_CALL_LOG="$RUNTIME/uci.calls"
+	UCI_COMMIT_FAIL=0
+	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR UCI_CALL_LOG UCI_COMMIT_FAIL MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
 		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED LEGACY_FORCE_PROXY_FILE \
 		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT TEST_DIRECT_DNS_UPSTREAMS TEST_ENGINE
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
@@ -255,6 +259,17 @@ grep -q 'server=/sub.example.com/119.29.29.29#53' "$SUBSCRIPTION_DNS_EXPECTED"
 [ "$(grep -c '^server=/sub.example.com/' "$SUBSCRIPTION_DNS_EXPECTED")" = 2 ]
 [ "$(grep -c '^nftset=/sub.example.com/4' "$SUBSCRIPTION_DNS_EXPECTED")" = 1 ]
 
+setup_case dns-commit-failure
+printf '%s\n' '223.5.5.5' > "$DNS_BACKUP/server"
+printf '1\n' > "$DNS_BACKUP/noresolv"
+printf '0\n' > "$DNS_BACKUP/stale"
+UCI_COMMIT_FAIL=1
+export UCI_COMMIT_FAIL
+if set_proxy_dns; then
+	echo "DNS switch unexpectedly succeeded when UCI commit failed" >&2
+	exit 1
+fi
+
 setup_case dns-routing
 DNS_RELOAD_FAIL=0
 FAIL_NFT=0
@@ -286,6 +301,7 @@ restore_dnsmasq
 [ ! -e "$SUBSCRIPTION_DNS_EXPECTED" ]
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
 [ -z "$MOCK_NORESOLV" ]
+[ "$(grep -c '^commit$' "$UCI_CALL_LOG")" = 2 ]
 
 setup_case dns-routing-space-separated
 DNS_RELOAD_FAIL=0
@@ -336,6 +352,7 @@ printf '%s\n' '/example.cn/223.5.5.5' '127.0.0.1#5353' > "$DNS_BACKUP/server"
 printf '1\n' > "$DNS_BACKUP/noresolv"
 printf '1\n' > "$DNS_BACKUP/stale"
 set_proxy_dns
+grep -qx commit "$UCI_CALL_LOG"
 spawn_managed v2ray
 spawn_managed mosdns
 spawn_managed watchdog
@@ -353,6 +370,7 @@ kill -0 "$watchdog_pid"
 [ ! -e "$SUBSCRIPTION_DNS_FILE" ]
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
 [ -z "$MOCK_NORESOLV" ]
+grep -qx commit "$UCI_CALL_LOG"
 
 setup_case suspended-reload
 printf 'suspended\n' > "$RUNTIME/state"

@@ -249,6 +249,7 @@ set_proxy_dns() {
 	printf '%s\n' '1' > "$RUNTIME/proxy-noresolv.expected"
 	cmp -s "$RUNTIME/proxy-server" "$RUNTIME/proxy-server.expected" || return 1
 	cmp -s "$RUNTIME/proxy-noresolv" "$RUNTIME/proxy-noresolv.expected" || return 1
+	uci commit dhcp || return 1
 	dnsmasq_reload
 }
 
@@ -312,6 +313,10 @@ restore_dnsmasq() {
 		fi
 	done
 	rm -f "$RUNTIME/dnsmasq-mosdns-rule" "$MOSDNS_FORWARD_EXPECTED" "$BOOTSTRAP_DNS_EXPECTED" "$SUBSCRIPTION_DNS_EXPECTED"
+	uci commit dhcp || {
+		log "dnsmasq baseline could not be committed"
+		return 1
+	}
 	dnsmasq_reload || {
 		log "dnsmasq reload failed while restoring its baseline"
 		return 1
@@ -366,6 +371,10 @@ stop_instances() {
 	stop_pid watchdog || return 1
 	stop_pid mosdns || return 1
 	stop_pid v2ray || return 1
+}
+
+stop_engine_only() {
+	stop_pid v2ray
 }
 
 port_ready() {
@@ -478,11 +487,20 @@ rollback_start() {
 		release_lock
 		return 1
 	fi
-	if ! stop_instances; then
-		"$CTL" set-state degraded >/dev/null 2>&1 || true
-		log "rollback incomplete: managed processes did not stop"
-		release_lock
-		return 1
+	if [ "$final_state" = suspended ]; then
+		if ! stop_pid mosdns; then
+			"$CTL" set-state degraded >/dev/null 2>&1 || true
+			log "rollback incomplete: MosDNS did not stop"
+			release_lock
+			return 1
+		fi
+	else
+		if ! stop_instances; then
+			"$CTL" set-state degraded >/dev/null 2>&1 || true
+			log "rollback incomplete: managed processes did not stop"
+			release_lock
+			return 1
+		fi
 	fi
 	if ! "$CTL" set-setting proxy_mode normal >/dev/null 2>&1; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
