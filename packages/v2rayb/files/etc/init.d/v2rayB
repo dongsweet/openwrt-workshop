@@ -8,6 +8,7 @@ CTL="/usr/libexec/v2rayB/v2rayBctl"
 RUNTIME="/tmp/v2rayB"
 PID_DIR="$RUNTIME/pids"
 DNS_BACKUP="$RUNTIME/dnsmasq-before"
+SUSPEND_PENDING="$RUNTIME/suspend-pending"
 LOCK_DIR="$RUNTIME/lock"
 DNSMASQ_SECTION='dhcp.@dnsmasq[0]'
 DNSMASQ_DIR="/etc/dnsmasq.d"
@@ -27,6 +28,15 @@ LOCK_INHERITED=0
 
 log() {
 	logger -t v2rayB "$*"
+}
+
+mark_suspend_pending() {
+	mkdir -p "$RUNTIME" || return 1
+	: > "$SUSPEND_PENDING"
+}
+
+clear_suspend_pending() {
+	rm -f "$SUSPEND_PENDING"
 }
 
 is_pid() {
@@ -573,6 +583,7 @@ start_service() {
 	start_watchdog || { rollback_start; return 1; }
 	"$CTL" set-setting proxy_mode proxy >/dev/null 2>&1 || { rollback_start; return 1; }
 	"$CTL" set-state proxy >/dev/null 2>&1 || { rollback_start; return 1; }
+	clear_suspend_pending
 	log "proxy mode started"
 	release_lock
 }
@@ -618,11 +629,13 @@ stop_service() {
 	fi
 	rm -rf "$RUNTIME/active"
 	rm -rf "$DNS_BACKUP"
+	clear_suspend_pending
 	log "proxy mode stopped; normal DNS restored"
 	release_lock
 }
 
 suspend_service_locked() {
+	mark_suspend_pending || return 1
 	"$CTL" set-state stopping >/dev/null 2>&1 || { return 1; }
 	if [ -d "$DNS_BACKUP" ] && ! restore_dnsmasq; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
@@ -645,6 +658,7 @@ suspend_service_locked() {
 		return 1
 	}
 	rm -rf "$DNS_BACKUP"
+	clear_suspend_pending
 	log "traffic and DNS imports withdrawn; proxy engine and watchdog remain active"
 	return 0
 }
@@ -658,6 +672,7 @@ suspend_service() {
 }
 
 recovery_rollback() {
+	mark_suspend_pending || log "could not mark fail-open cleanup for watchdog retry"
 	if [ -d "$DNS_BACKUP" ] && ! restore_dnsmasq; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
 		log "recovery rollback could not restore DNS; proxy engine remains suspended"
@@ -670,10 +685,23 @@ recovery_rollback() {
 		release_lock
 		return 1
 	fi
-	stop_pid mosdns || true
-	"$CTL" set-setting proxy_mode normal >/dev/null 2>&1 || true
-	"$CTL" set-state suspended >/dev/null 2>&1 || \
+	if ! stop_pid mosdns; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		log "recovery rollback could not stop MosDNS; watchdog cleanup retry remains pending"
+		release_lock
+		return 1
+	fi
+	if ! "$CTL" set-setting proxy_mode normal >/dev/null 2>&1; then
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+		log "recovery rollback could not update proxy mode; watchdog cleanup retry remains pending"
+		release_lock
+		return 1
+	fi
+	if "$CTL" set-state suspended >/dev/null 2>&1; then
+		clear_suspend_pending
+	else
+		"$CTL" set-state degraded >/dev/null 2>&1 || true
+	fi
 	rm -rf "$DNS_BACKUP"
 	log "automatic recovery failed; proxy remains suspended"
 	release_lock
@@ -764,6 +792,7 @@ restart_proxy_service() {
 	else
 		log "proxy engine restarted; existing traffic and DNS takeover retained"
 	fi
+	clear_suspend_pending
 	release_lock
 }
 
@@ -798,6 +827,7 @@ recover_service() {
 	refresh_takeover || { recovery_rollback; return 1; }
 	"$CTL" set-setting proxy_mode proxy >/dev/null 2>&1 || { recovery_rollback; return 1; }
 	"$CTL" set-state proxy >/dev/null 2>&1 || { recovery_rollback; return 1; }
+	clear_suspend_pending
 	log "proxy connectivity recovered; traffic and DNS imports restored"
 	release_lock
 }

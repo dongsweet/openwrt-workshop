@@ -48,6 +48,8 @@ When continuous monitoring is enabled, three consecutive probe failures move the
 service to `suspended`,
 restore the dnsmasq baseline, remove the v2rayB nftables table and stop the managed
 MosDNS while retaining the enabled service setting, proxy engine and watchdog.
+If any fail-open cleanup step fails, a runtime marker keeps the watchdog probing
+and retrying cleanup while the visible state is `degraded` or `stopping`.
 The watchdog continues probing. When `watchdog_restart_engine=1`, repeated
 probe failures in suspended restart an engine whose PID still exists. Restarts
 are limited to one per five-minute backoff, after which the startup probe is

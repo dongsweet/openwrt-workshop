@@ -69,6 +69,7 @@ setup_case() {
 	RUNTIME="$TEST_DIR/$1"
 	PID_DIR="$RUNTIME/pids"
 	DNS_BACKUP="$RUNTIME/dnsmasq-before"
+	SUSPEND_PENDING="$RUNTIME/suspend-pending"
 	LOCK_DIR="$RUNTIME/lock"
 	DNSMASQ_DIR="$RUNTIME/dnsmasq.d"
 	MOSDNS_FORWARD_FILE="$DNSMASQ_DIR/90-v2rayB-mosdns.conf"
@@ -375,6 +376,27 @@ kill -0 "$watchdog_pid"
 [ "$MOCK_SERVER" = '/example.cn/223.5.5.5' ]
 [ -z "$MOCK_NORESOLV" ]
 grep -qx commit "$UCI_CALL_LOG"
+[ ! -e "$SUSPEND_PENDING" ]
+
+setup_case suspend-degraded-retry
+DNS_RELOAD_FAIL=0
+FAIL_NFT=1
+export FAIL_NFT
+spawn_managed mosdns
+mosdns_pid="$(cat "$PID_DIR/mosdns.pid")"
+if suspend_service; then
+	echo "suspend unexpectedly succeeded after nft cleanup failure" >&2
+	exit 1
+fi
+[ "$(sed -n '1p' "$RUNTIME/state")" = degraded ]
+[ -f "$SUSPEND_PENDING" ]
+kill -0 "$mosdns_pid"
+FAIL_NFT=0
+export FAIL_NFT
+suspend_service
+[ "$(sed -n '1p' "$RUNTIME/state")" = suspended ]
+[ ! -e "$SUSPEND_PENDING" ]
+[ ! -e "$PID_DIR/mosdns.pid" ]
 
 setup_case proxy-restart-engine-only
 TEST_MOSDNS_ENABLED=0

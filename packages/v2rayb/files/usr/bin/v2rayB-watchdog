@@ -4,6 +4,7 @@ TAG="v2rayB-watchdog"
 CTL="${V2RAYB_CTL:-/usr/libexec/v2rayB/v2rayBctl}"
 INIT_SCRIPT="${V2RAYB_INIT_SCRIPT:-/etc/init.d/v2rayB}"
 RUNTIME="${V2RAYB_RUNTIME_DIR:-/tmp/v2rayB}"
+SUSPEND_PENDING_FILE="$RUNTIME/suspend-pending"
 FAIL_LIMIT="${V2RAYB_WATCHDOG_FAIL_LIMIT:-3}"
 INITIAL_DELAY="${V2RAYB_WATCHDOG_INITIAL_DELAY:-60}"
 PROBE_MIN="${V2RAYB_WATCHDOG_PROBE_MIN:-10}"
@@ -51,6 +52,33 @@ while :; do
 	sleep "$(random_delay)"
 	cycles=$((cycles + 1))
 	state="$(sed -n '1p' "$RUNTIME/state" 2>/dev/null)"
+	if [ -e "$SUSPEND_PENDING_FILE" ]; then
+		if [ "$state" = normal ] || [ "$state" = suspended ]; then
+			rm -f "$SUSPEND_PENDING_FILE"
+		else
+			if probe_proxy; then
+				if [ "$failures" -gt 0 ]; then
+					log "proxy probe recovered while fail-open cleanup remains incomplete"
+				fi
+				failures=0
+			else
+				[ "$failures" -ge "$FAIL_LIMIT" ] || failures=$((failures + 1))
+			fi
+			if "$INIT_SCRIPT" suspend; then
+				log "fail-open suspension completed after retry"
+				failures=0
+				recovery_reported=0
+			else
+				if [ "$recovery_reported" = 0 ]; then
+					log "fail-open cleanup remains incomplete; watchdog will probe and retry"
+					recovery_reported=1
+				fi
+				failures="$FAIL_LIMIT"
+			fi
+			[ "$MAX_CYCLES" -le 0 ] 2>/dev/null || [ "$cycles" -lt "$MAX_CYCLES" ] || break
+			continue
+		fi
+	fi
 	case "$state" in
 		proxy|suspended) ;;
 		*)
