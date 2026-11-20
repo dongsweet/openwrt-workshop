@@ -326,6 +326,12 @@ def main():
     assert "data_json[0]" not in rpc_source
     assert "substr(data_json, 0, 1)" in rpc_source
     assert "substr(data_json, length(data_json) - 1, 1)" in rpc_source
+    assert "v2rayb-table-wrap" in view_source
+    assert "overflow-x: auto" in view_source
+    assert "v2rayb-profile-table { table-layout: fixed" in view_source
+    assert "function profilePolicyParts(row)" in view_source
+    assert "v2rayb-policy-parts" in view_source
+    assert "'v2rayb-profile-table');" in view_source
     assert "function reloadPage()" in view_source
     assert "history.replaceState(null, '', '#' + active.dataset.tab)" in view_source
     assert "window.location.hash.replace(/^#/, '')" in view_source

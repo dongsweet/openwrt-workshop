@@ -514,7 +514,18 @@ function css() {
 		.v2rayb-status-off { color: #9a3b35; background: #fbe9e7; }
 		.v2rayb-toolbar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1rem; }
 		.v2rayb-toolbar .cbi-button { margin: 0; }
-		.v2rayb-table .cbi-section-table-cell { text-align: left !important; vertical-align: middle; }
+		.v2rayb-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+		.v2rayb-table { width: 100%; max-width: 100%; margin: 0; }
+		.v2rayb-table .cbi-section-table-cell { text-align: left !important; vertical-align: middle; overflow-wrap: anywhere; }
+		.v2rayb-profile-table { table-layout: fixed; min-width: 64rem; }
+		.v2rayb-profile-table th:nth-child(1), .v2rayb-profile-table td:nth-child(1) { width: 3.5rem; }
+		.v2rayb-profile-table th:nth-child(2), .v2rayb-profile-table td:nth-child(2) { width: 8rem; }
+		.v2rayb-profile-table th:nth-child(3), .v2rayb-profile-table td:nth-child(3) { width: 12rem; }
+		.v2rayb-profile-table th:nth-child(5), .v2rayb-profile-table td:nth-child(5) { width: 5rem; }
+		.v2rayb-profile-table th:nth-child(6), .v2rayb-profile-table td:nth-child(6) { width: 10rem; }
+		.v2rayb-policy-parts { display: flex; flex-wrap: wrap; gap: .35rem .65rem; white-space: normal; }
+		.v2rayb-policy-part { display: inline-flex; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+		.v2rayb-policy-part + .v2rayb-policy-part::before { content: '·'; margin-right: .45rem; color: #8b96a5; }
 		.v2rayb-disabled-control { opacity: .5; }
 		.v2rayb-form-wide { width: 100%; box-sizing: border-box; min-height: 7rem; resize: vertical; font-family: monospace; }
 		.v2rayb-form-wide:disabled { background: #f0f2f5; cursor: not-allowed; }
@@ -543,7 +554,7 @@ function statusBadge(state) {
 	return E('span', { class: 'v2rayb-status ' + cls }, labels[state] || state || _('Unknown'));
 }
 
-function table(headers, rows, empty, actionColumn) {
+function table(headers, rows, empty, actionColumn, tableClass) {
 	const body = rows.length ? rows.map((row, index) => E('tr', {
 		class: 'tr cbi-section-table-row cbi-rowstyle-' + (index % 2 ? '2' : '1')
 	}, row.map(value => value && value.nodeName === 'TD'
@@ -552,14 +563,16 @@ function table(headers, rows, empty, actionColumn) {
 		[ E('tr', { class: 'tr cbi-section-table-row' }, [
 			E('td', { class: 'td cbi-section-table-cell', colspan: headers.length }, E('em', {}, empty))
 		]) ];
-	return E('table', { class: 'table cbi-section-table v2rayb-table' }, [
+	return E('div', { class: 'v2rayb-table-wrap' }, E('table', {
+		class: 'table cbi-section-table v2rayb-table' + (tableClass ? ' ' + tableClass : '')
+	}, [
 		E('thead', { class: 'thead cbi-section-thead' }, E('tr', { class: 'tr cbi-section-table-titles' },
 			headers.map((value, index) => E('th', {
 				class: 'th cbi-section-table-cell' +
 					(actionColumn && index === headers.length - 1 ? ' nowrap cbi-section-actions' : '')
 			}, value)))),
 		E('tbody', { class: 'tbody cbi-section-tbody' }, body)
-	]);
+	]));
 }
 
 function confirmDelete(message) {
@@ -1218,9 +1231,9 @@ return view.extend({
 		let enabledNodes = nodes.filter(row => isEnabled(row[5])).length;
 		let enabledProfiles = profiles.filter(row => isEnabled(row[4])).length;
 
-		function profilePolicyText(row) {
+		function profilePolicyParts(row) {
 			if (!row)
-				return _('No active profile policy');
+				return [ _('No active profile policy') ];
 			const ports = row[7] || '-';
 			const china = isEnabled(row[8]) ? _('China IP direct') : _('All through proxy');
 			const v2rayDns = isEnabled(row[9]) ? _('V2Ray DNS default') : _('Direct DNS default');
@@ -1229,7 +1242,13 @@ return view.extend({
 			const listener = row[13] || '12345';
 			const probe = isEnabled(row[14]) ? `${_('Probe')} ${row[15] || '12346'}` : _('Probe off');
 			const engine = row[2] === 'xray' ? 'Xray' : 'V2Ray';
-			return `${engine} · ${_('Ports')} ${ports} · ${_('Listen')} ${listener} · ${probe} · ${china} · ${v2rayDns} · ${mosdns} · ${routerTraffic}`;
+			return [
+				engine, `${_('Ports')} ${ports}`, `${_('Listen')} ${listener}`, probe,
+				china, v2rayDns, mosdns, routerTraffic
+			];
+		}
+		function profilePolicyText(row) {
+			return profilePolicyParts(row).join(' · ');
 		}
 		const activeProfileRow = appliedProfileRows[0] || null;
 		const appliedProfileName = activeProfileRow
@@ -1472,7 +1491,11 @@ return view.extend({
 			return E('button', { class: 'btn cbi-button cbi-button-remove', type: 'button', click: handler }, _('Delete'));
 		}
 		function profilePolicySummary(row) {
-			return E('span', {}, profilePolicyText(row));
+			return E('td', {
+				class: 'td cbi-section-table-cell v2rayb-policy-cell',
+				title: profilePolicyText(row)
+			}, E('div', { class: 'v2rayb-policy-parts' },
+				profilePolicyParts(row).map(part => E('span', { class: 'v2rayb-policy-part' }, part))));
 		}
 		function profileTableRows() {
 			return profiles.map(row => {
@@ -1795,7 +1818,7 @@ return view.extend({
 			updateLocalChangesNotice();
 		}
 		function refreshProfileTable() {
-			const next = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true);
+			const next = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true, 'v2rayb-profile-table');
 			profileTable.replaceWith(next);
 			profileTable = next;
 			updateLocalChangesNotice();
@@ -1898,7 +1921,7 @@ return view.extend({
 		}
 		nodeTable = table(nodeTableHeaders, nodeTableRows(), _('No nodes configured.'), true);
 		sourceTable = table(sourceTableHeaders, sourceTableRows(), _('No subscriptions configured.'), true);
-		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true);
+		profileTable = table(profileTableHeaders, profileTableRows(), _('No profiles configured.'), true, 'v2rayb-profile-table');
 		profileAddButton = E('button', {
 			class: 'cbi-button cbi-button-add', type: 'button',
 			click: () => showProfileModal(onProfileSaved, nodes, {
