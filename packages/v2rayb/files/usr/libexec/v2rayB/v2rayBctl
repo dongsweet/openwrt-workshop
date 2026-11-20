@@ -1125,6 +1125,17 @@ apply_job_fail_and_rollback() {
 	return 1
 }
 
+apply_job_fail_keep_config() {
+	apply_job_dir="$1"
+	apply_job_reason="$2"
+	apply_job_step_output="$3"
+	apply_job_output "$apply_job_dir" "$apply_job_step_output"
+	apply_job_set_stage "$apply_job_dir" service-start-failed
+	cmd_clear_apply_backup >/dev/null 2>&1 || :
+	apply_job_finish "$apply_job_dir" failed 1 "$apply_job_reason"
+	return 1
+}
+
 cmd_apply_draft_run() {
 	apply_job_dir="$1"
 	case "$apply_job_dir" in
@@ -1176,7 +1187,7 @@ cmd_apply_draft_run() {
 				;;
 		esac
 		apply_job_step_output="$("$INIT_SCRIPT" "$apply_job_action" 2>&1)" || {
-			apply_job_fail_and_rollback "$apply_job_dir" "Applied, but service start failed" "$apply_job_step_output" "$apply_job_before_state" "$apply_job_before_enabled"
+			apply_job_fail_keep_config "$apply_job_dir" "Configuration applied, but proxy startup failed; the new configuration was kept" "$apply_job_step_output"
 			return 1
 		}
 	else
@@ -1192,7 +1203,7 @@ cmd_apply_draft_run() {
 	apply_job_now_state="$(get_state)"
 	if [ "$apply_job_enabled" = 1 ]; then
 		[ "$apply_job_now_state" = proxy ] || {
-			apply_job_fail_and_rollback "$apply_job_dir" "Service action returned without reaching proxy mode" "" "$apply_job_before_state" "$apply_job_before_enabled"
+			apply_job_fail_keep_config "$apply_job_dir" "Configuration applied, but proxy did not reach proxy mode; the new configuration was kept" ""
 			return 1
 		}
 	else

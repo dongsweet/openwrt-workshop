@@ -122,7 +122,7 @@ rm -f "$TEST_DIR/init.fail.stop"
 "$ctl" list-nodes | grep -q 'new.example.com'
 ! "$ctl" list-nodes | grep -q 'newer.example.com'
 
-# A failed resume returns to suspended without reinstalling traffic imports.
+# A startup failure keeps the newly applied configuration and clears pending.
 "$ctl" set-setting service_enabled 1 >/dev/null
 "$ctl" apply-draft
 printf 'suspended\n' > "$TEST_DIR/state/state"
@@ -142,11 +142,12 @@ while [ "$i" -lt 100 ]; do
 	sleep 0.1
 done
 printf '%s\n' "$status" | grep -q '^status=failed$'
-printf '%s\n' "$status" | grep -q '^stage=restoring-service$'
+printf '%s\n' "$status" | grep -q '^stage=service-start-failed$'
 grep -q '^resume$' "$TEST_DIR/init.calls"
-grep -q '^suspend$' "$TEST_DIR/init.calls"
+! grep -q '^suspend$' "$TEST_DIR/init.calls"
 [ "$(sed -n '1p' "$TEST_DIR/state/state")" = suspended ]
-"$ctl" status | grep -q '^draft_pending=1$'
+"$ctl" status | grep -q '^draft_pending=0$'
+"$ctl" status | grep -q '^service_enabled=1$'
 "$ctl" list-nodes | grep -q 'failed.example.com'
 [ ! -e "$TEST_DIR/state/db-before-apply" ]
 

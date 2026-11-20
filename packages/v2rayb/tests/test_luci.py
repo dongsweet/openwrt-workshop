@@ -181,6 +181,12 @@ def main():
     assert "proxy unavailable, traffic and DNS imports suspended" in makefile_source
     assert "apply_job_restore_action=suspend" in ctl_source
     assert "apply_job_action=resume" in ctl_source
+    assert "apply_job_fail_keep_config" in ctl_source
+    assert "service-start-failed" in ctl_source
+    assert "Configuration applied, but proxy startup failed; the new configuration was kept" in ctl_source
+    assert "case 'service-start-failed': return _('Proxy startup failed')" in view_source
+    assert "result.stage === 'service-start-failed'" in view_source
+    assert "The new configuration is retained" in view_source
     assert "resuming-service" in ctl_source
     assert "let wasSuspended = match(before.output" in rpc_source
     assert "let was_suspended = match(before.output" in rpc_source
@@ -389,7 +395,8 @@ def main():
     assert "directDnsInput.addEventListener('input'" in view_source
     assert "configuredDirectDnsUpstreams" in view_source
     assert "const watchdogEnabled = checkbox" in view_source
-    assert "field(_('Enable watchdog'), E('div'" in view_source
+    assert "field(_('Enable watchdog'), watchdogEnabled" in view_source
+    assert "Requires connectivity probing in the profile. After three failures" in view_source
     assert "连续 3 次失败后保留代理和 watchdog 继续探测" in view_source
     assert "field(_('Automatically restore takeover'), watchdogAutoRecover" in view_source
     assert "callSetSetting('watchdog_enabled', this.watchdogEnabledDesired ? '1' : '0')" in view_source

@@ -97,6 +97,8 @@ const _zh = {
 	'Apply status could not be read; retrying…': '无法读取应用状态，正在重试……',
 	'Configuration changes applied.': '配置变更已应用。',
 	'Configuration apply failed.': '配置应用失败。',
+	'Configuration was applied, but proxy startup failed. The new configuration is retained.': '配置已应用，但代理启动失败；新配置已保留。',
+	'Proxy startup failed': '代理启动失败',
 	'Preparing configuration': '正在准备配置',
 	'Queued': '等待执行',
 	'Rendering configuration': '正在生成配置',
@@ -331,6 +333,7 @@ const _zh = {
 	'WAN DHCP DNS': 'WAN DHCP DNS',
 	'Watchdog': '看门狗',
 	'Enable watchdog': '启用看门狗',
+	'Requires connectivity probing in the profile. After three failures, withdraw traffic and DNS takeover while keeping the proxy and watchdog running.': '需在 Profile 中启用连通性探测；连续 3 次失败后保留代理和 watchdog 继续探测，同时撤销流量与 DNS 接管。',
 	'Automatically restore takeover': '自动恢复代理接管',
 	'Restart engine during recovery': '恢复时重启代理引擎',
 	'After a recovered probe, restart V2Ray/Xray before restoring takeover. This handles a running but hung engine; retries are throttled.': '安全暂停后探测仍失败且引擎进程存在时，先重启 V2Ray/Xray 再重新探测；重启尝试有冷却间隔。',
@@ -654,6 +657,7 @@ function applyStageText(stage) {
 	case 'verifying': return _('Verifying service');
 	case 'rolling-back': return _('Rolling back changes');
 	case 'restoring-service': return _('Restoring service');
+	case 'service-start-failed': return _('Proxy startup failed');
 	case 'complete': return _('Configuration changes applied.');
 	default: return _('Applying configuration changes…');
 	}
@@ -710,6 +714,11 @@ async function resumeApplyJob(jobId) {
 		if (result.status === 'done') {
 			ui.addNotification(null, E('p', {}, _('Configuration changes applied.')), 'info');
 			window.setTimeout(reloadPage, 700);
+		}
+		else if (result.stage === 'service-start-failed') {
+			ui.addNotification(null, E('p', {},
+				_('Configuration was applied, but proxy startup failed. The new configuration is retained.')), 'warning');
+			window.setTimeout(reloadPage, 1200);
 		}
 		else
 			showRequestError(result.error || _('The configuration apply failed.'));
@@ -1459,10 +1468,8 @@ return view.extend({
 					_('Also controls boot startup.')),
 				field(_('Profile to activate'), activeProfileSelect,
 					_('Applied after Save & Apply.')),
-				field(_('Enable watchdog'), E('div', {}, [
-					watchdogEnabled, E('span', { class: 'v2rayb-help' },
-						'需在 Profile 中启用连通性探测；连续 3 次失败后保留代理和 watchdog 继续探测，同时撤销流量与 DNS 接管。')
-				])),
+				field(_('Enable watchdog'), watchdogEnabled,
+					_('Requires connectivity probing in the profile. After three failures, withdraw traffic and DNS takeover while keeping the proxy and watchdog running.')),
 				field(_('Automatically restore takeover'), watchdogAutoRecover,
 					_('After a fail-open suspension, automatically restore traffic and DNS takeover when proxy connectivity returns.')),
 				watchdogRestartField

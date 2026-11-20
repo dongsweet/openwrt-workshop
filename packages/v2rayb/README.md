@@ -121,6 +121,16 @@ Stop and restore normal DNS:
 /usr/libexec/v2rayB/v2rayBctl status
 ```
 
+## Configuration Apply
+
+Save & Apply first commits the draft and renders the new runtime files. Database
+commit, rendering, and boot-state failures roll back the configuration. Once the
+new configuration has been rendered, a proxy startup or connectivity failure
+does not roll it back: the apply job reports `Proxy startup failed`, the new
+configuration remains active in the database, and the draft is cleared. The
+service stays fail-open until the user retries, edits the profile, or watchdog
+restores takeover.
+
 ## Proxy Engines
 
 Each profile selects its proxy engine (`V2Ray` or `Xray`). Xray is required for
