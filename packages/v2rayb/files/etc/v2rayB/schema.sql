@@ -176,7 +176,9 @@ INSERT OR IGNORE INTO settings(key, value) VALUES
     ('fallback_on_failure', '1'),
     ('mosdns_listen', '127.0.0.1#5354'),
     ('v2ray_dns_listen', '127.0.0.1#5353'),
-    ('direct_dns_upstreams', '223.5.5.5:53');
+    ('direct_dns_upstreams', '223.5.5.5:53'),
+    ('bypass_sources4', ''),
+    ('draft_bypass_sources4', '');
 
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
@@ -187,6 +189,7 @@ INSERT OR IGNORE INTO schema_migrations(version) VALUES (6);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (7);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (8);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (9);
-PRAGMA user_version = 9;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (10);
+PRAGMA user_version = 10;
 
 COMMIT;

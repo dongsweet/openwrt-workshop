@@ -150,6 +150,14 @@ def main():
     assert "isEnabled(row[9]) ? _('IPv4 only') : _('IPv4 + IPv6')" in view_source
     assert "method: 'add_profile'" in view_source
     assert "direct_dns', 'transparent_proxy_ports', 'bypass_china'" in view_source
+    assert "Bypass source IPv4/CIDR" in view_source
+    assert "bypass_sources4" in rpc_source
+    assert "callSetSetting('bypass_sources4'" in view_source
+    assert "pageView.bypassSourcesDirty" in view_source
+    assert "normalizeBypassSourcesValue" in view_source
+    assert "printf 'bypass_sources4=%s\\n'" in ctl_source
+    assert "printf 'draft_bypass_sources4=%s\\n'" in ctl_source
+    assert 'ip saddr @bypass_source4 return' in ctl_source
     assert "Profile policy" in view_source
     assert "Proxy router-originated TCP" in view_source
     assert "Includes TCP connections started by this router. UDP and DNS are not proxied." in view_source

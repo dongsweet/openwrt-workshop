@@ -194,6 +194,66 @@ validate_dns_upstreams() {
 	[ "$_dns_upstreams_count" -ge 1 ] && [ "$_dns_upstreams_count" -le 8 ]
 }
 
+normalize_bypass_sources() {
+	printf '%s\n' "$1" | tr ', \t' '\n\n\n' | awk '
+		NF {
+			item = $0
+			if (item !~ /\//)
+				item = item "/32"
+			if (!seen[item]++)
+				order[++count] = item
+		}
+		END {
+			for (i = 1; i <= count; i++) {
+				if (i > 1)
+					printf ","
+				printf "%s", order[i]
+			}
+			if (count)
+				printf "\n"
+		}
+	'
+}
+
+validate_bypass_sources() {
+	_bypass_value="$1"
+	[ -n "$_bypass_value" ] || return 0
+	[ "${#_bypass_value}" -le 8192 ] || return 1
+	_bypass_old_ifs="$IFS"
+	IFS=','
+	set -f
+	set -- $_bypass_value
+	IFS="$_bypass_old_ifs"
+	set +f
+	[ "$#" -ge 1 ] && [ "$#" -le 256 ] || return 1
+	for _bypass_item in "$@"; do
+		[ -n "$_bypass_item" ] || return 1
+		case "$_bypass_item" in
+			*/*)
+				_bypass_ip="${_bypass_item%/*}"
+				_bypass_prefix="${_bypass_item#*/}"
+				case "$_bypass_prefix" in ''|*/*) return 1 ;; esac
+				;;
+			*)
+				_bypass_ip="$_bypass_item"
+				_bypass_prefix=32
+				;;
+		esac
+		case "$_bypass_ip" in
+			''|.*|*.|*..*|*[!0-9.]*) return 1 ;;
+		esac
+		_bypass_old_ifs="$IFS"
+		IFS=.
+		set -- $_bypass_ip
+		IFS="$_bypass_old_ifs"
+		[ "$#" -eq 4 ] || return 1
+		for _bypass_octet in "$@"; do
+			is_uint "$_bypass_octet" && [ "$_bypass_octet" -le 255 ] 2>/dev/null || return 1
+		done
+		is_uint "$_bypass_prefix" && [ "$_bypass_prefix" -le 32 ] 2>/dev/null || return 1
+	done
+}
+
 validate_profile_policy() {
 	direct_dns="$1"
 	ports="$2"
@@ -285,6 +345,7 @@ draft_pending() {
 	[ "$(setting active_profile)" != "$(setting draft_active_profile)" ] && return 0
 	[ "$(setting service_enabled)" != "$(setting draft_service_enabled)" ] && return 0
 	[ "$(setting direct_dns_upstreams)" != "$(setting draft_direct_dns_upstreams)" ] && return 0
+	[ "$(setting bypass_sources4)" != "$(setting draft_bypass_sources4)" ] && return 0
 	[ "$(setting watchdog_enabled)" != "$(setting draft_watchdog_enabled)" ] && return 0
 	[ "$(setting watchdog_auto_recover)" != "$(setting draft_watchdog_auto_recover)" ] && return 0
 	[ "$(setting watchdog_restart_engine)" != "$(setting draft_watchdog_restart_engine)" ] && return 0
@@ -303,10 +364,11 @@ begin_draft() {
 		INSERT INTO draft_nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM nodes;
 		INSERT INTO draft_profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM profiles;
 		INSERT INTO draft_profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM profile_nodes;
-		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_service_enabled','draft_direct_dns_upstreams','draft_watchdog_enabled','draft_watchdog_auto_recover','draft_watchdog_restart_engine');
+		DELETE FROM settings WHERE key IN ('draft_active_profile','draft_service_enabled','draft_direct_dns_upstreams','draft_bypass_sources4','draft_watchdog_enabled','draft_watchdog_auto_recover','draft_watchdog_restart_engine');
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_active_profile',value,CURRENT_TIMESTAMP FROM settings WHERE key='active_profile';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_service_enabled',value,CURRENT_TIMESTAMP FROM settings WHERE key='service_enabled';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_direct_dns_upstreams',value,CURRENT_TIMESTAMP FROM settings WHERE key='direct_dns_upstreams';
+		INSERT INTO settings(key,value,updated_at) SELECT 'draft_bypass_sources4',value,CURRENT_TIMESTAMP FROM settings WHERE key='bypass_sources4';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_watchdog_enabled',value,CURRENT_TIMESTAMP FROM settings WHERE key='watchdog_enabled';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_watchdog_auto_recover',value,CURRENT_TIMESTAMP FROM settings WHERE key='watchdog_auto_recover';
 		INSERT INTO settings(key,value,updated_at) SELECT 'draft_watchdog_restart_engine',value,CURRENT_TIMESTAMP FROM settings WHERE key='watchdog_restart_engine';
@@ -353,6 +415,7 @@ discard_drafts() {
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='active_profile'),''),updated_at=CURRENT_TIMESTAMP WHERE key='draft_active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='service_enabled'),'0'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_service_enabled';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='direct_dns_upstreams'),'223.5.5.5:53'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_direct_dns_upstreams';
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='bypass_sources4'),''),updated_at=CURRENT_TIMESTAMP WHERE key='draft_bypass_sources4';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='watchdog_enabled'),'1'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_watchdog_enabled';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='watchdog_auto_recover'),'1'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_watchdog_auto_recover';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='watchdog_restart_engine'),'1'),updated_at=CURRENT_TIMESTAMP WHERE key='draft_watchdog_restart_engine';
@@ -448,10 +511,21 @@ ensure_db() {
 		db_sql "INSERT INTO settings(key,value,updated_at) VALUES('direct_dns_upstreams',$(sql_quote "$normalized_direct_dns"),CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP; INSERT OR IGNORE INTO schema_migrations(version) VALUES (9); PRAGMA user_version=9;"
 		version=9
 	fi
-	[ "$version" = 9 ] || die "unsupported database schema version: $version"
-	missing_settings="$(db_sql "SELECT COUNT(*) FROM (SELECT 'service_enabled' AS key UNION ALL SELECT 'draft_service_enabled' UNION ALL SELECT 'watchdog_enabled' UNION ALL SELECT 'draft_watchdog_enabled' UNION ALL SELECT 'watchdog_auto_recover' UNION ALL SELECT 'draft_watchdog_auto_recover' UNION ALL SELECT 'watchdog_restart_engine' UNION ALL SELECT 'draft_watchdog_restart_engine' UNION ALL SELECT 'applied_config_version' UNION ALL SELECT 'draft_config_version' UNION ALL SELECT 'draft_pending' UNION ALL SELECT 'draft_active_profile' UNION ALL SELECT 'direct_dns_upstreams' UNION ALL SELECT 'draft_direct_dns_upstreams') required WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.key=required.key);" | tr -d '[:space:]')"
+	if [ "$version" = 9 ]; then
+		legacy_bypass_sources=''
+		legacy_bypass_file="$RULE_DIR/proxy_bypass_sources4.txt"
+		if [ -f "$legacy_bypass_file" ]; then
+			legacy_bypass_sources="$(awk '$1 !~ /^#/ { print $1 }' "$legacy_bypass_file")"
+			legacy_bypass_sources="$(normalize_bypass_sources "$legacy_bypass_sources")"
+			validate_bypass_sources "$legacy_bypass_sources" || legacy_bypass_sources=''
+		fi
+		db_sql "INSERT INTO settings(key,value,updated_at) VALUES('bypass_sources4',$(sql_quote "$legacy_bypass_sources"),CURRENT_TIMESTAMP),('draft_bypass_sources4',$(sql_quote "$legacy_bypass_sources"),CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP; INSERT OR IGNORE INTO schema_migrations(version) VALUES (10); PRAGMA user_version=10;"
+		version=10
+	fi
+	[ "$version" = 10 ] || die "unsupported database schema version: $version"
+	missing_settings="$(db_sql "SELECT COUNT(*) FROM (SELECT 'service_enabled' AS key UNION ALL SELECT 'draft_service_enabled' UNION ALL SELECT 'watchdog_enabled' UNION ALL SELECT 'draft_watchdog_enabled' UNION ALL SELECT 'watchdog_auto_recover' UNION ALL SELECT 'draft_watchdog_auto_recover' UNION ALL SELECT 'watchdog_restart_engine' UNION ALL SELECT 'draft_watchdog_restart_engine' UNION ALL SELECT 'applied_config_version' UNION ALL SELECT 'draft_config_version' UNION ALL SELECT 'draft_pending' UNION ALL SELECT 'draft_active_profile' UNION ALL SELECT 'direct_dns_upstreams' UNION ALL SELECT 'draft_direct_dns_upstreams' UNION ALL SELECT 'bypass_sources4' UNION ALL SELECT 'draft_bypass_sources4') required WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.key=required.key);" | tr -d '[:space:]')"
 	if [ "$missing_settings" -gt 0 ] 2>/dev/null; then
-		db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('service_enabled', '0'), ('draft_service_enabled', '0'), ('watchdog_enabled', '1'), ('draft_watchdog_enabled', '1'), ('watchdog_auto_recover', '1'), ('draft_watchdog_auto_recover', '1'), ('watchdog_restart_engine', '1'), ('draft_watchdog_restart_engine', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('direct_dns_upstreams', '223.5.5.5:53'), ('draft_direct_dns_upstreams', '223.5.5.5:53');"
+		db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('service_enabled', '0'), ('draft_service_enabled', '0'), ('watchdog_enabled', '1'), ('draft_watchdog_enabled', '1'), ('watchdog_auto_recover', '1'), ('draft_watchdog_auto_recover', '1'), ('watchdog_restart_engine', '1'), ('draft_watchdog_restart_engine', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('direct_dns_upstreams', '223.5.5.5:53'), ('draft_direct_dns_upstreams', '223.5.5.5:53'), ('bypass_sources4', ''), ('draft_bypass_sources4', '');"
 	fi
 	legacy_settings="$(db_sql "SELECT COUNT(*) FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports');" | tr -d '[:space:]')"
 	if [ "$legacy_settings" -gt 0 ] 2>/dev/null; then
@@ -514,12 +588,16 @@ cmd_set_setting() {
 			value="$(normalize_dns_upstreams "$value")"
 			validate_dns_upstreams "$value" || die "invalid direct DNS upstream list"
 			;;
+		bypass_sources4)
+			value="$(normalize_bypass_sources "$value")"
+			validate_bypass_sources "$value" || die "invalid bypass source IPv4/CIDR list"
+			;;
 		watchdog_enabled|watchdog_auto_recover|watchdog_restart_engine)
 			case "$value" in 0|1) ;; *) die "$key must be 0 or 1" ;; esac
 			;;
 		esac
 	case "$key" in
-		active_profile|service_enabled|direct_dns_upstreams|watchdog_enabled|watchdog_auto_recover|watchdog_restart_engine)
+		active_profile|service_enabled|direct_dns_upstreams|bypass_sources4|watchdog_enabled|watchdog_auto_recover|watchdog_restart_engine)
 			draft_change_begin
 			set_draft_setting "$key" "$value"
 			draft_change_commit
@@ -1011,6 +1089,7 @@ cmd_apply_draft() {
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_active_profile'),value),updated_at=CURRENT_TIMESTAMP WHERE key='active_profile';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_service_enabled'),value),updated_at=CURRENT_TIMESTAMP WHERE key='service_enabled';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_direct_dns_upstreams'),value),updated_at=CURRENT_TIMESTAMP WHERE key='direct_dns_upstreams';
+		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_bypass_sources4'),value),updated_at=CURRENT_TIMESTAMP WHERE key='bypass_sources4';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_watchdog_enabled'),value),updated_at=CURRENT_TIMESTAMP WHERE key='watchdog_enabled';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_watchdog_auto_recover'),value),updated_at=CURRENT_TIMESTAMP WHERE key='watchdog_auto_recover';
 		UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_watchdog_restart_engine'),value),updated_at=CURRENT_TIMESTAMP WHERE key='watchdog_restart_engine';
@@ -1624,6 +1703,16 @@ nft_element_list() {
 	' "$file"
 }
 
+nft_csv_elements() {
+	printf '%s\n' "$1" | tr ',' '\n' | awk '
+		NF {
+			if (count++)
+				printf ", "
+			printf "%s", $0
+		}
+	'
+}
+
 cmd_render_nft() {
 	ensure_db
 	row="$(active_profile)"
@@ -1676,6 +1765,9 @@ EOF
 	direct6_static_elements="$(nft_element_list "$RULE_DIR/direct_ipv6.txt")"
 	pass4_elements="$(nft_element_list "$pass4_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 	pass6_elements="$(nft_element_list "$pass6_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+	bypass_sources="$(normalize_bypass_sources "$(setting bypass_sources4)")"
+	validate_bypass_sources "$bypass_sources" || die "invalid bypass source IPv4/CIDR list"
+	bypass_source_elements="$(nft_csv_elements "$bypass_sources")"
 	proxy_port="$transparent_proxy_port"
 	is_uint "$proxy_port" || die "invalid transparent proxy port"
 	[ "$proxy_port" -ge 1 ] 2>/dev/null && [ "$proxy_port" -le 65535 ] 2>/dev/null || die "transparent proxy port out of range"
@@ -1707,8 +1799,14 @@ EOF
 		else
 			printf '%s\n' '  set pass6 { type ipv6_addr; flags interval; }'
 		fi
+		if [ -n "$bypass_source_elements" ]; then
+			printf '  set bypass_source4 { type ipv4_addr; flags interval; elements = { %s }; }\n' "$bypass_source_elements"
+		fi
 		printf '%s\n' '  chain prerouting {'
 		printf '%s\n' '    type nat hook prerouting priority dstnat; policy accept;'
+		if [ -n "$bypass_source_elements" ]; then
+			printf '%s\n' '    ip saddr @bypass_source4 return'
+		fi
 		printf '%s\n' '    ip daddr @pass return'
 		printf '%s\n' '    ip6 daddr @pass6 return'
 		printf '%s\n' '    ip daddr @direct4 return'
@@ -2412,6 +2510,7 @@ EOF
 	printf 'direct_rule=%s\n' "$direct_rule"
 	printf 'nft_direct_sets=%s\n' 'direct4,direct6'
 	printf 'nft_direct_static_sets=%s\n' 'direct_static4,direct_static6'
+	printf 'nft_bypass_source_set=%s\n' 'bypass_source4'
 	printf 'transparent_proxy_port=%s\n' "$transparent_proxy_port"
 	printf 'probe_enabled=%s\n' "$probe_enabled"
 	printf 'probe_port=%s\n' "$probe_port"
@@ -2422,6 +2521,8 @@ cmd_status() {
 	printf 'state=%s\n' "$(get_state)"
 	printf 'direct_dns_upstreams=%s\n' "$(setting direct_dns_upstreams)"
 	printf 'draft_direct_dns_upstreams=%s\n' "$(setting draft_direct_dns_upstreams)"
+	printf 'bypass_sources4=%s\n' "$(setting bypass_sources4)"
+	printf 'draft_bypass_sources4=%s\n' "$(setting draft_bypass_sources4)"
 	printf 'active_engine=%s\n' "$(selected_engine)"
 	printf 'active_profile=%s\n' "$(setting active_profile)"
 	printf 'service_enabled=%s\n' "$(setting service_enabled)"

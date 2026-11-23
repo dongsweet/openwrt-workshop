@@ -34,7 +34,7 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
         assert {
             "draft_nodes", "draft_policies", "draft_profiles",
             "draft_profile_nodes", "draft_source_deletions",
@@ -106,6 +106,12 @@ def main():
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'watchdog_restart_engine'"
         ).fetchone()[0] == "1"
+        assert conn.execute(
+            "SELECT value FROM settings WHERE key = 'bypass_sources4'"
+        ).fetchone()[0] == ""
+        assert conn.execute(
+            "SELECT value FROM settings WHERE key = 'draft_bypass_sources4'"
+        ).fetchone()[0] == ""
 
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'service_enabled'"

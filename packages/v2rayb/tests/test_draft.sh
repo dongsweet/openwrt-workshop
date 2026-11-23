@@ -101,6 +101,18 @@ service_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key=
 "$ctl" set-setting service_enabled 1
 "$ctl" apply-draft
 
+# The global source-bypass list follows the same draft/apply/revert lifecycle.
+"$ctl" set-setting bypass_sources4 '192.168.101.229'
+"$ctl" status | grep -q '^bypass_sources4=$'
+"$ctl" status | grep -q '^draft_bypass_sources4=192.168.101.229/32$'
+"$ctl" revert-draft
+"$ctl" status | grep -q '^draft_bypass_sources4=$'
+"$ctl" set-setting bypass_sources4 '192.168.101.229 10.0.0.0/24'
+"$ctl" apply-draft
+"$ctl" status | grep -q '^bypass_sources4=192.168.101.229/32,10.0.0.0/24$'
+"$ctl" set-setting bypass_sources4 ''
+"$ctl" apply-draft
+
 # A failed runtime apply can restore the committed database while retaining
 # the draft for correction or explicit discard.
 "$ctl" update-node 1 rollback-draft vless rollback.example.com 9443 \

@@ -131,6 +131,21 @@ configuration remains active in the database, and the draft is cleared. The
 service stays fail-open until the user retries, edits the profile, or watchdog
 restores takeover.
 
+## Source Address Bypass
+
+The global **Bypass source IPv4/CIDR** setting keeps selected LAN clients out
+of the transparent proxy. Matching traffic returns before the `prerouting`
+redirect rules, so the packet keeps its original destination and continues
+through normal source-based policy routing. This is useful for IPTV set-top
+boxes whose traffic must use a dedicated routing table and uplink.
+
+Enter one IPv4 address or CIDR per line. Bare addresses are normalized to `/32`;
+an empty list disables the bypass. The setting is global because it describes
+which clients v2rayB may intercept, not a property of the selected proxy node.
+When upgrading a schema-v9 database, a legacy
+`/etc/v2rayB/rules/proxy_bypass_sources4.txt` is imported once into the database;
+subsequent changes should be made through LuCI or `v2rayBctl set-setting`.
+
 ## Proxy Engines
 
 Each profile selects its proxy engine (`V2Ray` or `Xray`). Xray is required for

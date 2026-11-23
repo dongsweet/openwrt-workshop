@@ -13,6 +13,8 @@ export V2RAYB_RULE_DIR="$TEST_DIR/rules"
 export V2RAYB_SQLITE3="$ROOT/tests/sqlite3-wrapper.py"
 
 sqlite="$ROOT/tests/sqlite3-wrapper.py"
+mkdir -p "$V2RAYB_RULE_DIR"
+printf '%s\n' '192.168.101.229' > "$V2RAYB_RULE_DIR/proxy_bypass_sources4.txt"
 "$sqlite" "$V2RAYB_DB" '
 CREATE TABLE policies (
   id INTEGER PRIMARY KEY,
@@ -70,8 +72,10 @@ PRAGMA user_version=1;
 "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
 
 version=$("$sqlite" "$V2RAYB_DB" 'PRAGMA user_version;')
-[ "$version" = 9 ]
+[ "$version" = 10 ]
 "$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="direct_dns_upstreams";' | grep -q '223.5.5.5:53'
+"$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="bypass_sources4";' | grep -qx '192.168.101.229/32'
+"$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="draft_bypass_sources4";' | grep -qx '192.168.101.229/32'
 columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(policies);')
 printf '%s\n' "$columns" | grep -q 'direct_dns'
 printf '%s\n' "$columns" | grep -q 'transparent_proxy_ports'
@@ -86,7 +90,7 @@ printf '%s\n' "$columns" | grep -q 'mosdns_match_rules'
 printf '%s\n' "$columns" | grep -q 'proxy_router_traffic'
 source_columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(sources);')
 printf '%s\n' "$source_columns" | grep -q 'ipv4_only'
-"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^9$'
+"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^10$'
 
 # Old databases append new policy columns at the end, unlike freshly created
 # tables. Draft copies and apply-back must address columns explicitly.
@@ -131,7 +135,7 @@ INSERT INTO settings(key,value) VALUES("draft_pending","1");
 PRAGMA user_version=4;
 '
 V2RAYB_DB="$partial" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
-[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 9 ]
+[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 10 ]
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'proxy_router_traffic'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'transparent_proxy_port'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'probe_enabled'

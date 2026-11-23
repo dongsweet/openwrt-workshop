@@ -70,6 +70,32 @@ grep -q '"tag":"health-in","listen":"127.0.0.1","port":12346' "$TEST_DIR/runtime
 grep -q '"inboundTag":\["dns-in","health-in"\]' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q 'table inet v2rayB' "$TEST_DIR/runtime/active/nftables.nft"
 
+"$ctl" set-setting bypass_sources4 '192.168.101.229 10.0.0.0/24,192.168.101.229'
+"$ctl" status | grep -q '^bypass_sources4=$'
+"$ctl" status | grep -q '^draft_bypass_sources4=192.168.101.229/32,10.0.0.0/24$'
+for sources in '192.168.1.300' '192.168.1' '192.168.1.1/33' 'host.example'; do
+	if "$ctl" set-setting bypass_sources4 "$sources" >/dev/null 2>&1; then
+		echo "invalid bypass source list unexpectedly accepted: $sources" >&2
+		exit 1
+	fi
+done
+"$ctl" apply-draft
+"$ctl" status | grep -q '^bypass_sources4=192.168.101.229/32,10.0.0.0/24$'
+"$ctl" render-all
+grep -q 'set bypass_source4 { type ipv4_addr; flags interval; elements = { 192.168.101.229/32, 10.0.0.0/24 }; }' "$TEST_DIR/runtime/active/nftables.nft"
+awk '
+	/ip saddr @bypass_source4 return/ { bypass = NR }
+	/ip daddr @pass return/ { pass = NR }
+	END { exit !(bypass && pass && bypass < pass) }
+' "$TEST_DIR/runtime/active/nftables.nft"
+if command -v nft >/dev/null 2>&1; then
+	nft -c -f "$TEST_DIR/runtime/active/nftables.nft"
+fi
+"$ctl" set-setting bypass_sources4 ''
+"$ctl" apply-draft
+"$ctl" render-all
+! grep -q 'bypass_source4' "$TEST_DIR/runtime/active/nftables.nft"
+
 "$ctl" set-setting watchdog_enabled 0
 "$ctl" set-setting watchdog_auto_recover 0
 "$ctl" set-setting watchdog_restart_engine 0

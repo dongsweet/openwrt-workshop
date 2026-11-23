@@ -116,6 +116,8 @@ const _zh = {
 	'Auto detects plain URI lines or Base64-encoded URI lines.': '自动识别普通 URI 行或 Base64 编码的 URI 行。',
 	'Basic settings': '基本设置',
 	'Bypass China IP': '中国 IP 直连',
+	'Bypass source IPv4/CIDR': '绕过代理的源 IPv4/CIDR',
+	'LAN sources listed here return before transparent proxy redirection and keep their normal policy routing. One IPv4 address or CIDR per line; empty disables the bypass.': '此处列出的局域网源地址会在透明代理重定向前返回，并继续使用原有策略路由。每行一个 IPv4 地址或 CIDR；留空表示关闭绕过。',
 	'China IP direct': '中国 IP 直连',
 	'CNAME': 'CNAME',
 	'Comma-separated values, for example h2,http/1.1.': '多个值用逗号分隔，例如 h2,http/1.1。',
@@ -1326,6 +1328,23 @@ return view.extend({
 		function normalizeDirectDnsValue(value) {
 			return value.split(/[\s,]+/).filter(item => item !== '').join(',');
 		}
+		const configuredBypassSources = draftPending
+			? (status.draft_bypass_sources4 !== undefined ? status.draft_bypass_sources4 : (status.bypass_sources4 || ''))
+			: (status.bypass_sources4 || '');
+		const bypassSourcesInput = E('textarea', {
+			class: 'cbi-input-text v2rayb-form-wide', rows: '4', spellcheck: 'false',
+			maxlength: '8192',
+			placeholder: '192.168.101.229\n192.168.101.240/28'
+		});
+		bypassSourcesInput.value = configuredBypassSources.replace(/,/g, '\n');
+		pageView.bypassSourcesDesired = configuredBypassSources;
+		pageView.bypassSourcesDirty = false;
+		function normalizeBypassSourcesValue(value) {
+			return value.split(/[\s,]+/)
+				.filter(item => item !== '')
+				.map(item => item.includes('/') ? item : `${item}/32`)
+				.join(',');
+		}
 		pageView.pendingOperations = [];
 		pageView.subscriptionJobs = {};
 		pageView.subscriptionJobErrors = {};
@@ -1350,7 +1369,7 @@ return view.extend({
 		pageView.hasLocalChanges = function() {
 			return this.serviceEnabledDirty || this.watchdogEnabledDirty ||
 				this.watchdogAutoRecoverDirty || this.watchdogRestartEngineDirty ||
-				this.activeProfileDirty || this.directDnsDirty ||
+				this.activeProfileDirty || this.directDnsDirty || this.bypassSourcesDirty ||
 				this.pendingOperations.length > 0;
 		};
 		pageView.refreshActiveProfileSelect = function() {
@@ -1371,6 +1390,8 @@ return view.extend({
 				chain = chain.then(() => callSetSetting('watchdog_restart_engine', this.watchdogRestartEngineDesired ? '1' : '0'));
 			if (this.directDnsDirty)
 				chain = chain.then(() => callSetSetting('direct_dns_upstreams', this.directDnsDesired));
+			if (this.bypassSourcesDirty)
+				chain = chain.then(() => callSetSetting('bypass_sources4', this.bypassSourcesDesired));
 			for (const operation of this.pendingOperations)
 				chain = chain.then(result => {
 					if (result && result.success === false)
@@ -1388,6 +1409,7 @@ return view.extend({
 					this.watchdogAutoRecoverDirty = false;
 					this.watchdogRestartEngineDirty = false;
 					this.directDnsDirty = false;
+					this.bypassSourcesDirty = false;
 					this.pendingOperations = [];
 				}
 				return result;
@@ -1447,6 +1469,11 @@ return view.extend({
 			pageView.directDnsDirty = pageView.directDnsDesired !== configuredDirectDnsUpstreams;
 			updateLocalChangesNotice();
 		});
+		bypassSourcesInput.addEventListener('input', () => {
+			pageView.bypassSourcesDesired = normalizeBypassSourcesValue(bypassSourcesInput.value);
+			pageView.bypassSourcesDirty = pageView.bypassSourcesDesired !== configuredBypassSources;
+			updateLocalChangesNotice();
+		});
 		activeProfileSelect.addEventListener('change', () => {
 			activeProfile = activeProfileSelect.value;
 			pageView.activeProfileDirty = activeProfile !== appliedProfile;
@@ -1467,6 +1494,8 @@ return view.extend({
 					_('Also controls boot startup.')),
 				field(_('Profile to activate'), activeProfileSelect,
 					_('Applied after Save & Apply.')),
+				field(_('Bypass source IPv4/CIDR'), bypassSourcesInput,
+					_('LAN sources listed here return before transparent proxy redirection and keep their normal policy routing. One IPv4 address or CIDR per line; empty disables the bypass.')),
 				field(_('Enable watchdog'), watchdogEnabled,
 					_('Requires connectivity probing in the profile. After three failures, withdraw traffic and DNS takeover while keeping the proxy and watchdog running.')),
 				field(_('Automatically restore takeover'), watchdogAutoRecover,
