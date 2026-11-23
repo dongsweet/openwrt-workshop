@@ -58,6 +58,10 @@ cleanup_legacy_procd() {
 	[ "${FAIL_LEGACY:-0}" = 0 ]
 }
 dnsmasq_reload() { [ "${DNS_RELOAD_FAIL:-0}" = 0 ]; }
+dnsmasq_restart_config() {
+	printf 'restart\n' >> "$UCI_CALL_LOG"
+	[ "${DNS_RELOAD_FAIL:-0}" = 0 ]
+}
 
 spawn_managed() {
 	mkdir -p "$PID_DIR"
@@ -373,6 +377,7 @@ printf '1\n' > "$DNS_BACKUP/noresolv"
 printf '1\n' > "$DNS_BACKUP/stale"
 set_proxy_dns
 grep -qx commit "$UCI_CALL_LOG"
+grep -qx restart "$UCI_CALL_LOG"
 spawn_managed v2ray
 spawn_managed mosdns
 spawn_managed watchdog

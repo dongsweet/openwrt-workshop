@@ -87,6 +87,12 @@ dnsmasq_reload() {
 		/etc/init.d/dnsmasq restart >/dev/null 2>&1
 }
 
+dnsmasq_restart_config() {
+	# conf-dir is not guaranteed to be reparsed by a HUP reload. Restart so
+	# newly written nftset/server files take effect immediately.
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+}
+
 remove_legacy_force_proxy_rule() {
 	[ -e "$LEGACY_FORCE_PROXY_FILE" ] || return 0
 	normalized="$RUNTIME/legacy-force-proxy.normalized"
@@ -293,7 +299,7 @@ set_proxy_dns() {
 	cmp -s "$RUNTIME/proxy-server" "$RUNTIME/proxy-server.expected" || return 1
 	cmp -s "$RUNTIME/proxy-noresolv" "$RUNTIME/proxy-noresolv.expected" || return 1
 	uci commit dhcp || return 1
-	dnsmasq_reload
+	dnsmasq_restart_config
 }
 
 restore_dnsmasq() {
@@ -361,8 +367,8 @@ restore_dnsmasq() {
 		log "dnsmasq baseline could not be committed"
 		return 1
 	}
-	dnsmasq_reload || {
-		log "dnsmasq reload failed while restoring its baseline"
+	dnsmasq_restart_config || {
+		log "dnsmasq restart failed while restoring its baseline"
 		return 1
 	}
 	uci -q show "$DNSMASQ_SECTION" >/dev/null 2>&1 || return 1
