@@ -82,11 +82,6 @@ release_lock() {
 	unset V2RAYB_LOCK_HELD 2>/dev/null || :
 }
 
-dnsmasq_reload() {
-	/etc/init.d/dnsmasq reload >/dev/null 2>&1 || \
-		/etc/init.d/dnsmasq restart >/dev/null 2>&1
-}
-
 dnsmasq_ready() {
 	n=0
 	while [ "$n" -lt 20 ]; do
@@ -122,7 +117,7 @@ nftset=/services.googleapis.cn/4#inet#v2rayB#force_proxy
 EOF
 	if cmp -s "$normalized" "$expected"; then
 		rm -f "$LEGACY_FORCE_PROXY_FILE" "$normalized" "$expected" || return 0
-		dnsmasq_reload || :
+		dnsmasq_restart_config || :
 		log "removed legacy force-proxy dnsmasq rule"
 	else
 		rm -f "$normalized" "$expected"
@@ -232,7 +227,6 @@ set_bootstrap_dns() {
 		cp "$expected" "$target.tmp.$$" || return 1
 		mv "$target.tmp.$$" "$target" || return 1
 	done
-	dnsmasq_reload
 }
 
 capture_dnsmasq_baseline() {
@@ -612,7 +606,10 @@ start_service() {
 	"$CTL" test-v2ray || { rollback_start; return 1; }
 	capture_dnsmasq_baseline || { rollback_start; return 1; }
 	load_dns_policy || { rollback_start; return 1; }
-	set_bootstrap_dns || { rollback_start; return 1; }
+	if [ "$(cat "$DNS_BACKUP/stale" 2>/dev/null || printf 0)" = 1 ]; then
+		set_bootstrap_dns || { rollback_start; return 1; }
+		dnsmasq_restart_config || { rollback_start; return 1; }
+	fi
 	start_engine
 	port_ready 5353 || { rollback_start; return 1; }
 	probe_enabled="$(dns_policy_value probe_enabled)"
@@ -863,7 +860,10 @@ recover_service() {
 	"$CTL" test-v2ray >/dev/null 2>&1 || { release_lock; return 1; }
 	load_dns_policy || { recovery_rollback; return 1; }
 	capture_dnsmasq_baseline || { recovery_rollback; return 1; }
-	set_bootstrap_dns || { recovery_rollback; return 1; }
+	if [ "$(cat "$DNS_BACKUP/stale" 2>/dev/null || printf 0)" = 1 ]; then
+		set_bootstrap_dns || { recovery_rollback; return 1; }
+		dnsmasq_restart_config || { recovery_rollback; return 1; }
+	fi
 	"$CTL" set-state starting >/dev/null 2>&1 || { recovery_rollback; return 1; }
 	log "restarting the selected proxy engine from the current active configuration"
 	restart_engine || { recovery_rollback; return 1; }

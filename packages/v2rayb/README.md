@@ -75,8 +75,10 @@ MosDNS sends matching Google Play GGC names to domestic DNS and adds their
 answers to v2rayB's nft set. Other names in that suffix fall back to V2Ray DNS.
 
 A global ordered direct-DNS upstream list supplies node bootstrap, subscription
-hostname resolution and the MosDNS direct branch. The service captures dnsmasq
-settings before switching and restores them on stop. Stopping also removes the
+hostname resolution and the MosDNS direct branch. v2rayB writes the bootstrap,
+subscription, force-proxy and default-upstream changes for a transition before
+restarting dnsmasq once. The service captures dnsmasq settings before switching
+and restores them on stop. Stopping also removes the
 v2rayB-owned nftables table and managed processes.
 
 ## First Start

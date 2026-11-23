@@ -57,10 +57,9 @@ cleanup_legacy_procd() {
 	touch "$RUNTIME/legacy-cleaned"
 	[ "${FAIL_LEGACY:-0}" = 0 ]
 }
-dnsmasq_reload() { [ "${DNS_RELOAD_FAIL:-0}" = 0 ]; }
 dnsmasq_restart_config() {
 	printf 'restart\n' >> "$UCI_CALL_LOG"
-	[ "${DNS_RELOAD_FAIL:-0}" = 0 ]
+	[ "${DNS_RESTART_FAIL:-0}" = 0 ]
 }
 dnsmasq_ready() { return 0; }
 
@@ -103,6 +102,7 @@ setup_case() {
 	TEST_ENGINE='v2ray'
 	UCI_CALL_LOG="$RUNTIME/uci.calls"
 	UCI_COMMIT_FAIL=0
+	DNS_RESTART_FAIL=0
 	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR UCI_CALL_LOG UCI_COMMIT_FAIL MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
 		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED FORCE_PROXY_DNS_FILE FORCE_PROXY_DNS_EXPECTED LEGACY_FORCE_PROXY_FILE \
 		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_FORCE_PROXY_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT TEST_DIRECT_DNS_UPSTREAMS TEST_ENGINE
@@ -163,14 +163,14 @@ esac
 EOF
 chmod +x "$TEST_DIR/ctl"
 
-setup_case dns-reload
-DNS_RELOAD_FAIL=1
+setup_case dns-restart
+DNS_RESTART_FAIL=1
 FAIL_NFT=0
 spawn_managed v2ray
 v2ray_pid="$(cat "$PID_DIR/v2ray.pid")"
-export DNS_RELOAD_FAIL
+export DNS_RESTART_FAIL
 if stop_service; then
-	echo "stop unexpectedly succeeded after dnsmasq reload failure" >&2
+	echo "stop unexpectedly succeeded after dnsmasq restart failure" >&2
 	exit 1
 fi
 kill -0 "$v2ray_pid"
@@ -378,7 +378,7 @@ printf '1\n' > "$DNS_BACKUP/noresolv"
 printf '1\n' > "$DNS_BACKUP/stale"
 set_proxy_dns
 grep -qx commit "$UCI_CALL_LOG"
-grep -qx restart "$UCI_CALL_LOG"
+[ "$(grep -c '^restart$' "$UCI_CALL_LOG")" = 1 ]
 spawn_managed v2ray
 spawn_managed mosdns
 spawn_managed watchdog

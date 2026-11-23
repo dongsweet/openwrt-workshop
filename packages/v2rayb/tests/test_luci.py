@@ -205,6 +205,9 @@ def main():
     assert "suspend() {\n\tsuspend_service" in init_source
     assert "restart_proxy_service()" in init_source
     assert 'restart_proxy_service "$@"' in init_source
+    assert "dnsmasq_restart_config()" in init_source
+    assert "/etc/init.d/dnsmasq reload" not in init_source
+    assert "if [ \"$(cat \"$DNS_BACKUP/stale\"" in init_source
     assert "refresh_takeover()" in init_source
     assert "restart_engine || { recovery_rollback; return 1; }" in init_source
     assert "proxy engine restarted; existing traffic and DNS takeover retained" in init_source
