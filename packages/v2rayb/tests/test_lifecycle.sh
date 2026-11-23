@@ -62,6 +62,7 @@ dnsmasq_restart_config() {
 	printf 'restart\n' >> "$UCI_CALL_LOG"
 	[ "${DNS_RELOAD_FAIL:-0}" = 0 ]
 }
+dnsmasq_ready() { return 0; }
 
 spawn_managed() {
 	mkdir -p "$PID_DIR"

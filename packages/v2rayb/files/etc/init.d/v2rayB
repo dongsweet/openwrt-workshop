@@ -87,10 +87,24 @@ dnsmasq_reload() {
 		/etc/init.d/dnsmasq restart >/dev/null 2>&1
 }
 
+dnsmasq_ready() {
+	n=0
+	while [ "$n" -lt 20 ]; do
+		if netstat -ln 2>/dev/null | grep -Eq '[:.]53[[:space:]]'; then
+			return 0
+		fi
+		n=$((n + 1))
+		sleep 1
+	done
+	return 1
+}
+
 dnsmasq_restart_config() {
 	# conf-dir is not guaranteed to be reparsed by a HUP reload. Restart so
-	# newly written nftset/server files take effect immediately.
-	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	# newly written nftset/server files take effect immediately, then wait for
+	# the DNS socket before callers continue importing traffic policy.
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1 || return 1
+	dnsmasq_ready
 }
 
 remove_legacy_force_proxy_rule() {

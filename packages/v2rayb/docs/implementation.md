@@ -13,7 +13,8 @@ builds both the core and LuCI packages.
   switches this policy.
 - DNS switching with rollback, an owned nftables table, and an optional
   proxy-connectivity watchdog. Runtime `conf-dir` changes trigger a dnsmasq
-  restart because HUP reload does not reliably parse newly created files.
+  restart because HUP reload does not reliably parse newly created files;
+  v2rayB waits for the DNS listener before continuing.
 - The last watchdog fallback timestamp is kept under `/tmp` across watchdog
   restarts; it does not automatically resume a suspended proxy.
 - JavaScript LuCI page backed by a narrow rpcd/ucode API and explicit read/write ACLs.
