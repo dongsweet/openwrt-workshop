@@ -34,7 +34,7 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 12
         assert {
             "draft_nodes", "draft_policies", "draft_profiles",
             "draft_profile_nodes", "draft_source_deletions",
@@ -52,6 +52,10 @@ def main():
         policy_columns = {
             row[1]
             for row in conn.execute("PRAGMA table_info(policies)")
+        }
+        draft_policy_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(draft_policies)")
         }
         assert {
             "direct_dns", "transparent_proxy_ports",
@@ -112,6 +116,12 @@ def main():
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'draft_bypass_sources4'"
         ).fetchone()[0] == ""
+        assert conn.execute(
+            "SELECT COUNT(*) FROM settings WHERE key IN "
+            "('force_proxy_domains', 'draft_force_proxy_domains')"
+        ).fetchone()[0] == 0
+        assert "force_proxy_domains" in policy_columns
+        assert "force_proxy_domains" in draft_policy_columns
 
         assert conn.execute(
             "SELECT value FROM settings WHERE key = 'service_enabled'"

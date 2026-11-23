@@ -96,6 +96,42 @@ fi
 "$ctl" render-all
 ! grep -q 'bypass_source4' "$TEST_DIR/runtime/active/nftables.nft"
 
+"$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 'services.googleapis.cn example.com,services.googleapis.cn'
+"$ctl" get-profile 1 | grep -q '^force_proxy_domains=services.googleapis.cn,example.com$'
+for domains in 'example..com' '.example.com' 'example.com.' 'bad/domain'; do
+	if "$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 "$domains" >/dev/null 2>&1; then
+		echo "invalid force proxy domain list unexpectedly accepted: $domains" >&2
+		exit 1
+	fi
+done
+"$ctl" apply-draft
+"$ctl" get-applied-profile | grep -q 'services.googleapis.cn,example.com$'
+"$ctl" render-all
+grep -q 'set force_proxy4 { type ipv4_addr; flags timeout; timeout 12h; }' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'set force_proxy6 { type ipv6_addr; flags timeout; timeout 12h; }' "$TEST_DIR/runtime/active/nftables.nft"
+awk '
+	/ip daddr @force_proxy4 tcp dport/ { force = NR }
+	/ip daddr @pass return/ { pass = NR }
+	END { exit !(force && pass && force < pass) }
+' "$TEST_DIR/runtime/active/nftables.nft"
+"$ctl" add-profile second-profile 1 >/dev/null
+second_id="$("$ctl" list-profiles | awk -F '\t' '$2 == "second-profile" { print $1 }')"
+"$ctl" set-profile-policy "$second_id" 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 ''
+"$ctl" select-profile "$second_id"
+"$ctl" apply-draft
+"$ctl" get-applied-profile | grep -q '^'$second_id'	second-profile	'
+! "$ctl" get-applied-profile | grep -q 'services.googleapis.cn'
+"$ctl" render-all
+! grep -q 'force_proxy4' "$TEST_DIR/runtime/active/nftables.nft"
+"$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 ''
+"$ctl" select-profile 1
+"$ctl" apply-draft
+"$ctl" set-profile-enabled "$second_id" 0
+"$ctl" delete-profile "$second_id"
+"$ctl" apply-draft
+"$ctl" render-all
+! grep -q 'force_proxy4' "$TEST_DIR/runtime/active/nftables.nft"
+
 "$ctl" set-setting watchdog_enabled 0
 "$ctl" set-setting watchdog_auto_recover 0
 "$ctl" set-setting watchdog_restart_engine 0

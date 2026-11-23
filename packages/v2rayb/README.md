@@ -121,6 +121,21 @@ Stop and restore normal DNS:
 /usr/libexec/v2rayB/v2rayBctl status
 ```
 
+## Force Proxy Domains
+
+The profile policy's **Force proxy domains** setting is separate from
+source-address bypass and follows profile selection. Each listed domain remains
+on the normal dnsmasq/V2Ray DNS path, while
+dnsmasq also inserts its IPv4 and IPv6 answers into the force_proxy4 and
+force_proxy6 nft sets. nftables checks those sets before source bypass, direct
+IP, and pass returns, then redirects matching TCP traffic to the existing
+transparent proxy listener. No additional V2Ray inbound is created.
+
+Enter one domain per line. A blank list disables the rule. This is intended for
+control-plane domains that must use the proxy even when their DNS answer is
+also present in a direct/pass set; do not add Google Play GGC download domains
+that are intentionally kept direct.
+
 ## Configuration Apply
 
 Save & Apply first commits the draft and renders the new runtime files. Database

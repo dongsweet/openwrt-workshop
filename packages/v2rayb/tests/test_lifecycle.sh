@@ -78,6 +78,8 @@ setup_case() {
 	BOOTSTRAP_DNS_EXPECTED="$RUNTIME/dnsmasq-bootstrap-expected"
 	SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/89-v2rayB-subscriptions.conf"
 	SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
+	FORCE_PROXY_DNS_FILE="$DNSMASQ_DIR/88-v2rayB-force-proxy.conf"
+	FORCE_PROXY_DNS_EXPECTED="$RUNTIME/dnsmasq-force-proxy-expected"
 	LEGACY_FORCE_PROXY_FILE="$DNSMASQ_DIR/v2rayB-force-proxy.conf"
 	CTL="$TEST_DIR/ctl"
 	MOCK_SERVER=""
@@ -88,6 +90,7 @@ setup_case() {
 	TEST_MOSDNS_DOMAINS='xn--ngstr-lra8j.com'
 	TEST_BOOTSTRAP_DOMAIN='bootstrap.example.com'
 	TEST_SUBSCRIPTION_DOMAINS='sub.example.com,alternate.example.net'
+	TEST_FORCE_PROXY_DOMAINS=''
 	TEST_TRANSPARENT_PROXY_PORT='12345'
 	TEST_PROBE_ENABLED='1'
 	TEST_PROBE_PORT='12346'
@@ -96,8 +99,8 @@ setup_case() {
 	UCI_CALL_LOG="$RUNTIME/uci.calls"
 	UCI_COMMIT_FAIL=0
 	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR UCI_CALL_LOG UCI_COMMIT_FAIL MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
-		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED LEGACY_FORCE_PROXY_FILE \
-		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT TEST_DIRECT_DNS_UPSTREAMS TEST_ENGINE
+		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED FORCE_PROXY_DNS_FILE FORCE_PROXY_DNS_EXPECTED LEGACY_FORCE_PROXY_FILE \
+		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_FORCE_PROXY_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT TEST_DIRECT_DNS_UPSTREAMS TEST_ENGINE
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
@@ -121,6 +124,7 @@ case "$1" in
 				fi
 				;;
 			fallback_on_failure|watchdog_auto_recover|watchdog_restart_engine) printf '1\n' ;;
+			force_proxy_domains) printf '%s\n' "$TEST_FORCE_PROXY_DOMAINS" ;;
 			*) return 1 ;;
 		esac
 		;;
@@ -146,7 +150,8 @@ case "$1" in
 			'mosdns_listen=127.0.0.1#5354' 'v2ray_dns_listen=127.0.0.1#5353' \
 			"transparent_proxy_port=$TEST_TRANSPARENT_PROXY_PORT" \
 			"probe_enabled=$TEST_PROBE_ENABLED" "probe_port=$TEST_PROBE_PORT" \
-			"subscription_domains=$TEST_SUBSCRIPTION_DOMAINS"
+			"subscription_domains=$TEST_SUBSCRIPTION_DOMAINS" \
+			"force_proxy_domains=$TEST_FORCE_PROXY_DOMAINS"
 		;;
 	*) exit 2 ;;
 esac
@@ -206,6 +211,10 @@ printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 	'nftset=/alternate.example.net/4#inet#v2rayB#pass' \
 	'nftset=/alternate.example.net/6#inet#v2rayB#pass6' > "$SUBSCRIPTION_DNS_EXPECTED"
 cp "$SUBSCRIPTION_DNS_EXPECTED" "$SUBSCRIPTION_DNS_FILE"
+printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
+	'nftset=/services.googleapis.cn/4#inet#v2rayB#force_proxy4' \
+	'nftset=/services.googleapis.cn/6#inet#v2rayB#force_proxy6' > "$FORCE_PROXY_DNS_EXPECTED"
+cp "$FORCE_PROXY_DNS_EXPECTED" "$FORCE_PROXY_DNS_FILE"
 printf '%s\n' managed > "$RUNTIME/dnsmasq-mosdns-rule"
 stop_service
 [ -e "$RUNTIME/legacy-cleaned" ]
@@ -217,6 +226,8 @@ stop_service
 [ ! -e "$BOOTSTRAP_DNS_EXPECTED" ]
 [ ! -e "$SUBSCRIPTION_DNS_FILE" ]
 [ ! -e "$SUBSCRIPTION_DNS_EXPECTED" ]
+[ ! -e "$FORCE_PROXY_DNS_FILE" ]
+[ ! -e "$FORCE_PROXY_DNS_EXPECTED" ]
 [ "$(sed -n '1p' "$RUNTIME/state")" = normal ]
 
 setup_case legacy-subscription-rule
@@ -278,6 +289,7 @@ fi
 setup_case dns-routing
 DNS_RELOAD_FAIL=0
 FAIL_NFT=0
+TEST_FORCE_PROXY_DOMAINS='services.googleapis.cn'
 export FAIL_NFT
 printf '%s\n' '/example.cn/223.5.5.5' '127.0.0.1#5353' > "$DNS_BACKUP/server"
 printf '1\n' > "$DNS_BACKUP/noresolv"
@@ -286,6 +298,8 @@ MOCK_SERVER="$(cat "$DNS_BACKUP/server")"
 MOCK_NORESOLV=1
 set_proxy_dns
 cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
+grep -q '^nftset=/services.googleapis.cn/4#inet#v2rayB#force_proxy4$' "$FORCE_PROXY_DNS_FILE"
+grep -q '^nftset=/services.googleapis.cn/6#inet#v2rayB#force_proxy6$' "$FORCE_PROXY_DNS_FILE"
 cmp -s "$BOOTSTRAP_DNS_FILE" "$BOOTSTRAP_DNS_EXPECTED"
 grep -q 'server=/sub.example.com/223.5.5.5#53' "$SUBSCRIPTION_DNS_FILE"
 grep -q 'nftset=/sub.example.com/4#inet#v2rayB#pass' "$SUBSCRIPTION_DNS_FILE"
@@ -299,6 +313,7 @@ grep -q 'nftset=/bootstrap.example.com/6#inet#v2rayB#pass6' "$BOOTSTRAP_DNS_FILE
 127.0.0.1#5353' ]
 [ "$MOCK_NORESOLV" = 1 ]
 restore_dnsmasq
+[ ! -e "$FORCE_PROXY_DNS_FILE" ]
 [ ! -e "$MOSDNS_FORWARD_FILE" ]
 [ ! -e "$BOOTSTRAP_DNS_FILE" ]
 [ ! -e "$BOOTSTRAP_DNS_EXPECTED" ]

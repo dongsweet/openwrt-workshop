@@ -258,7 +258,12 @@ def main():
     assert "const probeEnabled = checkbox" in view_source
     assert "const probePort = E('input'" in view_source
     assert "force-proxy-in" not in ctl_source
-    assert "force_proxy4" not in ctl_source
+    assert "force_proxy4" in ctl_source
+    assert "force_proxy_domains" in rpc_source
+    assert "callSetSetting('force_proxy_domains'" not in view_source
+    assert "field(_('Force proxy domains'), forceProxyDomains" in view_source
+    assert "force_proxy_domains: forcedDomains" in view_source
+    assert "force_proxy_domains: fields.force_proxy_domains || ''" in rpc_source
     assert "Direct match: Direct DNS + direct sets." in view_source
     assert "Fallback: V2Ray DNS, no direct sets." in view_source
     assert "E('h4', {}, _('Fixed evaluation order and actions'))" not in view_source
@@ -424,7 +429,7 @@ def main():
     assert "key != 'watchdog_restart_engine'" in rpc_source
     assert "field(_('Proxy engine'), profileEngine" in view_source
     assert "const profileEngine = E('select'" in view_source
-    assert "profile.probe_port, profile.engine" in view_source
+    assert "profile.probe_port, profile.engine, profile.force_proxy_domains" in view_source
     assert "let old_profile = replace(before.output" not in rpc_source
     assert "let new_profile = replace(status.output" not in rpc_source
     assert "engine: fields.engine || 'v2ray'" in rpc_source
@@ -442,6 +447,7 @@ def main():
     assert "setting draft_watchdog_enabled" in ctl_source
     assert "UPDATE settings SET value=COALESCE((SELECT value FROM settings WHERE key='draft_watchdog_enabled'),value)" in ctl_source
     assert "key != 'service_enabled' && key != 'direct_dns_upstreams'" in rpc_source
+    assert "key != 'force_proxy_domains'" not in rpc_source
     assert "setting draft_transparent_proxy_ports" not in ctl_source
     assert "printf 'transparent_proxy_ports=%s\\n'" not in ctl_source
     assert "DELETE FROM settings WHERE key IN ('direct_dns','transparent_proxy_ports','draft_direct_dns','draft_transparent_proxy_ports')" in ctl_source

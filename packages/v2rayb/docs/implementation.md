@@ -8,6 +8,9 @@ builds both the core and LuCI packages.
 - SQLite-backed manual nodes, profiles, and runtime settings.
 - Generated proxy-engine and MosDNS configs under `/tmp/v2rayB/active/`.
 - A global IPv4/CIDR source bypass that preserves policy-routed LAN traffic.
+- A per-profile force-proxy domain list backed by dnsmasq nftset population and
+  nftables rules ordered before direct/pass returns; switching profiles also
+  switches this policy.
 - DNS switching with rollback, an owned nftables table, and an optional
   proxy-connectivity watchdog.
 - The last watchdog fallback timestamp is kept under `/tmp` across watchdog

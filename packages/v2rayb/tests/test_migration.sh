@@ -72,11 +72,15 @@ PRAGMA user_version=1;
 "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
 
 version=$("$sqlite" "$V2RAYB_DB" 'PRAGMA user_version;')
-[ "$version" = 10 ]
+[ "$version" = 12 ]
 "$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="direct_dns_upstreams";' | grep -q '223.5.5.5:53'
 "$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="bypass_sources4";' | grep -qx '192.168.101.229/32'
 "$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="draft_bypass_sources4";' | grep -qx '192.168.101.229/32'
+[ "$("$sqlite" "$V2RAYB_DB" 'SELECT COUNT(*) FROM settings WHERE key IN ("force_proxy_domains","draft_force_proxy_domains");')" = 0 ]
 columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(policies);')
+draft_columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(draft_policies);')
+printf '%s\n' "$columns" | grep -q 'force_proxy_domains'
+printf '%s\n' "$draft_columns" | grep -q 'force_proxy_domains'
 printf '%s\n' "$columns" | grep -q 'direct_dns'
 printf '%s\n' "$columns" | grep -q 'transparent_proxy_ports'
 printf '%s\n' "$columns" | grep -q 'transparent_proxy_port'
@@ -90,7 +94,7 @@ printf '%s\n' "$columns" | grep -q 'mosdns_match_rules'
 printf '%s\n' "$columns" | grep -q 'proxy_router_traffic'
 source_columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(sources);')
 printf '%s\n' "$source_columns" | grep -q 'ipv4_only'
-"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^10$'
+"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^12$'
 
 # Old databases append new policy columns at the end, unlike freshly created
 # tables. Draft copies and apply-back must address columns explicitly.
@@ -122,6 +126,31 @@ WHERE key IN ("direct_dns","transparent_proxy_ports",
 ')
 [ "$count" = 0 ]
 
+# A development v11 database moves the global force-proxy list into the
+# active profile policy and removes the obsolete global settings.
+legacy_v11="$TEST_DIR/legacy-v11-db"
+"$sqlite" "$legacy_v11" < "$V2RAYB_SCHEMA"
+"$sqlite" "$legacy_v11" '
+ALTER TABLE policies DROP COLUMN force_proxy_domains;
+ALTER TABLE draft_policies DROP COLUMN force_proxy_domains;
+INSERT INTO settings(key,value) VALUES("active_profile","7")
+ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+INSERT INTO settings(key,value) VALUES("force_proxy_domains","Services.GoogleApis.CN,example.com")
+ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+INSERT INTO settings(key,value) VALUES("draft_force_proxy_domains","stale.example.com")
+ON CONFLICT(key) DO UPDATE SET value=excluded.value;
+INSERT INTO policies(id,name) VALUES(70,"policy seven");
+INSERT INTO profiles(id,name,engine,policy_id) VALUES(7,"profile seven","v2ray",70);
+INSERT INTO draft_policies(id,name) VALUES(70,"policy seven");
+DELETE FROM schema_migrations WHERE version=12;
+PRAGMA user_version=11;
+'
+V2RAYB_DB="$legacy_v11" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
+[ "$($sqlite "$legacy_v11" 'PRAGMA user_version;')" = 12 ]
+"$sqlite" "$legacy_v11" 'SELECT force_proxy_domains FROM policies WHERE id=70;' | grep -qx 'services.googleapis.cn,example.com'
+[ "$("$sqlite" "$legacy_v11" 'SELECT COUNT(*) FROM settings WHERE key IN ("force_proxy_domains","draft_force_proxy_domains");')" = 0 ]
+[ "$("$sqlite" "$legacy_v11" 'SELECT COUNT(*) FROM settings WHERE key IN ("force_proxy_domains","draft_force_proxy_domains");')" = 0 ]
+
 # A partially applied v4 -> v5 migration must be safe to retry.
 partial="$TEST_DIR/partial-db"
 "$sqlite" "$partial" '
@@ -135,7 +164,7 @@ INSERT INTO settings(key,value) VALUES("draft_pending","1");
 PRAGMA user_version=4;
 '
 V2RAYB_DB="$partial" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
-[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 10 ]
+[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 12 ]
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'proxy_router_traffic'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'transparent_proxy_port'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'probe_enabled'

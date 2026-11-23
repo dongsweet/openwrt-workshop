@@ -18,6 +18,8 @@ BOOTSTRAP_DNS_FILE="$DNSMASQ_DIR/90-v2rayB-bootstrap.conf"
 BOOTSTRAP_DNS_EXPECTED="$RUNTIME/dnsmasq-bootstrap-expected"
 SUBSCRIPTION_DNS_FILE="$DNSMASQ_DIR/89-v2rayB-subscriptions.conf"
 SUBSCRIPTION_DNS_EXPECTED="$RUNTIME/dnsmasq-subscriptions-expected"
+FORCE_PROXY_DNS_FILE="$DNSMASQ_DIR/88-v2rayB-force-proxy.conf"
+FORCE_PROXY_DNS_EXPECTED="$RUNTIME/dnsmasq-force-proxy-expected"
 LEGACY_FORCE_PROXY_FILE="$DNSMASQ_DIR/v2rayB-force-proxy.conf"
 V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"
 V2RAY_GROUP="${V2RAYB_V2RAY_GROUP:-nogroup}"
@@ -179,6 +181,22 @@ write_subscription_dns_expected() {
 	} > "$SUBSCRIPTION_DNS_EXPECTED"
 }
 
+write_force_proxy_dns_expected() {
+	force_domains="$(dns_policy_value force_proxy_domains)"
+	if [ -z "$force_domains" ]; then
+		: > "$FORCE_PROXY_DNS_EXPECTED"
+		return 0
+	fi
+	{
+		printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.'
+		printf '%s\n' "$force_domains" | tr ',' '\n' | while IFS= read -r domain; do
+			[ -n "$domain" ] || continue
+			printf 'nftset=/%s/4#inet#v2rayB#force_proxy4\n' "$domain"
+			printf 'nftset=/%s/6#inet#v2rayB#force_proxy6\n' "$domain"
+		done
+	} > "$FORCE_PROXY_DNS_EXPECTED"
+}
+
 set_bootstrap_dns() {
 	write_bootstrap_dns_expected || return 1
 	write_subscription_dns_expected || return 1
@@ -241,6 +259,21 @@ set_proxy_dns() {
 		rm -f "$MOSDNS_FORWARD_EXPECTED"
 	fi
 	set_bootstrap_dns || return 1
+	write_force_proxy_dns_expected || return 1
+	if [ -z "$(dns_policy_value force_proxy_domains)" ]; then
+		if [ -e "$FORCE_PROXY_DNS_FILE" ] && ! cmp -s "$FORCE_PROXY_DNS_FILE" "$FORCE_PROXY_DNS_EXPECTED"; then
+			log "refusing to overwrite existing $FORCE_PROXY_DNS_FILE"
+			return 1
+		fi
+		rm -f "$FORCE_PROXY_DNS_FILE" || return 1
+	else
+		if [ -e "$FORCE_PROXY_DNS_FILE" ] && ! cmp -s "$FORCE_PROXY_DNS_FILE" "$FORCE_PROXY_DNS_EXPECTED"; then
+			log "refusing to overwrite existing $FORCE_PROXY_DNS_FILE"
+			return 1
+		fi
+		cp "$FORCE_PROXY_DNS_EXPECTED" "$FORCE_PROXY_DNS_FILE.tmp.$$" || return 1
+		mv "$FORCE_PROXY_DNS_FILE.tmp.$$" "$FORCE_PROXY_DNS_FILE" || return 1
+	fi
 	: > "$RUNTIME/proxy-server.expected"
 	uci -q delete "${DNSMASQ_SECTION}.server" || true
 	while IFS= read -r server; do
@@ -305,6 +338,7 @@ restore_dnsmasq() {
 		rm -f "$MOSDNS_FORWARD_FILE" || return 1
 	fi
 	for rule in \
+		"$FORCE_PROXY_DNS_FILE:$FORCE_PROXY_DNS_EXPECTED" \
 		"$BOOTSTRAP_DNS_FILE:$BOOTSTRAP_DNS_EXPECTED" \
 		"$SUBSCRIPTION_DNS_FILE:$SUBSCRIPTION_DNS_EXPECTED"; do
 		target="${rule%%:*}"
@@ -322,7 +356,7 @@ restore_dnsmasq() {
 			fi
 		fi
 	done
-	rm -f "$RUNTIME/dnsmasq-mosdns-rule" "$MOSDNS_FORWARD_EXPECTED" "$BOOTSTRAP_DNS_EXPECTED" "$SUBSCRIPTION_DNS_EXPECTED"
+	rm -f "$RUNTIME/dnsmasq-mosdns-rule" "$MOSDNS_FORWARD_EXPECTED" "$FORCE_PROXY_DNS_EXPECTED" "$BOOTSTRAP_DNS_EXPECTED" "$SUBSCRIPTION_DNS_EXPECTED"
 	uci commit dhcp || {
 		log "dnsmasq baseline could not be committed"
 		return 1

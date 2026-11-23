@@ -26,7 +26,7 @@ def main():
     ctl_script = (ROOT / "files" / "usr" / "libexec" / "v2rayB" / "v2rayBctl").read_text(
         encoding="utf-8"
     )
-    assert "force_proxy4" not in ctl_script
+    assert "force_proxy4" in ctl_script
     assert "force-proxy-in" not in ctl_script
     assert "force_proxy_seq" not in ctl_script
     assert "remove_legacy_force_proxy_rule()" in init_script
@@ -35,6 +35,9 @@ def main():
     assert "server=/%s/%s" in init_script
     assert "SUBSCRIPTION_DNS_FILE=" in init_script
     assert "write_subscription_dns_expected()" in init_script
+    assert "write_force_proxy_dns_expected()" in init_script
+    assert "FORCE_PROXY_DNS_FILE=" in init_script
+    assert "nftset=/%s/4#inet#v2rayB#force_proxy4" in init_script
     assert "nftset=/%s/4#inet#v2rayB#pass" in init_script
     assert "nftset=/%s/6#inet#v2rayB#pass6" in init_script
     assert "write_dns_domain_rules \"$bootstrap_domain\" \"$direct_dns\"" in init_script
