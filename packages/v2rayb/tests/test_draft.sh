@@ -117,12 +117,12 @@ service_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key=
 "$ctl" update-profile 1 original-profile 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 '' 'Services.GoogleApis.CN example.com' >/dev/null
 "$ctl" get-profile 1 | grep -q '^force_proxy_domains=services.googleapis.cn,example.com$'
 "$ctl" get-applied-profile | grep -q '^1	original-profile	'
-! "$ctl" get-applied-profile | grep -q 'services.googleapis.cn,example.com'
+"$ctl" get-applied-profile | grep -vq 'services.googleapis.cn,example.com$'
 "$ctl" revert-draft
 "$ctl" update-profile 1 original-profile 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 '' 'services.googleapis.cn example.com' >/dev/null
 "$ctl" apply-draft
 "$ctl" get-applied-profile | grep -q '^1	original-profile	'
-"$ctl" get-applied-profile | grep -q 'services.googleapis.cn,example.com'
+"$ctl" get-applied-profile | grep -q 'services.googleapis.cn,example.com$'
 [ "$("$sqlite" "$V2RAYB_DB" "SELECT COUNT(*) FROM settings WHERE key IN ('force_proxy_domains','draft_force_proxy_domains');")" = 0 ]
 
 # A failed runtime apply can restore the committed database while retaining

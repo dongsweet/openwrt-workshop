@@ -34,7 +34,7 @@ def main():
             "schema_migrations",
         }
         assert expected <= tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
         assert {
             "draft_nodes", "draft_policies", "draft_profiles",
             "draft_profile_nodes", "draft_source_deletions",
@@ -62,8 +62,6 @@ def main():
             "transparent_proxy_port", "probe_enabled", "probe_port",
             "bypass_china", "use_v2ray_dns", "mosdns_enabled",
             "mosdns_domains", "mosdns_match_rules", "proxy_router_traffic",
-            "force_proxy_domains", "transparent_proxy_udp_ports",
-            "transparent_proxy_udp_port",
         } <= policy_columns
 
         conn.execute(
@@ -122,13 +120,6 @@ def main():
             "SELECT COUNT(*) FROM settings WHERE key IN "
             "('force_proxy_domains', 'draft_force_proxy_domains')"
         ).fetchone()[0] == 0
-        conn.execute("INSERT INTO policies(name) VALUES ('udp-default')")
-        assert conn.execute(
-            "SELECT transparent_proxy_udp_port FROM policies LIMIT 1"
-        ).fetchone()[0] == 12347
-        assert conn.execute(
-            "SELECT transparent_proxy_udp_ports FROM policies LIMIT 1"
-        ).fetchone()[0] is None
         assert "force_proxy_domains" in policy_columns
         assert "force_proxy_domains" in draft_policy_columns
 

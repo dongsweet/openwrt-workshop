@@ -217,17 +217,6 @@ proxy listener port (default `12345`), and its optional connectivity-probe port
 (default `12346`). China IP traffic can use V2Ray's `geoip:cn` direct outbound
 rule.
 
-UDP transparent proxying is disabled by default. A profile may enable a separate
-ordered UDP destination-port list (for example `443`) and a dedicated TPROXY
-listener port (default `12347`). It applies to LAN-originated traffic, uses the
-same pass/direct/China routing decisions, and adds the required fwmark policy
-routing. The engine runs as root only while UDP TPROXY is enabled because this
-OpenWrt image cannot otherwise grant `CAP_NET_ADMIN` for `IP_TRANSPARENT`.
-Its proxy and direct outbounds are marked `22083`; the router-output redirect
-returns on that mark to prevent the engine's own TCP or UDP connections from
-looping back into itself.
-nftables TPROXY and socket-match kernel modules are package dependencies.
-
 ## Test Scope
 
 Verify MosDNS `nftset` behavior, the device's resolver, engine switching, and LAN

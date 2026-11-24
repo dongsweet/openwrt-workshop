@@ -170,8 +170,7 @@ def main():
     assert '[ "$LOCK_INHERITED" = 0 ]' in init_source
     assert 'V2RAY_USER="${V2RAYB_V2RAY_USER:-nobody}"' in init_source
     assert 'ulimit -n "$max_fd"' in init_source
-    assert 'start-stop-daemon -S -b -c "$engine_user:$engine_group"' in init_source
-    assert "IP_TRANSPARENT is required by the TPROXY inbound" in init_source
+    assert 'start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP"' in init_source
     assert "proxy_connected()" in init_source
     assert "port_ready \"$probe_port\"" in init_source
     assert "proxy_connected \"$probe_port\"" in init_source
@@ -227,7 +226,7 @@ def main():
     assert "withdrawing traffic and DNS imports" in watchdog_source
     assert "'Suspended':" in view_source
     assert 'for log_name in v2ray.log v2ray-error.log; do' in init_source
-    assert 'chown "$engine_user:$engine_group" "$RUNTIME/$log_name"' in init_source
+    assert 'chown "$V2RAY_USER:$V2RAY_GROUP" "$RUNTIME/$log_name"' in init_source
     assert "8080-8443" in view_source
     assert "profilePolicyText(row)" in view_source
     assert "method: 'dns_state'" in view_source
@@ -261,22 +260,6 @@ def main():
     assert "const transparentPort = E('input'" in view_source
     assert "const probeEnabled = checkbox" in view_source
     assert "const probePort = E('input'" in view_source
-    assert "const udpPorts = E('input'" in view_source
-    assert "const udpPort = E('input'" in view_source
-    assert "transparent_proxy_udp_ports: udpPorts.value" in view_source
-    assert "transparent_proxy_udp_port: String(udpListenerPort)" in view_source
-    assert "profile.transparent_proxy_udp_ports, profile.transparent_proxy_udp_port" in view_source
-    assert "transparent_proxy_udp_ports: fields.transparent_proxy_udp_ports || ''" in rpc_source
-    assert "transparent_proxy_udp_port: fields.transparent_proxy_udp_port || '12347'" in rpc_source
-    assert "force_proxy_domains, udp_ports, udp_port" in rpc_source
-    assert '"tproxy":"tproxy"' in ctl_source
-    assert 'destOverride":["quic"]' in ctl_source
-    assert "nft_tproxy" in ctl_source or "nft_tproxy" in (
-        FILES / "etc/init.d/v2rayB"
-    ).read_text(encoding="utf-8")
-    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "+kmod-nft-tproxy" in makefile
-    assert "+kmod-nf-socket" in makefile
     assert "force-proxy-in" not in ctl_source
     assert "force_proxy4" in ctl_source
     assert "force_proxy_domains" in rpc_source

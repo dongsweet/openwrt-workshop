@@ -305,8 +305,6 @@ validate_profile_policy() {
 	probe_enabled="${10:-1}"
 	probe_port="${11:-12346}"
 	force_proxy_domains="${12:-}"
-	transparent_proxy_udp_ports="${13:-}"
-	transparent_proxy_udp_port="${14:-12347}"
 	validate_dns_endpoint "$direct_dns" || die "invalid profile DNS endpoint"
 	format_ports "$ports" >/dev/null || die "invalid profile transparent proxy port list"
 	case "$bypass_china" in 0|1) ;; *) die "profile bypass_china must be 0 or 1" ;; esac
@@ -319,15 +317,6 @@ validate_profile_policy() {
 	is_uint "$probe_port" && [ "$probe_port" -ge 1 ] 2>/dev/null && [ "$probe_port" -le 65535 ] 2>/dev/null ||
 		die "invalid probe port"
 	[ "$transparent_proxy_port" != "$probe_port" ] || die "transparent proxy and probe ports must differ"
-	if [ -n "$transparent_proxy_udp_ports" ]; then
-		format_ports "$transparent_proxy_udp_ports" >/dev/null || die "invalid profile UDP transparent proxy port list"
-	fi
-	is_uint "$transparent_proxy_udp_port" && [ "$transparent_proxy_udp_port" -ge 1 ] 2>/dev/null && [ "$transparent_proxy_udp_port" -le 65535 ] 2>/dev/null ||
-		die "invalid UDP transparent proxy listener port"
-	[ "$transparent_proxy_udp_port" != "$transparent_proxy_port" ] || die "TCP and UDP transparent proxy listener ports must differ"
-	if [ "$probe_enabled" = 1 ]; then
-		[ "$transparent_proxy_udp_port" != "$probe_port" ] || die "UDP transparent proxy and probe ports must differ"
-	fi
 	validate_dns_domains "$mosdns_domains" || die "invalid MosDNS domain list"
 	if [ "$mosdns_enabled" = 1 ] && [ -z "$mosdns_domains" ]; then
 		die "MosDNS is enabled but no domains are configured"
@@ -417,7 +406,7 @@ begin_draft() {
 		DELETE FROM draft_nodes;
 		DELETE FROM draft_policies;
 		DELETE FROM draft_source_deletions;
-		INSERT INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,transparent_proxy_port,transparent_proxy_udp_ports,transparent_proxy_udp_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,transparent_proxy_port,transparent_proxy_udp_ports,transparent_proxy_udp_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains,created_at,updated_at FROM policies;
+		INSERT INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,transparent_proxy_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,transparent_proxy_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains,created_at,updated_at FROM policies;
 		INSERT INTO draft_nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM nodes;
 		INSERT INTO draft_profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM profiles;
 		INSERT INTO draft_profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM profile_nodes;
@@ -611,15 +600,13 @@ ensure_db() {
 		db_sql "INSERT OR IGNORE INTO schema_migrations(version) VALUES (13); PRAGMA user_version=13;"
 		version=13
 	fi
-	if [ "$version" = 13 ]; then
-		db_add_column policies transparent_proxy_udp_ports 'transparent_proxy_udp_ports TEXT'
-		db_add_column policies transparent_proxy_udp_port 'transparent_proxy_udp_port INTEGER NOT NULL DEFAULT 12347 CHECK (transparent_proxy_udp_port BETWEEN 1 AND 65535)'
-		db_add_column draft_policies transparent_proxy_udp_ports 'transparent_proxy_udp_ports TEXT'
-		db_add_column draft_policies transparent_proxy_udp_port 'transparent_proxy_udp_port INTEGER NOT NULL DEFAULT 12347 CHECK (transparent_proxy_udp_port BETWEEN 1 AND 65535)'
-		db_sql "INSERT OR IGNORE INTO schema_migrations(version) VALUES (14); PRAGMA user_version=14;"
-		version=14
+	if [ "$version" = 14 ]; then
+		# r154-r158 added an experimental UDP schema. r159 returns to the
+		# known-good TCP-only implementation; extra columns are harmless.
+		db_sql "DELETE FROM schema_migrations WHERE version=14; PRAGMA user_version=13;"
+		version=13
 	fi
-	[ "$version" = 14 ] || die "unsupported database schema version: $version"
+	[ "$version" = 13 ] || die "unsupported database schema version: $version"
 	missing_settings="$(db_sql "SELECT COUNT(*) FROM (SELECT 'service_enabled' AS key UNION ALL SELECT 'draft_service_enabled' UNION ALL SELECT 'watchdog_enabled' UNION ALL SELECT 'draft_watchdog_enabled' UNION ALL SELECT 'watchdog_auto_recover' UNION ALL SELECT 'draft_watchdog_auto_recover' UNION ALL SELECT 'watchdog_restart_engine' UNION ALL SELECT 'draft_watchdog_restart_engine' UNION ALL SELECT 'applied_config_version' UNION ALL SELECT 'draft_config_version' UNION ALL SELECT 'draft_pending' UNION ALL SELECT 'draft_active_profile' UNION ALL SELECT 'direct_dns_upstreams' UNION ALL SELECT 'draft_direct_dns_upstreams' UNION ALL SELECT 'bypass_sources4' UNION ALL SELECT 'draft_bypass_sources4') required WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.key=required.key);" | tr -d '[:space:]')"
 	if [ "$missing_settings" -gt 0 ] 2>/dev/null; then
 		db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('service_enabled', '0'), ('draft_service_enabled', '0'), ('watchdog_enabled', '1'), ('draft_watchdog_enabled', '1'), ('watchdog_auto_recover', '1'), ('draft_watchdog_auto_recover', '1'), ('watchdog_restart_engine', '1'), ('draft_watchdog_restart_engine', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('direct_dns_upstreams', '223.5.5.5:53'), ('draft_direct_dns_upstreams', '223.5.5.5:53'), ('bypass_sources4', ''), ('draft_bypass_sources4', '');"
@@ -946,24 +933,11 @@ cmd_set_profile_policy() {
 	probe_enabled="${11:-1}"
 	probe_port="${12:-12346}"
 	force_proxy_domains="${13:-}"
-	transparent_proxy_udp_ports="${14:-}"
-	transparent_proxy_udp_port="${15:-12347}"
-	profile_policy_fields="$#"
-	is_uint "$profile_id" || die "profile id must be numeric"
-	if [ "$profile_policy_fields" -lt 13 ]; then
-		force_proxy_domains="$(db_sql "SELECT COALESCE(pol.force_proxy_domains, '') FROM draft_profiles p LEFT JOIN draft_policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p')"
-	fi
-	if [ "$profile_policy_fields" -lt 14 ]; then
-		transparent_proxy_udp_ports="$(db_sql "SELECT COALESCE(pol.transparent_proxy_udp_ports, '') FROM draft_profiles p LEFT JOIN draft_policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p')"
-	fi
-	if [ "$profile_policy_fields" -lt 15 ]; then
-		transparent_proxy_udp_port="$(db_sql "SELECT COALESCE(pol.transparent_proxy_udp_port, 12347) FROM draft_profiles p LEFT JOIN draft_policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p')"
-	fi
 	force_proxy_domains="$(normalize_force_proxy_domains "$force_proxy_domains")"
+	is_uint "$profile_id" || die "profile id must be numeric"
 	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic" \
-		"$transparent_proxy_port" "$probe_enabled" "$probe_port" "$force_proxy_domains" \
-		"$transparent_proxy_udp_ports" "$transparent_proxy_udp_port"
+		"$transparent_proxy_port" "$probe_enabled" "$probe_port" "$force_proxy_domains"
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_profiles WHERE id=$profile_id;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "profile not found: $profile_id"
@@ -971,14 +945,14 @@ cmd_set_profile_policy() {
 	if is_uint "$policy_id" && [ "$policy_id" -gt 0 ] 2>/dev/null; then
 		count="$(db_sql "SELECT COUNT(*) FROM draft_policies WHERE id=$policy_id;" | tr -d '[:space:]')"
 		if [ "$count" = 0 ]; then
-			db_sql "INSERT OR IGNORE INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,transparent_proxy_port,transparent_proxy_udp_ports,transparent_proxy_udp_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,transparent_proxy_port,transparent_proxy_udp_ports,transparent_proxy_udp_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains,created_at,updated_at FROM policies WHERE id=$policy_id;"
+			db_sql "INSERT OR IGNORE INTO draft_policies(id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,transparent_proxy_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains,created_at,updated_at) SELECT id,name,dns_policy_json,routing_policy_json,direct_dns,transparent_proxy_ports,transparent_proxy_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains,created_at,updated_at FROM policies WHERE id=$policy_id;"
 			count="$(db_sql "SELECT COUNT(*) FROM draft_policies WHERE id=$policy_id;" | tr -d '[:space:]')"
 		fi
 		[ "$count" = 1 ] || die "profile policy is missing from both draft and applied configuration"
-		db_sql "UPDATE draft_policies SET direct_dns=$(sql_quote "$direct_dns"), transparent_proxy_ports=$(sql_quote "$transparent_proxy_ports"), transparent_proxy_port=$transparent_proxy_port, transparent_proxy_udp_ports=$(sql_quote "$transparent_proxy_udp_ports"), transparent_proxy_udp_port=$transparent_proxy_udp_port, probe_enabled=$probe_enabled, probe_port=$probe_port, bypass_china=$bypass_china, use_v2ray_dns=$use_v2ray_dns, mosdns_enabled=$mosdns_enabled, mosdns_domains=$(sql_quote "$mosdns_domains"), mosdns_match_rules=$(sql_quote "$mosdns_match_rules"), proxy_router_traffic=$proxy_router_traffic, force_proxy_domains=$(sql_quote "$force_proxy_domains"), updated_at=CURRENT_TIMESTAMP WHERE id=$policy_id; UPDATE draft_profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
+		db_sql "UPDATE draft_policies SET direct_dns=$(sql_quote "$direct_dns"), transparent_proxy_ports=$(sql_quote "$transparent_proxy_ports"), transparent_proxy_port=$transparent_proxy_port, probe_enabled=$probe_enabled, probe_port=$probe_port, bypass_china=$bypass_china, use_v2ray_dns=$use_v2ray_dns, mosdns_enabled=$mosdns_enabled, mosdns_domains=$(sql_quote "$mosdns_domains"), mosdns_match_rules=$(sql_quote "$mosdns_match_rules"), proxy_router_traffic=$proxy_router_traffic, force_proxy_domains=$(sql_quote "$force_proxy_domains"), updated_at=CURRENT_TIMESTAMP WHERE id=$policy_id; UPDATE draft_profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
 	else
 		policy_name="profile-$profile_id"
-		policy_id="$(db_sql "INSERT INTO draft_policies(name, direct_dns, transparent_proxy_ports, transparent_proxy_port, transparent_proxy_udp_ports, transparent_proxy_udp_port, probe_enabled, probe_port, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic, force_proxy_domains, updated_at) VALUES($(sql_quote "$policy_name"), $(sql_quote "$direct_dns"), $(sql_quote "$transparent_proxy_ports"), $transparent_proxy_port, $(sql_quote "$transparent_proxy_udp_ports"), $transparent_proxy_udp_port, $probe_enabled, $probe_port, $bypass_china, $use_v2ray_dns, $mosdns_enabled, $(sql_quote "$mosdns_domains"), $(sql_quote "$mosdns_match_rules"), $proxy_router_traffic, $(sql_quote "$force_proxy_domains"), CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET direct_dns=excluded.direct_dns, transparent_proxy_ports=excluded.transparent_proxy_ports, transparent_proxy_port=excluded.transparent_proxy_port, transparent_proxy_udp_ports=excluded.transparent_proxy_udp_ports, transparent_proxy_udp_port=excluded.transparent_proxy_udp_port, probe_enabled=excluded.probe_enabled, probe_port=excluded.probe_port, bypass_china=excluded.bypass_china, use_v2ray_dns=excluded.use_v2ray_dns, mosdns_enabled=excluded.mosdns_enabled, mosdns_domains=excluded.mosdns_domains, mosdns_match_rules=excluded.mosdns_match_rules, proxy_router_traffic=excluded.proxy_router_traffic, force_proxy_domains=excluded.force_proxy_domains, updated_at=CURRENT_TIMESTAMP; SELECT id FROM draft_policies WHERE name=$(sql_quote "$policy_name");" | sed -n '1p')"
+		policy_id="$(db_sql "INSERT INTO draft_policies(name, direct_dns, transparent_proxy_ports, transparent_proxy_port, probe_enabled, probe_port, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic, force_proxy_domains, updated_at) VALUES($(sql_quote "$policy_name"), $(sql_quote "$direct_dns"), $(sql_quote "$transparent_proxy_ports"), $transparent_proxy_port, $probe_enabled, $probe_port, $bypass_china, $use_v2ray_dns, $mosdns_enabled, $(sql_quote "$mosdns_domains"), $(sql_quote "$mosdns_match_rules"), $proxy_router_traffic, $(sql_quote "$force_proxy_domains"), CURRENT_TIMESTAMP) ON CONFLICT(name) DO UPDATE SET direct_dns=excluded.direct_dns, transparent_proxy_ports=excluded.transparent_proxy_ports, transparent_proxy_port=excluded.transparent_proxy_port, probe_enabled=excluded.probe_enabled, probe_port=excluded.probe_port, bypass_china=excluded.bypass_china, use_v2ray_dns=excluded.use_v2ray_dns, mosdns_enabled=excluded.mosdns_enabled, mosdns_domains=excluded.mosdns_domains, mosdns_match_rules=excluded.mosdns_match_rules, proxy_router_traffic=excluded.proxy_router_traffic, force_proxy_domains=excluded.force_proxy_domains, updated_at=CURRENT_TIMESTAMP; SELECT id FROM draft_policies WHERE name=$(sql_quote "$policy_name");" | sed -n '1p')"
 		is_uint "$policy_id" || die "failed to create profile policy"
 		db_sql "UPDATE draft_profiles SET policy_id=$policy_id, updated_at=CURRENT_TIMESTAMP WHERE id=$profile_id;"
 	fi
@@ -1002,16 +976,13 @@ cmd_add_profile() {
 	probe_port="${13:-12346}"
 	engine="${14:-v2ray}"
 	force_proxy_domains="${15:-}"
-	transparent_proxy_udp_ports="${16:-}"
-	transparent_proxy_udp_port="${17:-12347}"
 	force_proxy_domains="$(normalize_force_proxy_domains "$force_proxy_domains")"
 	is_name "$name" || die "invalid profile name"
 	is_engine "$engine" || die "invalid profile engine: $engine"
 	is_uint "$node_id" || die "node id must be numeric"
 	validate_profile_policy "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic" \
-		"$transparent_proxy_port" "$probe_enabled" "$probe_port" "$force_proxy_domains" \
-		"$transparent_proxy_udp_ports" "$transparent_proxy_udp_port"
+		"$transparent_proxy_port" "$probe_enabled" "$probe_port" "$force_proxy_domains"
 	draft_change_begin
 	count="$(db_sql "SELECT COUNT(*) FROM draft_nodes WHERE id=$node_id AND enabled=1;" | tr -d '[:space:]')"
 	[ "$count" = 1 ] || die "node not found or disabled: $node_id"
@@ -1022,8 +993,7 @@ cmd_add_profile() {
 	db_sql "DELETE FROM draft_profile_nodes WHERE profile_id=$profile_id; INSERT INTO draft_profile_nodes(profile_id, node_id, role, priority) VALUES($profile_id, $node_id, 'primary', 0);"
 	cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 		"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic" \
-		"$transparent_proxy_port" "$probe_enabled" "$probe_port" "$force_proxy_domains" \
-		"$transparent_proxy_udp_ports" "$transparent_proxy_udp_port"
+		"$transparent_proxy_port" "$probe_enabled" "$probe_port" "$force_proxy_domains"
 	set_draft_setting active_profile "$profile_id"
 	draft_change_commit
 	printf '%s\n' "$profile_id"
@@ -1129,23 +1099,10 @@ cmd_update_profile() {
 		transparent_proxy_port="${12:-12345}"
 		probe_enabled="${13:-1}"
 		probe_port="${14:-12346}"
-		profile_policy_fields="$#"
 		force_proxy_domains="${16:-}"
-		transparent_proxy_udp_ports="${17:-}"
-		transparent_proxy_udp_port="${18:-12347}"
-		if [ "$profile_policy_fields" -lt 16 ]; then
-			force_proxy_domains="$(db_sql "SELECT COALESCE(pol.force_proxy_domains, '') FROM draft_profiles p LEFT JOIN draft_policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p')"
-		fi
-		if [ "$profile_policy_fields" -lt 17 ]; then
-			transparent_proxy_udp_ports="$(db_sql "SELECT COALESCE(pol.transparent_proxy_udp_ports, '') FROM draft_profiles p LEFT JOIN draft_policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p')"
-		fi
-		if [ "$profile_policy_fields" -lt 18 ]; then
-			transparent_proxy_udp_port="$(db_sql "SELECT COALESCE(pol.transparent_proxy_udp_port, 12347) FROM draft_profiles p LEFT JOIN draft_policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p')"
-		fi
 		cmd_set_profile_policy "$profile_id" "$direct_dns" "$transparent_proxy_ports" "$bypass_china" \
 			"$use_v2ray_dns" "$mosdns_enabled" "$mosdns_domains" "$mosdns_match_rules" "$proxy_router_traffic" \
-			"$transparent_proxy_port" "$probe_enabled" "$probe_port" "$force_proxy_domains" \
-			"$transparent_proxy_udp_ports" "$transparent_proxy_udp_port"
+			"$transparent_proxy_port" "$probe_enabled" "$probe_port" "$force_proxy_domains"
 	fi
 	draft_change_commit
 	printf '%s\n' "$profile_id"
@@ -1214,7 +1171,7 @@ cmd_apply_draft() {
 		DELETE FROM nodes;
 		DELETE FROM policies;
 		DELETE FROM sources WHERE id IN (SELECT source_id FROM draft_source_deletions);
-		INSERT INTO policies(id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,transparent_proxy_port,transparent_proxy_udp_ports,transparent_proxy_udp_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains) SELECT id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,transparent_proxy_port,transparent_proxy_udp_ports,transparent_proxy_udp_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains FROM draft_policies;
+		INSERT INTO policies(id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,transparent_proxy_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains) SELECT id,name,dns_policy_json,routing_policy_json,created_at,updated_at,direct_dns,transparent_proxy_ports,transparent_proxy_port,probe_enabled,probe_port,bypass_china,use_v2ray_dns,mosdns_enabled,mosdns_domains,mosdns_match_rules,proxy_router_traffic,force_proxy_domains FROM draft_policies;
 		INSERT INTO nodes(id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at) SELECT id,source_id,name,protocol,server,port,data_json,enabled,last_latency_ms,last_checked_at,last_error,created_at,updated_at FROM draft_nodes;
 		INSERT INTO profiles(id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at) SELECT id,name,engine,policy_id,engine_options_json,enabled,created_at,updated_at FROM draft_profiles;
 		INSERT INTO profile_nodes(profile_id,node_id,role,priority) SELECT profile_id,node_id,role,priority FROM draft_profile_nodes;
@@ -1540,14 +1497,14 @@ cmd_list_profiles() {
 		nodes_table=draft_nodes
 		policies_table=draft_policies
 	fi
-	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') || char(9) || COALESCE(pol.proxy_router_traffic, 0) || char(9) || COALESCE(pol.transparent_proxy_port, 12345) || char(9) || COALESCE(pol.probe_enabled, 1) || char(9) || COALESCE(pol.probe_port, 12346) || char(9) || COALESCE(pol.force_proxy_domains, '') || char(9) || COALESCE(pol.transparent_proxy_udp_ports, '') || char(9) || COALESCE(pol.transparent_proxy_udp_port, 12347) FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $nodes_table n ON n.id=pn.node_id LEFT JOIN $policies_table pol ON pol.id=p.policy_id ORDER BY p.id;"
+	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') || char(9) || COALESCE(pol.proxy_router_traffic, 0) || char(9) || COALESCE(pol.transparent_proxy_port, 12345) || char(9) || COALESCE(pol.probe_enabled, 1) || char(9) || COALESCE(pol.probe_port, 12346) || char(9) || COALESCE(pol.force_proxy_domains, '') FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $nodes_table n ON n.id=pn.node_id LEFT JOIN $policies_table pol ON pol.id=p.policy_id ORDER BY p.id;"
 }
 
 cmd_get_applied_profile() {
 	ensure_db
 	profile_id="$(setting active_profile)"
 	is_uint "$profile_id" || return 0
-	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') || char(9) || COALESCE(pol.proxy_router_traffic, 0) || char(9) || COALESCE(pol.transparent_proxy_port, 12345) || char(9) || COALESCE(pol.probe_enabled, 1) || char(9) || COALESCE(pol.probe_port, 12346) || char(9) || COALESCE(pol.force_proxy_domains, '') || char(9) || COALESCE(pol.transparent_proxy_udp_ports, '') || char(9) || COALESCE(pol.transparent_proxy_udp_port, 12347) FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;"
+	db_sql "SELECT p.id || char(9) || p.name || char(9) || p.engine || char(9) || COALESCE(n.name, '') || char(9) || p.enabled || char(9) || COALESCE(pn.node_id, '') || char(9) || COALESCE(pol.direct_dns, '') || char(9) || COALESCE(pol.transparent_proxy_ports, '') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, '') || char(9) || COALESCE(pol.proxy_router_traffic, 0) || char(9) || COALESCE(pol.transparent_proxy_port, 12345) || char(9) || COALESCE(pol.probe_enabled, 1) || char(9) || COALESCE(pol.probe_port, 12346) || char(9) || COALESCE(pol.force_proxy_domains, '') FROM profiles p LEFT JOIN profile_nodes pn ON pn.profile_id=p.id LEFT JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;"
 }
 
 cmd_get_profile() {
@@ -1562,7 +1519,7 @@ cmd_get_profile() {
 		profile_nodes_table=draft_profile_nodes
 		policies_table=draft_policies
 	fi
-	row="$(db_sql "SELECT 'name=' || p.name || char(10) || 'node_id=' || COALESCE(pn.node_id, '') || char(10) || 'enabled=' || p.enabled || char(10) || 'direct_dns=' || COALESCE(pol.direct_dns, '') || char(10) || 'transparent_proxy_ports=' || COALESCE(pol.transparent_proxy_ports, '') || char(10) || 'bypass_china=' || COALESCE(pol.bypass_china, 1) || char(10) || 'use_v2ray_dns=' || COALESCE(pol.use_v2ray_dns, 1) || char(10) || 'mosdns_enabled=' || COALESCE(pol.mosdns_enabled, 1) || char(10) || 'mosdns_domains=' || COALESCE(pol.mosdns_domains, '') || char(10) || 'proxy_router_traffic=' || COALESCE(pol.proxy_router_traffic, 0) || char(10) || 'transparent_proxy_port=' || COALESCE(pol.transparent_proxy_port, 12345) || char(10) || 'probe_enabled=' || COALESCE(pol.probe_enabled, 1) || char(10) || 'probe_port=' || COALESCE(pol.probe_port, 12346) || char(10) || 'force_proxy_domains=' || COALESCE(pol.force_proxy_domains, '') || char(10) || 'transparent_proxy_udp_ports=' || COALESCE(pol.transparent_proxy_udp_ports, '') || char(10) || 'transparent_proxy_udp_port=' || COALESCE(pol.transparent_proxy_udp_port, 12347) || char(10) || 'engine=' || COALESCE(p.engine, 'v2ray') FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $policies_table pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
+	row="$(db_sql "SELECT 'name=' || p.name || char(10) || 'node_id=' || COALESCE(pn.node_id, '') || char(10) || 'enabled=' || p.enabled || char(10) || 'direct_dns=' || COALESCE(pol.direct_dns, '') || char(10) || 'transparent_proxy_ports=' || COALESCE(pol.transparent_proxy_ports, '') || char(10) || 'bypass_china=' || COALESCE(pol.bypass_china, 1) || char(10) || 'use_v2ray_dns=' || COALESCE(pol.use_v2ray_dns, 1) || char(10) || 'mosdns_enabled=' || COALESCE(pol.mosdns_enabled, 1) || char(10) || 'mosdns_domains=' || COALESCE(pol.mosdns_domains, '') || char(10) || 'proxy_router_traffic=' || COALESCE(pol.proxy_router_traffic, 0) || char(10) || 'transparent_proxy_port=' || COALESCE(pol.transparent_proxy_port, 12345) || char(10) || 'probe_enabled=' || COALESCE(pol.probe_enabled, 1) || char(10) || 'probe_port=' || COALESCE(pol.probe_port, 12346) || char(10) || 'force_proxy_domains=' || COALESCE(pol.force_proxy_domains, '') || char(10) || 'engine=' || COALESCE(p.engine, 'v2ray') FROM $profiles_table p LEFT JOIN $profile_nodes_table pn ON pn.profile_id=p.id LEFT JOIN $policies_table pol ON pol.id=p.policy_id WHERE p.id=$profile_id ORDER BY pn.priority, pn.node_id LIMIT 1;")"
 	[ -n "$row" ] || die "profile not found: $profile_id"
 	printf '%s\n' "$row"
 }
@@ -1585,7 +1542,7 @@ cmd_get_profile_rules() {
 active_profile() {
 	profile_id="$(setting active_profile)"
 	is_uint "$profile_id" || die "no active profile selected"
-	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, '223.5.5.5:53') || char(9) || COALESCE(pol.transparent_proxy_ports, '80,443,8080,8443') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, 'xn--ngstr-lra8j.com') || char(9) || COALESCE(pol.proxy_router_traffic, 0) || char(9) || COALESCE(pol.transparent_proxy_port, 12345) || char(9) || COALESCE(pol.probe_enabled, 1) || char(9) || COALESCE(pol.probe_port, 12346) || char(9) || COALESCE(pol.force_proxy_domains, '') || char(9) || COALESCE(pol.transparent_proxy_udp_ports, '') || char(9) || COALESCE(pol.transparent_proxy_udp_port, 12347) || char(9) || COALESCE(p.engine, 'v2ray') FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
+	row="$(db_sql "SELECT n.protocol || char(9) || n.server || char(9) || n.port || char(9) || n.data_json || char(9) || COALESCE(pol.direct_dns, '223.5.5.5:53') || char(9) || COALESCE(pol.transparent_proxy_ports, '80,443,8080,8443') || char(9) || COALESCE(pol.bypass_china, 1) || char(9) || COALESCE(pol.use_v2ray_dns, 1) || char(9) || COALESCE(pol.mosdns_enabled, 1) || char(9) || COALESCE(pol.mosdns_domains, 'xn--ngstr-lra8j.com') || char(9) || COALESCE(pol.proxy_router_traffic, 0) || char(9) || COALESCE(pol.transparent_proxy_port, 12345) || char(9) || COALESCE(pol.probe_enabled, 1) || char(9) || COALESCE(pol.probe_port, 12346) || char(9) || COALESCE(pol.force_proxy_domains, '') || char(9) || COALESCE(p.engine, 'v2ray') FROM profiles p JOIN profile_nodes pn ON pn.profile_id=p.id JOIN nodes n ON n.id=pn.node_id LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id AND p.enabled=1 AND n.enabled=1 ORDER BY pn.priority, n.id LIMIT 1;")"
 	[ -n "$row" ] || die "active profile has no enabled node"
 	printf '%s\n' "$row"
 }
@@ -1596,32 +1553,14 @@ active_profile_match_rules() {
 	db_sql "SELECT COALESCE(pol.mosdns_match_rules, '') FROM profiles p LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p'
 }
 
-mark_engine_outbound() {
-	_engine_body="$1"
-	case "$_engine_body" in
-		*'"streamSettings":{'*'"sockopt":{'*)
-			printf '%s\n' "$_engine_body" | sed 's/"sockopt":{/"sockopt":{"mark":22083,/'
-			;;
-		*'"streamSettings":{'*)
-			printf '%s\n' "$_engine_body" | sed 's/"streamSettings":{/"streamSettings":{"sockopt":{"mark":22083},/'
-			;;
-		*)
-			printf '%s,"streamSettings":{"sockopt":{"mark":22083}}\n' "$_engine_body"
-			;;
-	esac
-}
-
 cmd_render_v2ray() {
 	ensure_db
-	row="$(active_profile | tr '\t' '\036')"
-	profile_force_domains=''
-	profile_udp_ports=''
-	profile_udp_port='12347'
+	row="$(active_profile)"
 	old_ifs="$IFS"
-	IFS="$(printf '\036')"
+	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port profile_force_domains profile_udp_ports profile_udp_port profile_engine <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_force_domains _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1636,20 +1575,8 @@ EOF
 	data_body="${data_json#\{}"
 	data_body="${data_body%\}}"
 	[ -n "$data_body" ] || die "active node data_json is empty"
-	force_domains="$(normalize_force_proxy_domains "$profile_force_domains")"
+	force_domains="$(normalize_force_proxy_domains "$_profile_force_domains")"
 	validate_force_proxy_domains "$force_domains" || die "invalid force proxy domain list"
-	udp_enabled=0
-	profile_udp_ports="${profile_udp_ports:-}"
-	profile_udp_port="${profile_udp_port:-12347}"
-	if [ -n "$profile_udp_ports" ]; then
-		format_ports "$profile_udp_ports" >/dev/null || die "invalid UDP transparent proxy port list"
-		is_uint "$profile_udp_port" && [ "$profile_udp_port" -ge 1 ] 2>/dev/null && [ "$profile_udp_port" -le 65535 ] 2>/dev/null ||
-			die "invalid UDP transparent proxy listener port"
-		udp_enabled=1
-	fi
-	if [ "$udp_enabled" = 1 ]; then
-		data_body="$(mark_engine_outbound "$data_body")"
-	fi
 
 	tmp="$ACTIVE_DIR/v2ray.json.tmp.$$"
 	{
@@ -1667,12 +1594,6 @@ EOF
 		else
 			printf '    {"tag":"redir-in","port":%s,"protocol":"dokodemo-door","settings":{"network":"tcp","followRedirect":true}},\n' "$transparent_proxy_port"
 		fi
-		if [ "$udp_enabled" = 1 ]; then
-			printf '    {"tag":"udp-in","listen":"0.0.0.0","port":%s,"protocol":"dokodemo-door","settings":{"network":"udp"},"streamSettings":{"sockopt":{"tproxy":"tproxy"}},"sniffing":{"enabled":true,"destOverride":["quic"],"routeOnly":true}},\n' "$profile_udp_port"
-			transparent_inbounds='"redir-in","udp-in"'
-		else
-			transparent_inbounds='"redir-in"'
-		fi
 		if [ "$probe_enabled" = 1 ]; then
 			printf '%s\n' '    {"tag":"dns-in","listen":"127.0.0.1","port":5353,"protocol":"dokodemo-door","settings":{"address":"8.8.8.8","port":53,"network":"tcp,udp","followRedirect":false}},'
 			printf '    {"tag":"health-in","listen":"127.0.0.1","port":%s,"protocol":"socks","settings":{"auth":"noauth","udp":false}}\n' "$probe_port"
@@ -1683,11 +1604,7 @@ EOF
 		fi
 		printf '%s\n' '  ],'
 		printf '  "outbounds": [{"tag":"proxy","protocol":"%s",%s},\n' "$protocol" "$data_body"
-		if [ "$udp_enabled" = 1 ]; then
-			printf '%s\n' '    {"tag":"direct","protocol":"freedom","settings":{},"streamSettings":{"sockopt":{"mark":22083}}},'
-		else
-			printf '%s\n' '    {"tag":"direct","protocol":"freedom","settings":{}},'
-		fi
+		printf '%s\n' '    {"tag":"direct","protocol":"freedom","settings":{}},'
 		printf '%s\n' '    {"tag":"blocked","protocol":"blackhole","settings":{}}],'
 		printf '%s\n' '  "routing": {"domainStrategy":"IPIfNonMatch","rules":['
 		printf '    {"type":"field","inboundTag":[%s],"outboundTag":"proxy"},\n' "$proxy_inbounds"
@@ -1699,7 +1616,7 @@ EOF
 		if [ "$bypass_china" = 1 ]; then
 			printf '%s\n' '    {"type":"field","ip":["geoip:cn"],"outboundTag":"direct"},'
 		fi
-		printf '    {"type":"field","inboundTag":[%s],"outboundTag":"proxy"}\n' "$transparent_inbounds"
+		printf '%s\n' '    {"type":"field","inboundTag":["redir-in"],"outboundTag":"proxy"}'
 		printf '%s\n' '  ]}'
 		printf '%s\n' '}'
 	} > "$tmp"
@@ -1763,12 +1680,12 @@ dns_subscription_hosts() {
 
 cmd_dns_settings() {
 	ensure_db
-	row="$(active_profile | tr '\t' '\036')"
+	row="$(active_profile)"
 	old_ifs="$IFS"
-	IFS="$(printf '\036')"
+	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port profile_force_domains profile_udp_ports profile_udp_port profile_engine <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_force_domains _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1790,22 +1707,20 @@ EOF
 	printf 'mosdns_listen=%s\n' "$(setting mosdns_listen)"
 	printf 'v2ray_dns_listen=%s\n' "$(setting v2ray_dns_listen)"
 	printf 'transparent_proxy_port=%s\n' "$transparent_proxy_port"
-	printf 'transparent_proxy_udp_ports=%s\n' "$profile_udp_ports"
-	printf 'transparent_proxy_udp_port=%s\n' "$profile_udp_port"
 	printf 'probe_enabled=%s\n' "$probe_enabled"
 	printf 'probe_port=%s\n' "$probe_port"
 	printf 'subscription_domains=%s\n' "$(dns_subscription_hosts)"
-	printf 'force_proxy_domains=%s\n' "$profile_force_domains"
+	printf 'force_proxy_domains=%s\n' "$_profile_force_domains"
 }
 
 cmd_render_mosdns() {
 	ensure_db
-	row="$(active_profile | tr '\t' '\036')"
+	row="$(active_profile)"
 	old_ifs="$IFS"
-	IFS="$(printf '\036')"
+	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port profile_force_domains profile_udp_ports profile_udp_port profile_engine <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_force_domains _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1900,12 +1815,12 @@ nft_csv_elements() {
 
 cmd_render_nft() {
 	ensure_db
-	row="$(active_profile | tr '\t' '\036')"
+	row="$(active_profile)"
 	old_ifs="$IFS"
-	IFS="$(printf '\036')"
+	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port profile_force_domains profile_udp_ports profile_udp_port profile_engine <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_force_domains _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -1953,23 +1868,13 @@ EOF
 	bypass_sources="$(normalize_bypass_sources "$(setting bypass_sources4)")"
 	validate_bypass_sources "$bypass_sources" || die "invalid bypass source IPv4/CIDR list"
 	bypass_source_elements="$(nft_csv_elements "$bypass_sources")"
-	force_domains="$(normalize_force_proxy_domains "$profile_force_domains")"
+	force_domains="$(normalize_force_proxy_domains "$_profile_force_domains")"
 	validate_force_proxy_domains "$force_domains" || die "invalid force proxy domain list"
 	proxy_port="$transparent_proxy_port"
 	is_uint "$proxy_port" || die "invalid transparent proxy port"
 	[ "$proxy_port" -ge 1 ] 2>/dev/null && [ "$proxy_port" -le 65535 ] 2>/dev/null || die "transparent proxy port out of range"
 	proxy_port_set="$(format_ports "$proxy_ports")" || die "invalid transparent proxy ports"
-	udp_proxy_port_set=""
-	if [ -n "$profile_udp_ports" ]; then
-		udp_proxy_port_set="$(format_ports "$profile_udp_ports")" || die "invalid UDP transparent proxy ports"
-		is_uint "$profile_udp_port" && [ "$profile_udp_port" -ge 1 ] 2>/dev/null && [ "$profile_udp_port" -le 65535 ] 2>/dev/null ||
-			die "invalid UDP transparent proxy listener port"
-	fi
-	if [ -n "$udp_proxy_port_set" ]; then
-		v2ray_uid=0
-	else
-		v2ray_uid="$(id -u "$V2RAY_USER" 2>/dev/null || true)"
-	fi
+	v2ray_uid="$(id -u "$V2RAY_USER" 2>/dev/null || true)"
 	is_uint "$v2ray_uid" || die "V2Ray service user does not exist: $V2RAY_USER"
 	tmp="$ACTIVE_DIR/nftables.nft.tmp.$$"
 	{
@@ -2022,36 +1927,10 @@ EOF
 		printf '%s\n' '    ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } return'
 		printf '    tcp dport %s redirect to :%s\n' "$proxy_port_set" "$proxy_port"
 		printf '%s\n' '  }'
-		if [ -n "$udp_proxy_port_set" ]; then
-			printf '%s\n' '  chain udp_prerouting {'
-			printf '%s\n' '    type filter hook prerouting priority mangle; policy accept;'
-			if [ -n "$force_domains" ]; then
-				printf '    ip daddr @force_proxy4 udp dport %s meta mark set 0x5642 tproxy ip to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
-				printf '    ip6 daddr @force_proxy6 udp dport %s meta mark set 0x5642 tproxy ip6 to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
-			fi
-			if [ -n "$bypass_source_elements" ]; then
-				printf '%s\n' '    ip saddr @bypass_source4 return'
-			fi
-			printf '%s\n' '    ip daddr @pass return'
-			printf '%s\n' '    ip6 daddr @pass6 return'
-			printf '%s\n' '    ip daddr @direct4 return'
-			printf '%s\n' '    ip6 daddr @direct6 return'
-			printf '%s\n' '    ip daddr @direct_static4 return'
-			printf '%s\n' '    ip6 daddr @direct_static6 return'
-			printf '%s\n' '    ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } return'
-			printf '%s\n' '    ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } return'
-			printf '    meta nfproto ipv4 udp dport %s meta mark set 0x5642 tproxy ip to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
-			printf '    meta nfproto ipv6 udp dport %s meta mark set 0x5642 tproxy ip6 to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
-			printf '%s\n' '  }'
-		fi
 		if [ "$proxy_router_traffic" = 1 ]; then
 			printf '%s\n' '  chain output {'
 			printf '%s\n' '    type nat hook output priority -100; policy accept;'
-			if [ -n "$udp_proxy_port_set" ]; then
-				printf '%s\n' '    meta mark 0x5643 return'
-			else
-				printf '    meta skuid %s return\n' "$v2ray_uid"
-			fi
+			printf '    meta skuid %s return\n' "$v2ray_uid"
 			if [ -n "$force_domains" ]; then
 				printf '    ip daddr @force_proxy4 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$proxy_port"
 				printf '    ip6 daddr @force_proxy6 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$proxy_port"
@@ -2475,17 +2354,17 @@ cmd_network_probe() {
 
 	runtime_state="$(get_state 2>/dev/null || printf normal)"
 	active_row=''
-	active_row="$(active_profile 2>/dev/null | tr '\t' '\036')" || active_row=''
+	active_row="$(active_profile 2>/dev/null)" || active_row=''
 	dns_default='WAN DHCP DNS'
 	use_v2ray_dns=0
 	mosdns_enabled=0
 	mosdns_domains=''
 	if [ "$runtime_state" = proxy ] && [ -n "$active_row" ]; then
 		old_ifs="$IFS"
-		IFS="$(printf '\036')"
+		IFS="$(printf '\t')"
 		read -r _profile_protocol _profile_server _profile_port _profile_data _profile_direct_dns _profile_proxy_ports _bypass_china \
 			use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port profile_force_domains profile_udp_ports profile_udp_port profile_engine <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_force_domains _profile_engine <<EOF
 $active_row
 EOF
 		IFS="$old_ifs"
@@ -2704,12 +2583,12 @@ cmd_network_probe_status() {
 cmd_dns_state() {
 	ensure_db
 	state="$(get_state)"
-	row="$(active_profile | tr '\t' '\036')"
+	row="$(active_profile)"
 	old_ifs="$IFS"
-	IFS="$(printf '\036')"
+	IFS="$(printf '\t')"
 	read -r protocol server port data_json profile_direct_dns profile_proxy_ports bypass_china \
 		use_v2ray_dns mosdns_enabled mosdns_domains proxy_router_traffic \
-		transparent_proxy_port probe_enabled probe_port profile_force_domains profile_udp_ports profile_udp_port profile_engine <<EOF
+		transparent_proxy_port probe_enabled probe_port _profile_force_domains _profile_engine <<EOF
 $row
 EOF
 	IFS="$old_ifs"
@@ -2747,10 +2626,8 @@ EOF
 	printf 'nft_direct_static_sets=%s\n' 'direct_static4,direct_static6'
 	printf 'nft_bypass_source_set=%s\n' 'bypass_source4'
 	printf 'nft_force_proxy_sets=%s\n' 'force_proxy4,force_proxy6'
-	printf 'force_proxy_domains=%s\n' "$profile_force_domains"
+	printf 'force_proxy_domains=%s\n' "$_profile_force_domains"
 	printf 'transparent_proxy_port=%s\n' "$transparent_proxy_port"
-	printf 'transparent_proxy_udp_ports=%s\n' "$profile_udp_ports"
-	printf 'transparent_proxy_udp_port=%s\n' "$profile_udp_port"
 	printf 'probe_enabled=%s\n' "$probe_enabled"
 	printf 'probe_port=%s\n' "$probe_port"
 }
@@ -2777,14 +2654,14 @@ cmd_status() {
 	printf 'fallback_on_failure=%s\n' "$(setting fallback_on_failure)"
 	printf 'mosdns_listen=%s\n' "$(setting mosdns_listen)"
 	printf 'v2ray_dns_listen=%s\n' "$(setting v2ray_dns_listen)"
-	row="$(active_profile 2>/dev/null | tr '\t' '\036' || true)"
+	row="$(active_profile 2>/dev/null || true)"
 	if [ -n "$row" ]; then
 		old_ifs="$IFS"
-		IFS="$(printf '\036')"
+		IFS="$(printf '\t')"
 		read -r profile_protocol profile_server profile_port profile_data \
 			profile_direct_dns profile_proxy_ports profile_bypass_china \
 			profile_use_v2ray_dns profile_mosdns_enabled profile_mosdns_domains profile_proxy_router_traffic \
-			profile_transparent_proxy_port profile_probe_enabled profile_probe_port profile_force_domains profile_udp_ports profile_udp_port profile_engine <<EOF
+			profile_transparent_proxy_port profile_probe_enabled profile_probe_port profile_force_domains profile_engine <<EOF
 $row
 EOF
 		IFS="$old_ifs"
@@ -2800,8 +2677,6 @@ EOF
 		printf 'profile_probe_port=%s\n' "$profile_probe_port"
 		printf 'profile_force_proxy_domains=%s\n' "$profile_force_domains"
 		printf 'profile_engine=%s\n' "$profile_engine"
-		printf 'profile_transparent_proxy_udp_ports=%s\n' "$profile_udp_ports"
-		printf 'profile_transparent_proxy_udp_port=%s\n' "$profile_udp_port"
 	fi
 }
 
@@ -2937,9 +2812,9 @@ case "$command" in
 	update-node) [ "$#" -eq 6 ] || usage; cmd_update_node "$@" ;;
 	set-node-enabled) [ "$#" -eq 2 ] || usage; cmd_set_node_enabled "$@" ;;
 	delete-node) [ "$#" -eq 1 ] || usage; cmd_delete_node "$1" ;;
-	add-profile) [ "$#" -ge 2 ] && [ "$#" -le 17 ] || usage; cmd_add_profile "$@" ;;
-	update-profile) [ "$#" -ge 3 ] && [ "$#" -le 18 ] || usage; cmd_update_profile "$@" ;;
-	set-profile-policy) [ "$#" -ge 4 ] && [ "$#" -le 15 ] || usage; cmd_set_profile_policy "$@" ;;
+	add-profile) [ "$#" -ge 2 ] && [ "$#" -le 15 ] || usage; cmd_add_profile "$@" ;;
+	update-profile) [ "$#" -ge 3 ] && [ "$#" -le 16 ] || usage; cmd_update_profile "$@" ;;
+	set-profile-policy) [ "$#" -ge 4 ] && [ "$#" -le 13 ] || usage; cmd_set_profile_policy "$@" ;;
 	set-profile-enabled) [ "$#" -eq 2 ] || usage; cmd_set_profile_enabled "$@" ;;
 	delete-profile) [ "$#" -eq 1 ] || usage; cmd_delete_profile "$1" ;;
 	select-profile) [ "$#" -eq 1 ] || usage; cmd_select_profile "$1" ;;

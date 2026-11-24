@@ -156,17 +156,7 @@ const _zh = {
 	'Suffixes forwarded to MosDNS, one per line.': '转发给 MosDNS 的域名后缀，每行一个。',
 	'Unmatched names use V2Ray DNS.': '未匹配的域名使用 V2Ray DNS。',
 	'Intercepted TCP destination ports': '拦截的 TCP 目标端口',
-	'Intercepted UDP destination ports': '拦截的 UDP 目标端口',
 	'Transparent proxy listener port': '透明代理监听端口',
-	'UDP transparent proxy listener port': 'UDP 透明代理监听端口',
-	'Optional, for example 443. Empty disables UDP transparent proxying for LAN traffic.': '可选，例如 443。留空表示关闭局域网 UDP 透明代理。',
-	'Independent TPROXY listener port. It must differ from the TCP and probe ports.': '独立 TPROXY 监听端口，必须与 TCP 和探测端口不同。',
-	'Loopback transparent proxy inbound port for TCP.': 'TCP 透明代理入站的本地监听端口。',
-	'UDP': 'UDP',
-	'UDP off': 'UDP 关闭',
-	'Enter valid TCP, UDP and probe ports.': '请输入有效的 TCP、UDP 和探测端口。',
-	'TCP and UDP transparent proxy listener ports must differ.': 'TCP 和 UDP 透明代理监听端口必须不同。',
-	'UDP transparent proxy and probe ports must differ.': 'UDP 透明代理和探测端口必须不同。',
 	'Loopback transparent proxy inbound port.': '透明代理入站的本地监听端口。',
 	'Verify proxy connectivity': '验证代理连通性',
 	'When disabled, traffic and DNS are imported immediately without an end-to-end proxy check.': '关闭后不进行端到端代理检查，直接导入流量和 DNS。',
@@ -423,14 +413,14 @@ const callAddProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'add_profile',
 	params: [ 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
 		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules',
-		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port', 'engine', 'force_proxy_domains', 'udp_ports', 'udp_port' ],
+		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port', 'engine', 'force_proxy_domains' ],
 	expect: { '': {} }, reject: true
 });
 const callUpdateProfile = rpc.declare({
 	object: 'luci.v2rayb', method: 'update_profile',
 	params: [ 'profile_id', 'name', 'node_id', 'direct_dns', 'transparent_proxy_ports', 'bypass_china',
 		'use_v2ray_dns', 'mosdns_enabled', 'mosdns_domains', 'mosdns_match_rules',
-		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port', 'engine', 'force_proxy_domains', 'udp_ports', 'udp_port' ],
+		'proxy_router_traffic', 'transparent_proxy_port', 'probe_enabled', 'probe_port', 'engine', 'force_proxy_domains' ],
 	expect: { '': {} }, reject: true
 });
 const callGetProfile = rpc.declare({
@@ -1052,15 +1042,6 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		class: 'cbi-input-text', type: 'number', min: '1', max: '65535',
 		value: (existing && existing.transparent_proxy_port) || 12345
 	});
-	const udpPorts = E('input', {
-		class: 'cbi-input-text', type: 'text', maxlength: '255',
-		placeholder: '443',
-		value: (existing && existing.transparent_proxy_udp_ports) || defaults.transparent_proxy_udp_ports || ''
-	});
-	const udpPort = E('input', {
-		class: 'cbi-input-text', type: 'number', min: '1', max: '65535',
-		value: (existing && existing.transparent_proxy_udp_port) || 12347
-	});
 	const probeEnabled = checkbox({}, existing ? isEnabled(existing.probe_enabled) : true);
 	const probePort = E('input', {
 		class: 'cbi-input-text', type: 'number', min: '1', max: '65535',
@@ -1119,24 +1100,14 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			return;
 		}
 		const listenerPort = Number(transparentPort.value);
-		const udpListenerPort = Number(udpPort.value);
 		const healthPort = Number(probePort.value);
 		if (!listenerPort || listenerPort < 1 || listenerPort > 65535 ||
-			!udpListenerPort || udpListenerPort < 1 || udpListenerPort > 65535 ||
 			!healthPort || healthPort < 1 || healthPort > 65535) {
-			ui.addNotification(null, E('p', {}, _('Enter valid TCP, UDP and probe ports.')), 'warning');
-			return;
-		}
-		if (listenerPort === udpListenerPort) {
-			ui.addNotification(null, E('p', {}, _('TCP and UDP transparent proxy listener ports must differ.')), 'warning');
+			ui.addNotification(null, E('p', {}, _('Enter valid listener and probe ports.')), 'warning');
 			return;
 		}
 		if (probeEnabled.checked && listenerPort === healthPort) {
 			ui.addNotification(null, E('p', {}, _('Transparent proxy and probe ports must differ.')), 'warning');
-			return;
-		}
-		if (probeEnabled.checked && udpListenerPort === healthPort) {
-			ui.addNotification(null, E('p', {}, _('UDP transparent proxy and probe ports must differ.')), 'warning');
 			return;
 		}
 		const bypass = bypassChina.checked ? '1' : '0';
@@ -1169,8 +1140,6 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 				mosdns_match_rules: mosdnsRules.value.trim(),
 				proxy_router_traffic: routerTraffic,
 				transparent_proxy_port: String(listenerPort),
-				transparent_proxy_udp_ports: udpPorts.value.trim().replace(/\s+/g, ''),
-				transparent_proxy_udp_port: String(udpListenerPort),
 				probe_enabled: probeEnabled.checked ? '1' : '0',
 				probe_port: String(healthPort),
 				force_proxy_domains: forcedDomains
@@ -1189,11 +1158,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			field(_('Intercepted TCP destination ports'), profilePorts,
 				_('Example: 80,443,8080-8443.')),
 			field(_('Transparent proxy listener port'), transparentPort,
-				_('Loopback transparent proxy inbound port for TCP.')),
-			field(_('Intercepted UDP destination ports'), udpPorts,
-				_('Optional, for example 443. Empty disables UDP transparent proxying for LAN traffic.')),
-			field(_('UDP transparent proxy listener port'), udpPort,
-				_('Independent TPROXY listener port. It must differ from the TCP and probe ports.')),
+				_('Loopback transparent proxy inbound port.')),
 			field(_('Verify proxy connectivity'), probeEnabled,
 				_('When disabled, traffic and DNS are imported immediately without an end-to-end proxy check.')),
 			probePortField,
@@ -1304,9 +1269,8 @@ return view.extend({
 			const probe = isEnabled(row[14]) ? `${_('Probe')} ${row[15] || '12346'}` : _('Probe off');
 			const engine = row[2] === 'xray' ? 'Xray' : 'V2Ray';
 			const forced = row[16] ? `${_('Force proxy domains')} ${row[16].split(',').length}` : '';
-			const udp = row[17] ? `${_('UDP')} ${row[17]} @ ${row[18] || '12347'}` : _('UDP off');
 			return [
-				engine, `${_('Ports')} ${ports}`, `${_('Listen')} ${listener}`, udp, probe,
+				engine, `${_('Ports')} ${ports}`, `${_('Listen')} ${listener}`, probe,
 				china, v2rayDns, mosdns, routerTraffic
 			].concat(forced ? [ forced ] : []);
 		}
@@ -1621,7 +1585,7 @@ return view.extend({
 							const node = nodes.find(item => item[0] === profile.node_id);
 							const index = profiles.findIndex(item => item[0] === row[0]);
 							if (index >= 0)
-								profiles[index] = [ row[0], profile.name, profile.engine, node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port, profile.force_proxy_domains, profile.transparent_proxy_udp_ports, profile.transparent_proxy_udp_port ];
+								profiles[index] = [ row[0], profile.name, profile.engine, node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port, profile.force_proxy_domains ];
 							pageView.localProfileDetails[row[0]] = Object.assign({ id: row[0], enabled: row[4] }, profile);
 							if (!isTempId(row[0]))
 								queuePendingOperation(() => callUpdateProfile(
@@ -1630,16 +1594,13 @@ return view.extend({
 									profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains,
 									profile.mosdns_match_rules, profile.proxy_router_traffic,
 									profile.transparent_proxy_port, profile.probe_enabled,
-									profile.probe_port, profile.engine, profile.force_proxy_domains,
-									profile.transparent_proxy_udp_ports, profile.transparent_proxy_udp_port), 'profile-update:' + row[0]);
+									profile.probe_port, profile.engine, profile.force_proxy_domains), 'profile-update:' + row[0]);
 							refreshProfileTable();
 							refreshProfileCard();
 						}, nodes, {
 							direct_dns: '223.5.5.5:53',
 							transparent_proxy_ports: '80,443,8080,8443',
 							force_proxy_domains: '',
-							transparent_proxy_udp_ports: '',
-							transparent_proxy_udp_port: '12347',
 							mosdns_domains: deferredDnsState.mosdns_route_suffix || 'xn--ngstr-lra8j.com',
 							mosdns_match_rules: deferredDnsState.direct_rule || ''
 						}, details.profile);
@@ -1985,8 +1946,7 @@ return view.extend({
 				profile.use_v2ray_dns, profile.mosdns_enabled,
 				profile.mosdns_domains, profile.mosdns_match_rules,
 				profile.proxy_router_traffic, profile.transparent_proxy_port,
-				profile.probe_enabled, profile.probe_port, profile.force_proxy_domains,
-				profile.transparent_proxy_udp_ports, profile.transparent_proxy_udp_port
+				profile.probe_enabled, profile.probe_port, profile.force_proxy_domains
 			];
 			const id = row[0];
 			const index = profiles.findIndex(item => item[0] === id);
@@ -2002,8 +1962,7 @@ return view.extend({
 				profile.mosdns_enabled, profile.mosdns_domains,
 				profile.mosdns_match_rules, profile.proxy_router_traffic,
 				profile.transparent_proxy_port, profile.probe_enabled,
-				profile.probe_port, profile.engine, profile.force_proxy_domains,
-				profile.transparent_proxy_udp_ports, profile.transparent_proxy_udp_port
+				profile.probe_port, profile.engine, profile.force_proxy_domains
 			).then(result => {
 				if (!result || !result.success)
 					return result;
@@ -2022,8 +1981,6 @@ return view.extend({
 				direct_dns: '223.5.5.5:53',
 				transparent_proxy_ports: '80,443,8080,8443',
 				force_proxy_domains: '',
-				transparent_proxy_udp_ports: '',
-				transparent_proxy_udp_port: '12347',
 				transparent_proxy_port: '12345',
 				probe_enabled: '1',
 				probe_port: '12346',
@@ -2133,8 +2090,6 @@ return view.extend({
 						[ _('Direct DNS upstream'), effectiveDns ],
 						[ _('Intercepted TCP destination ports'), activeProfileRow ? (activeProfileRow[7] || '-') : '-' ],
 						[ _('Transparent proxy listener port'), activeProfileRow ? (activeProfileRow[13] || '12345') : '-' ],
-						[ _('Intercepted UDP destination ports'), activeProfileRow ? (activeProfileRow[17] || _('Disabled')) : '-' ],
-						[ _('UDP transparent proxy listener port'), activeProfileRow ? (activeProfileRow[18] || '12347') : '-' ],
 						[ _('Connectivity probe'), !activeProfileRow ? '-' : isEnabled(activeProfileRow[14])
 							? _('Enabled') + ' (' + (activeProfileRow[15] || '12346') + ')' : _('Disabled') ]
 					], _('No active profile policy available.'))
