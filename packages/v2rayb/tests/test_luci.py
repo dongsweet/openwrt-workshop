@@ -264,6 +264,11 @@ def main():
     assert "let appliedProfileRows = profiles.filter" in view_source
     assert "function notePendingProfileRow(row)" in view_source
     assert "notePendingProfileRow(profiles[index])" in view_source
+    assert "await callUpdateProfile(" in view_source
+    assert "await callAddProfile(" in view_source
+    assert "await onSaved(profile)" in view_source
+    assert "ui.hideModal();" in view_source
+    assert "mosdns_match_rules: mosdnsRules.value.trim()" in view_source
     assert "const currentProfileRow = profiles.find(row => row[0] === appliedProfile)" in view_source
     assert "`${_('Listen port')} ${row[13] || '12345'}`" in view_source
     assert "`${_('Probe port')} ${row[15] || '12346'}`" in view_source

@@ -96,6 +96,8 @@ const _zh = {
 	'Applying configuration changes…': '正在应用配置变更……',
 	'Apply status could not be read; retrying…': '无法读取应用状态，正在重试……',
 	'Configuration changes applied.': '配置变更已应用。',
+	'The profile update failed.': '配置更新失败。',
+	'Creating the profile failed.': '创建配置失败。',
 	'Configuration apply failed.': '配置应用失败。',
 	'Configuration was applied, but proxy startup failed. The new configuration is retained.': '配置已应用，但代理启动失败；新配置已保留。',
 	'Configuration was applied, but service cleanup did not complete. The new configuration is retained.': '配置已应用，但服务清理未完成；新配置已保留。',
@@ -1097,7 +1099,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 	}
 	mosdnsEnabled.addEventListener('change', refreshMosdnsFields);
 	refreshMosdnsFields();
-	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: () => {
+	const save = E('button', { class: 'cbi-button cbi-button-apply', type: 'button', click: async () => {
 		const profileName = name.value.trim();
 		if (!profileName || !nodeSelect.value || !profileDns.value || !profilePorts.value) {
 			ui.addNotification(null, E('p', {}, _('Enter a profile name, primary node, DNS upstream and proxy ports.')), 'warning');
@@ -1128,26 +1130,36 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			ui.addNotification(null, E('p', {}, _('Enter at least one domain when MosDNS is enabled.')), 'warning');
 			return;
 		}
-		ui.hideModal();
-		if (onSaved)
-			onSaved({
-				id: existing ? existing.id : null,
-				name: profileName,
-				node_id: nodeSelect.value,
-				engine: profileEngine.value,
-				direct_dns: profileDns.value,
-				transparent_proxy_ports: profilePorts.value,
-				bypass_china: bypass,
-				use_v2ray_dns: v2rayDns,
-				mosdns_enabled: mosdns,
-				mosdns_domains: domains,
-				mosdns_match_rules: mosdnsRules.value.trim(),
-				proxy_router_traffic: routerTraffic,
-				transparent_proxy_port: String(listenerPort),
-				probe_enabled: probeEnabled.checked ? '1' : '0',
-				probe_port: String(healthPort),
-				force_proxy_domains: forcedDomains
-			});
+		const profile = {
+			id: existing ? existing.id : null,
+			name: profileName,
+			node_id: nodeSelect.value,
+			engine: profileEngine.value,
+			direct_dns: profileDns.value,
+			transparent_proxy_ports: profilePorts.value,
+			bypass_china: bypass,
+			use_v2ray_dns: v2rayDns,
+			mosdns_enabled: mosdns,
+			mosdns_domains: domains,
+			mosdns_match_rules: mosdnsRules.value.trim(),
+			proxy_router_traffic: routerTraffic,
+			transparent_proxy_port: String(listenerPort),
+			probe_enabled: probeEnabled.checked ? '1' : '0',
+			probe_port: String(healthPort),
+			force_proxy_domains: forcedDomains
+		};
+		save.disabled = true;
+		try {
+			if (onSaved)
+				await onSaved(profile);
+			ui.hideModal();
+		}
+		catch (error) {
+			showRequestError(error);
+		}
+		finally {
+			save.disabled = false;
+		}
 	} }, existing ? _('Update pending changes') : _('Add to pending changes'));
 	ui.showModal(existing ? _('Edit profile') : _('Create a profile'), [
 		E('div', { class: 'cbi-section' }, [
@@ -1595,7 +1607,19 @@ return view.extend({
 							if (details) notify(details, '');
 							return;
 						}
-						showProfileModal(profile => {
+						showProfileModal(async profile => {
+							const resolvedId = pageView.resolveProfileId(row[0]);
+							if (!isTempId(row[0])) {
+								const result = await callUpdateProfile(
+									resolvedId, profile.name, pageView.resolveNodeId(profile.node_id),
+									profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china,
+									profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains,
+									profile.mosdns_match_rules, profile.proxy_router_traffic,
+									profile.transparent_proxy_port, profile.probe_enabled,
+									profile.probe_port, profile.engine, profile.force_proxy_domains);
+								if (!result || !result.success)
+									throw new Error((result && (result.error || result.output)) || _('The profile update failed.'));
+							}
 							const node = nodes.find(item => item[0] === profile.node_id);
 							const index = profiles.findIndex(item => item[0] === row[0]);
 							if (index >= 0) {
@@ -1603,14 +1627,6 @@ return view.extend({
 								notePendingProfileRow(profiles[index]);
 							}
 							pageView.localProfileDetails[row[0]] = Object.assign({ id: row[0], enabled: row[4] }, profile);
-							if (!isTempId(row[0]))
-								queuePendingOperation(() => callUpdateProfile(
-									pageView.resolveProfileId(row[0]), profile.name, pageView.resolveNodeId(profile.node_id),
-									profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china,
-									profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains,
-									profile.mosdns_match_rules, profile.proxy_router_traffic,
-									profile.transparent_proxy_port, profile.probe_enabled,
-									profile.probe_port, profile.engine, profile.force_proxy_domains), 'profile-update:' + row[0]);
 							refreshProfileTable();
 							refreshProfileCard();
 						}, nodes, {
@@ -1630,10 +1646,7 @@ return view.extend({
 							return;
 						const index = profiles.findIndex(item => item[0] === row[0]);
 						if (index >= 0) profiles.splice(index, 1);
-						if (isTempId(row[0])) {
-							discardPendingOperation('profile-create:' + row[0]);
-							discardPendingOperation('profile-update:' + row[0]);
-						} else
+						if (!isTempId(row[0]))
 							queuePendingOperation(() => callDeleteProfile(row[0]), 'profile-delete:' + row[0]);
 						refreshProfileTable();
 						refreshProfileCard();
@@ -1955,10 +1968,20 @@ return view.extend({
 			profileAddButton.disabled = !enabled;
 			profileAddButton.classList.toggle('disabled', !enabled);
 		}
-		function onProfileSaved(profile) {
+		async function onProfileSaved(profile) {
+			const result = await callAddProfile(
+				profile.name, pageView.resolveNodeId(profile.node_id),
+				profile.direct_dns, profile.transparent_proxy_ports,
+				profile.bypass_china, profile.use_v2ray_dns,
+				profile.mosdns_enabled, profile.mosdns_domains,
+				profile.mosdns_match_rules, profile.proxy_router_traffic,
+				profile.transparent_proxy_port, profile.probe_enabled,
+				profile.probe_port, profile.engine, profile.force_proxy_domains);
+			if (!result || !result.success)
+				throw new Error((result && (result.error || result.output)) || _('Creating the profile failed.'));
 			const node = nodes.find(item => item[0] === profile.node_id);
 			const row = [
-				profile.id || pageView.nextTempId('profile'), profile.name, profile.engine,
+				profile.id || result.profile_id || pageView.nextTempId('profile'), profile.name, profile.engine,
 				node ? node[1] : '', '1', profile.node_id, profile.direct_dns,
 				profile.transparent_proxy_ports, profile.bypass_china,
 				profile.use_v2ray_dns, profile.mosdns_enabled,
@@ -1974,20 +1997,8 @@ return view.extend({
 				profiles.push(row);
 			notePendingProfileRow(row);
 			pageView.localProfileDetails[id] = Object.assign({ id: id, enabled: '1' }, profile);
-			queuePendingOperation(() => callAddProfile(
-				profile.name, pageView.resolveNodeId(profile.node_id),
-				profile.direct_dns, profile.transparent_proxy_ports,
-				profile.bypass_china, profile.use_v2ray_dns,
-				profile.mosdns_enabled, profile.mosdns_domains,
-				profile.mosdns_match_rules, profile.proxy_router_traffic,
-				profile.transparent_proxy_port, profile.probe_enabled,
-				profile.probe_port, profile.engine, profile.force_proxy_domains
-			).then(result => {
-				if (!result || !result.success)
-					return result;
+			if (result.profile_id && isTempId(id))
 				pageView.profileIdMap[id] = String(result.profile_id);
-				return result;
-			}), 'profile-create:' + id);
 			refreshProfileTable();
 			refreshProfileCard();
 		}
