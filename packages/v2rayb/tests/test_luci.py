@@ -251,7 +251,7 @@ def main():
     assert "Suffixes forwarded to MosDNS, one per line." in view_source
     assert "Handles the listed Google Play download suffixes separately" in view_source
     assert "Unmatched names use V2Ray DNS." in view_source
-    assert "Direct: use Direct DNS and add the answer to the direct nft set." in view_source
+    assert "Direct: resolve through V2Ray DNS, then add the answer to the direct nft set." in view_source
     assert "Transparent proxy listener port" in view_source
     assert "Verify proxy connectivity" in view_source
     assert "Connectivity probe port" in view_source

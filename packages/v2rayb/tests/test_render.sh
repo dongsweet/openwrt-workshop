@@ -52,6 +52,10 @@ grep -q '"protocol":"vless"' "$TEST_DIR/runtime/active/v2ray.json"
 "$ctl" status | grep -q '^profile_probe_port=12346$'
 ! "$ctl" status | grep -q '^transparent_proxy_ports='
 grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
+! grep -q 'forward_direct' "$TEST_DIR/runtime/active/mosdns.yaml"
+! grep -q 'udp://223.5.5.5:53' "$TEST_DIR/runtime/active/mosdns.yaml"
+grep -A4 'tag: direct_seq' "$TEST_DIR/runtime/active/mosdns.yaml" | grep -q 'exec: "$forward_proxy"'
+grep -A4 'tag: proxy_seq' "$TEST_DIR/runtime/active/mosdns.yaml" | grep -q 'exec: "$forward_proxy"'
 grep -q 'exec: "nftset inet,v2rayB,direct4,ipv4_addr,32' "$TEST_DIR/runtime/active/mosdns.yaml"
 ! grep -q 'type: nftset' "$TEST_DIR/runtime/active/mosdns.yaml"
 ! grep -q 'force_proxy' "$TEST_DIR/runtime/active/mosdns.yaml"
@@ -194,11 +198,17 @@ done
 "$ctl" dns-settings | grep -q '^use_v2ray_dns=0$'
 "$ctl" dns-settings | grep -q '^mosdns_enabled=1$'
 "$ctl" render-all
-grep -q 'addr: "udp://1.1.1.1:53"' "$TEST_DIR/runtime/active/mosdns.yaml"
+! grep -q 'addr: "udp://1.1.1.1:53"' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'qname &.*/mosdns-direct-domains.txt' "$TEST_DIR/runtime/active/mosdns.yaml"
 grep -q 'regexp:\^cdn\\.example\\.com\$' "$TEST_DIR/runtime/active/mosdns-direct-domains.txt"
 grep -q 'tcp dport { 80, 443, 8080-8443 } redirect to :12345' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'geoip:cn' "$TEST_DIR/runtime/active/v2ray.json"
+"$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$
+regexp:^rr[0-9]+\.googlevideo\.com$' 1
+"$ctl" apply-draft
+"$ctl" render-all
+[ "$(wc -l < "$TEST_DIR/runtime/active/mosdns-direct-domains.txt")" -eq 2 ]
+grep -q 'regexp:\^rr\[0-9\]+\\.googlevideo\\.com\$' "$TEST_DIR/runtime/active/mosdns-direct-domains.txt"
 "$ctl" set-profile-policy 1 1.1.1.1:53 '80,443,8080-8443' 0 1 0 'example.com' 'regexp:^cdn\.example\.com$' 1
 "$ctl" apply-draft
 "$ctl" render-all

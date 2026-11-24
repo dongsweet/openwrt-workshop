@@ -1550,7 +1550,7 @@ active_profile() {
 active_profile_match_rules() {
 	profile_id="$(setting active_profile)"
 	is_uint "$profile_id" || die "no active profile selected"
-	db_sql "SELECT COALESCE(pol.mosdns_match_rules, '') FROM profiles p LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p'
+	db_sql "SELECT COALESCE(pol.mosdns_match_rules, '') FROM profiles p LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;"
 }
 
 cmd_render_v2ray() {
@@ -1726,29 +1726,17 @@ EOF
 	IFS="$old_ifs"
 	listen="$(hash_port_addr "$(setting mosdns_listen)")"
 	proxy_dns="$(endpoint_to_addr "$(hash_port_addr "$(setting v2ray_dns_listen)")")"
-	_direct_dns_upstreams="$(direct_dns_upstreams)"
 	match_rules="$(active_profile_match_rules)"
 	if [ -n "$match_rules" ]; then
 		printf '%s\n' "$match_rules" > "$ACTIVE_DIR/mosdns-direct-domains.txt"
 	else
-		cp "$RULE_DIR/direct_domains.txt" "$ACTIVE_DIR/mosdns-direct-domains.txt"
+		: > "$ACTIVE_DIR/mosdns-direct-domains.txt"
 	fi
 	tmp="$ACTIVE_DIR/mosdns.yaml.tmp.$$"
 	{
 		printf '%s\n' 'log:'
 		printf '%s\n' '  level: info'
 		printf '%s\n' 'plugins:'
-		printf '%s\n' '  - tag: forward_direct'
-		printf '%s\n' '    type: forward'
-		printf '%s\n' '    args:'
-		printf '%s\n' '      upstreams:'
-		printf '%s\n' "$_direct_dns_upstreams" | awk -F ',' '
-			{
-				for (i = 1; i <= NF; i++)
-					if ($i != "")
-						printf "        - addr: \"udp://%s\"\n", $i
-			}
-		'
 		printf '%s\n' '  - tag: forward_proxy'
 		printf '%s\n' '    type: forward'
 		printf '%s\n' '    args:'
@@ -1757,7 +1745,7 @@ EOF
 		printf '%s\n' '  - tag: direct_seq'
 		printf '%s\n' '    type: sequence'
 		printf '%s\n' '    args:'
-		printf '%s\n' '      - exec: "$forward_direct"'
+		printf '%s\n' '      - exec: "$forward_proxy"'
 		printf '%s\n' '      - exec: "nftset inet,v2rayB,direct4,ipv4_addr,32 inet,v2rayB,direct6,ipv6_addr,128"'
 		printf '%s\n' '  - tag: proxy_seq'
 		printf '%s\n' '    type: sequence'

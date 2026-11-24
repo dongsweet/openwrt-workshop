@@ -155,7 +155,7 @@ const _zh = {
 	'Direct regexp': '直连正则表达式',
 	'Disabled: all intercepted traffic uses the proxy.': '关闭后，所有被拦截流量都走代理。',
 	'Disabled: domains and rules are inactive but retained.': '关闭后，域名和规则不生效，但会保留。',
-	'Direct: use Direct DNS and add the answer to the direct nft set.': '直连：使用直连 DNS，并将解析结果加入直连 nft 集合。',
+	'Direct: resolve through V2Ray DNS, then add the answer to the direct nft set.': '直连：通过 V2Ray DNS 解析，并将解析结果加入直连 nft 集合。',
 	'Handles the listed Google Play download suffixes separately so mainland cache addresses can stay direct. Disabled: settings are retained but inactive.': '单独处理列出的 Google Play 下载域名后缀，使返回国内缓存地址时保持直连。关闭后，设置会保留但不生效。',
 	'Suffixes forwarded to MosDNS, one per line.': '转发给 MosDNS 的域名后缀，每行一个。',
 	'Unmatched names use V2Ray DNS.': '未匹配的域名使用 V2Ray DNS。',
@@ -1086,7 +1086,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 		_('Suffixes forwarded to MosDNS, one per line.'));
 	const mosdnsRulesHelp = E('div', {}, [
 		E('p', {}, _('One rule per line: domain:, full: or regexp:.')),
-		E('p', {}, _('Direct: use Direct DNS and add the answer to the direct nft set.')),
+		E('p', {}, _('Direct: resolve through V2Ray DNS, then add the answer to the direct nft set.')),
 		E('p', {}, _('Unmatched names use V2Ray DNS.'))
 	]);
 	const mosdnsRulesField = field(_('MosDNS match rules'), mosdnsRules, mosdnsRulesHelp);
