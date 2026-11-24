@@ -159,6 +159,8 @@ const _zh = {
 	'Unmatched names use V2Ray DNS.': '未匹配的域名使用 V2Ray DNS。',
 	'Intercepted TCP destination ports': '拦截的 TCP 目标端口',
 	'Transparent proxy listener port': '透明代理监听端口',
+	'Listen port': '监听端口',
+	'Probe port': '探测端口',
 	'Loopback transparent proxy inbound port.': '透明代理入站的本地监听端口。',
 	'Verify proxy connectivity': '验证代理连通性',
 	'When disabled, traffic and DNS are imported immediately without an end-to-end proxy check.': '关闭后不进行端到端代理检查，直接导入流量和 DNS。',
@@ -1251,7 +1253,7 @@ return view.extend({
 		const sources = parseRows(outputOf(data[2]));
 		const profiles = parseRows(outputOf(data[3]));
 		const appliedProfile = status.active_profile || '';
-		const appliedProfileRows = profiles.filter(row => row[0] === appliedProfile);
+		let appliedProfileRows = profiles.filter(row => row[0] === appliedProfile);
 		let activeProfile = draftPending
 			? (status.draft_active_profile || appliedProfile)
 			: appliedProfile;
@@ -1267,8 +1269,8 @@ return view.extend({
 			const v2rayDns = isEnabled(row[9]) ? _('V2Ray DNS default') : _('Direct DNS default');
 			const mosdns = isEnabled(row[10]) ? _('MosDNS on') : _('MosDNS off');
 			const routerTraffic = isEnabled(row[12]) ? _('Router TCP on') : _('Router TCP off');
-			const listener = row[13] || '12345';
-			const probe = isEnabled(row[14]) ? `${_('Probe')} ${row[15] || '12346'}` : _('Probe off');
+			const listener = `${_('Listen port')} ${row[13] || '12345'}`;
+			const probe = isEnabled(row[14]) ? `${_('Probe port')} ${row[15] || '12346'}` : _('Probe off');
 			const engine = row[2] === 'xray' ? 'Xray' : 'V2Ray';
 			const forced = row[16] ? `${_('Force proxy domains')} ${row[16].split(',').length}` : '';
 			return [
@@ -1283,8 +1285,18 @@ return view.extend({
 		const appliedProfileName = activeProfileRow
 			? activeProfileRow[1]
 			: (appliedProfile ? _('Unknown') : _('Not selected'));
-		const activeProfileCard = card(_('Applied profile'), appliedProfileName,
+		let activeProfileCard = card(_('Applied profile'), appliedProfileName,
 			profilePolicyText(activeProfileRow));
+
+		function notePendingProfileRow(row) {
+			if (row[0] !== appliedProfile)
+				return;
+			if (!draftPending) {
+				draftPending = true;
+				pageView.draftPending = true;
+			}
+			appliedProfileRows = [ row ];
+		}
 		function profileOptionsFromProfiles(rows) {
 			const options = [ E('option', { value: '' }, _('Select a profile')) ];
 			for (const row of rows) {
@@ -1586,8 +1598,10 @@ return view.extend({
 						showProfileModal(profile => {
 							const node = nodes.find(item => item[0] === profile.node_id);
 							const index = profiles.findIndex(item => item[0] === row[0]);
-							if (index >= 0)
+							if (index >= 0) {
 								profiles[index] = [ row[0], profile.name, profile.engine, node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port, profile.force_proxy_domains ];
+								notePendingProfileRow(profiles[index]);
+							}
 							pageView.localProfileDetails[row[0]] = Object.assign({ id: row[0], enabled: row[4] }, profile);
 							if (!isTempId(row[0]))
 								queuePendingOperation(() => callUpdateProfile(
@@ -1884,10 +1898,12 @@ return view.extend({
 		}
 		function refreshProfileCard() {
 			enabledProfiles = profiles.filter(row => isEnabled(row[4])).length;
-			const row = activeProfileRow;
-			activeProfileCard.querySelector('.v2rayb-card-value').textContent =
-				row ? row[1] : (appliedProfile || _('Not selected'));
-			activeProfileCard.querySelector('.v2rayb-card-help').textContent = profilePolicyText(row);
+			const row = appliedProfileRows[0] || null;
+			const nextCard = card(_('Applied profile'),
+				row ? row[1] : (appliedProfile ? _('Unknown') : _('Not selected')),
+				profilePolicyText(row));
+			activeProfileCard.replaceWith(nextCard);
+			activeProfileCard = nextCard;
 			pageView.refreshActiveProfileSelect();
 		}
 		function onNodeSaved(node) {
@@ -1956,6 +1972,7 @@ return view.extend({
 				profiles[index] = row;
 			else
 				profiles.push(row);
+			notePendingProfileRow(row);
 			pageView.localProfileDetails[id] = Object.assign({ id: id, enabled: '1' }, profile);
 			queuePendingOperation(() => callAddProfile(
 				profile.name, pageView.resolveNodeId(profile.node_id),
@@ -2046,6 +2063,7 @@ return view.extend({
 		const runtimePane = [ runtimePaneContent ];
 		L.resolveDefault(callDnsState(), { output: '' }).then(result => {
 			Object.assign(deferredDnsState, parseKeyValues(outputOf(result)));
+			const currentProfileRow = profiles.find(row => row[0] === appliedProfile) || null;
 			const effectiveDns = deferredDnsState.direct_dns || '-';
 			const dnsmasqDefault = deferredDnsState.dnsmasq_default || (state === 'proxy' ? (deferredDnsState.v2ray_dns_listen || '127.0.0.1#5353') : _('WAN DHCP DNS'));
 			const v2rayDns = deferredDnsState.v2ray_dns_listen || status.v2ray_dns_listen || '127.0.0.1#5353';
@@ -2088,12 +2106,12 @@ return view.extend({
 				E('div', { class: 'cbi-section' }, [
 					E('h3', {}, _('Effective Profile Policy')),
 					table([ _('Item'), _('Effective value') ], [
-						[ _('Applied profile'), activeProfileRow ? activeProfileRow[1] : _('Not selected') ],
+						[ _('Applied profile'), currentProfileRow ? currentProfileRow[1] : _('Not selected') ],
 						[ _('Direct DNS upstream'), effectiveDns ],
-						[ _('Intercepted TCP destination ports'), activeProfileRow ? (activeProfileRow[7] || '-') : '-' ],
-						[ _('Transparent proxy listener port'), activeProfileRow ? (activeProfileRow[13] || '12345') : '-' ],
-						[ _('Connectivity probe'), !activeProfileRow ? '-' : isEnabled(activeProfileRow[14])
-							? _('Enabled') + ' (' + (activeProfileRow[15] || '12346') + ')' : _('Disabled') ]
+						[ _('Intercepted TCP destination ports'), currentProfileRow ? (currentProfileRow[7] || '-') : '-' ],
+						[ _('Transparent proxy listener port'), currentProfileRow ? (currentProfileRow[13] || '12345') : '-' ],
+						[ _('Connectivity probe'), !currentProfileRow ? '-' : isEnabled(currentProfileRow[14])
+							? _('Enabled') + ' (' + (currentProfileRow[15] || '12346') + ')' : _('Disabled') ]
 					], _('No active profile policy available.'))
 				])
 			);

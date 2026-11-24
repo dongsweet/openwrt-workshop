@@ -71,7 +71,7 @@ def main():
     assert "field(_('Profile to activate'), activeProfileSelect" in view_source
     assert "card(_('Applied profile')" in view_source
     assert "activeProfileRows = parseRows(outputOf(data[5]))" not in view_source
-    assert "const appliedProfileRows = profiles.filter(row => row[0] === appliedProfile);" in view_source
+    assert "let appliedProfileRows = profiles.filter(row => row[0] === appliedProfile);" in view_source
     assert "const activeProfileRow = appliedProfileRows[0] || null" in view_source
     assert "const appliedProfileName = activeProfileRow" in view_source
     assert "? activeProfileRow[1]" in view_source
@@ -261,6 +261,12 @@ def main():
     assert "const transparentPort = E('input'" in view_source
     assert "const probeEnabled = checkbox" in view_source
     assert "const probePort = E('input'" in view_source
+    assert "let appliedProfileRows = profiles.filter" in view_source
+    assert "function notePendingProfileRow(row)" in view_source
+    assert "notePendingProfileRow(profiles[index])" in view_source
+    assert "const currentProfileRow = profiles.find(row => row[0] === appliedProfile)" in view_source
+    assert "`${_('Listen port')} ${row[13] || '12345'}`" in view_source
+    assert "`${_('Probe port')} ${row[15] || '12346'}`" in view_source
     assert "force-proxy-in" not in ctl_source
     assert "force_proxy4" in ctl_source
     assert "force_proxy_domains" in rpc_source

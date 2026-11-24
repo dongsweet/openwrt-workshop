@@ -144,7 +144,11 @@ that are intentionally kept direct.
 
 ## Configuration Apply
 
-Save & Apply first commits the draft and renders the new runtime files. Database
+Save & Apply first commits the draft and renders the new runtime files. A
+runtime service start, connectivity probe, or disable-cleanup failure keeps the
+newly committed configuration and reports the failure. Database commit,
+rendering, boot-link update, and apply-backup housekeeping failures roll back.
+Database
 commit, rendering, and boot-state failures roll back the configuration. Once the
 new configuration has been rendered, a proxy startup or connectivity failure
 does not roll it back: the apply job reports `Proxy startup failed`, the new
