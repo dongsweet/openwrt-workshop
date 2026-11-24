@@ -72,7 +72,7 @@ PRAGMA user_version=1;
 "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
 
 version=$("$sqlite" "$V2RAYB_DB" 'PRAGMA user_version;')
-[ "$version" = 12 ]
+[ "$version" = 13 ]
 "$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="direct_dns_upstreams";' | grep -q '223.5.5.5:53'
 "$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="bypass_sources4";' | grep -qx '192.168.101.229/32'
 "$sqlite" "$V2RAYB_DB" 'SELECT value FROM settings WHERE key="draft_bypass_sources4";' | grep -qx '192.168.101.229/32'
@@ -94,7 +94,7 @@ printf '%s\n' "$columns" | grep -q 'mosdns_match_rules'
 printf '%s\n' "$columns" | grep -q 'proxy_router_traffic'
 source_columns=$("$sqlite" "$V2RAYB_DB" 'PRAGMA table_info(sources);')
 printf '%s\n' "$source_columns" | grep -q 'ipv4_only'
-"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^12$'
+"$sqlite" "$V2RAYB_DB" 'SELECT version FROM schema_migrations ORDER BY version;' | grep -q '^13$'
 
 # Old databases append new policy columns at the end, unlike freshly created
 # tables. Draft copies and apply-back must address columns explicitly.
@@ -146,10 +146,28 @@ DELETE FROM schema_migrations WHERE version=12;
 PRAGMA user_version=11;
 '
 V2RAYB_DB="$legacy_v11" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
-[ "$($sqlite "$legacy_v11" 'PRAGMA user_version;')" = 12 ]
+[ "$($sqlite "$legacy_v11" 'PRAGMA user_version;')" = 13 ]
 "$sqlite" "$legacy_v11" 'SELECT force_proxy_domains FROM policies WHERE id=70;' | grep -qx 'services.googleapis.cn,example.com'
 [ "$("$sqlite" "$legacy_v11" 'SELECT COUNT(*) FROM settings WHERE key IN ("force_proxy_domains","draft_force_proxy_domains");')" = 0 ]
 [ "$("$sqlite" "$legacy_v11" 'SELECT COUNT(*) FROM settings WHERE key IN ("force_proxy_domains","draft_force_proxy_domains");')" = 0 ]
+
+# v12 profiles created with the broken default GGC matcher are repaired without
+# touching custom rules.
+legacy_v12="$TEST_DIR/legacy-v12-db"
+"$sqlite" "$legacy_v12" < "$V2RAYB_SCHEMA"
+"$sqlite" "$legacy_v12" '
+INSERT INTO policies(id,name,mosdns_match_rules) VALUES(80,"broken","regexp:^r\+[0-9]+(---|\.)sn-(2x3|ni5|j5o)[a-z0-9_]{5}\.xn--ngstr-lra8j\.com$");
+INSERT INTO policies(id,name,mosdns_match_rules) VALUES(81,"custom","regexp:^custom\.example\.com$");
+INSERT INTO draft_policies(id,name,mosdns_match_rules) VALUES(80,"broken","regexp:^r\+[0-9]+(---|\.)sn-(2x3|ni5|j5o)[a-z0-9_]{5}\.xn--ngstr-lra8j\.com$");
+DELETE FROM schema_migrations WHERE version=13;
+PRAGMA user_version=12;
+'
+V2RAYB_DB="$legacy_v12" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
+[ "$($sqlite "$legacy_v12" 'PRAGMA user_version;')" = 13 ]
+good_ggc_rule='regexp:^rr[0-9]+(---|\.)sn-(2x3|ni5|j5o)[a-z0-9_]{5}\.xn--ngstr-lra8j\.com$'
+custom_rule='regexp:^custom\.example\.com$'
+"$sqlite" "$legacy_v12" 'SELECT mosdns_match_rules FROM policies WHERE id=80;' | grep -Fqx "$good_ggc_rule"
+"$sqlite" "$legacy_v12" 'SELECT mosdns_match_rules FROM policies WHERE id=81;' | grep -Fqx "$custom_rule"
 
 # A partially applied v4 -> v5 migration must be safe to retry.
 partial="$TEST_DIR/partial-db"
@@ -164,7 +182,7 @@ INSERT INTO settings(key,value) VALUES("draft_pending","1");
 PRAGMA user_version=4;
 '
 V2RAYB_DB="$partial" "$ROOT/files/usr/libexec/v2rayB/v2rayBctl" init-db
-[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 12 ]
+[ "$($sqlite "$partial" 'PRAGMA user_version;')" = 13 ]
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'proxy_router_traffic'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'transparent_proxy_port'
 printf '%s\n' "$($sqlite "$partial" 'PRAGMA table_info(policies);')" | grep -q 'probe_enabled'

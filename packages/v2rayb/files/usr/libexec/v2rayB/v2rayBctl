@@ -588,7 +588,19 @@ ensure_db() {
 		db_sql "INSERT OR IGNORE INTO schema_migrations(version) VALUES (12); PRAGMA user_version=12;"
 		version=12
 	fi
-	[ "$version" = 12 ] || die "unsupported database schema version: $version"
+	if [ "$version" = 12 ]; then
+		bad_ggc_rule='regexp:^r\+[0-9]+(---|\.)sn-(2x3|ni5|j5o)[a-z0-9_]{5}\.xn--ngstr-lra8j\.com$'
+		good_ggc_rule='regexp:^rr[0-9]+(---|\.)sn-(2x3|ni5|j5o)[a-z0-9_]{5}\.xn--ngstr-lra8j\.com$'
+		if db_has_column policies mosdns_match_rules; then
+			db_sql "UPDATE policies SET mosdns_match_rules=$(sql_quote "$good_ggc_rule") WHERE mosdns_match_rules=$(sql_quote "$bad_ggc_rule");"
+		fi
+		if db_has_column draft_policies mosdns_match_rules; then
+			db_sql "UPDATE draft_policies SET mosdns_match_rules=$(sql_quote "$good_ggc_rule") WHERE mosdns_match_rules=$(sql_quote "$bad_ggc_rule");"
+		fi
+		db_sql "INSERT OR IGNORE INTO schema_migrations(version) VALUES (13); PRAGMA user_version=13;"
+		version=13
+	fi
+	[ "$version" = 13 ] || die "unsupported database schema version: $version"
 	missing_settings="$(db_sql "SELECT COUNT(*) FROM (SELECT 'service_enabled' AS key UNION ALL SELECT 'draft_service_enabled' UNION ALL SELECT 'watchdog_enabled' UNION ALL SELECT 'draft_watchdog_enabled' UNION ALL SELECT 'watchdog_auto_recover' UNION ALL SELECT 'draft_watchdog_auto_recover' UNION ALL SELECT 'watchdog_restart_engine' UNION ALL SELECT 'draft_watchdog_restart_engine' UNION ALL SELECT 'applied_config_version' UNION ALL SELECT 'draft_config_version' UNION ALL SELECT 'draft_pending' UNION ALL SELECT 'draft_active_profile' UNION ALL SELECT 'direct_dns_upstreams' UNION ALL SELECT 'draft_direct_dns_upstreams' UNION ALL SELECT 'bypass_sources4' UNION ALL SELECT 'draft_bypass_sources4') required WHERE NOT EXISTS (SELECT 1 FROM settings s WHERE s.key=required.key);" | tr -d '[:space:]')"
 	if [ "$missing_settings" -gt 0 ] 2>/dev/null; then
 		db_sql "INSERT OR IGNORE INTO settings(key, value) VALUES ('service_enabled', '0'), ('draft_service_enabled', '0'), ('watchdog_enabled', '1'), ('draft_watchdog_enabled', '1'), ('watchdog_auto_recover', '1'), ('draft_watchdog_auto_recover', '1'), ('watchdog_restart_engine', '1'), ('draft_watchdog_restart_engine', '1'), ('applied_config_version', '1'), ('draft_config_version', '1'), ('draft_pending', '0'), ('draft_active_profile', ''), ('direct_dns_upstreams', '223.5.5.5:53'), ('draft_direct_dns_upstreams', '223.5.5.5:53'), ('bypass_sources4', ''), ('draft_bypass_sources4', '');"

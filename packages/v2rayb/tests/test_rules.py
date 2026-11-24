@@ -15,8 +15,9 @@ def main():
     assert not any(line.startswith(("domain:", "full:")) for line in direct)
     pattern = re.compile(regexes[0])
 
-    assert pattern.fullmatch("r+123---sn-2x3abcde.xn--ngstr-lra8j.com")
-    assert pattern.fullmatch("r+9.sn-ni5abc_1.xn--ngstr-lra8j.com")
+    assert pattern.fullmatch("rr1---sn-j5o7dn7l.xn--ngstr-lra8j.com")
+    assert pattern.fullmatch("rr9.sn-ni5abc_1.xn--ngstr-lra8j.com")
+    assert not pattern.fullmatch("r+123---sn-2x3abcde.xn--ngstr-lra8j.com")
     assert not pattern.fullmatch("sn-2x3abcde.xn--ngstr-lra8j.com")
     assert not pattern.fullmatch("cdn.xn--ngstr-lra8j.com")
 

@@ -71,8 +71,9 @@ The package does not migrate, replace, or disable the router's
 `/etc/dnsmasq.d` rules. dnsmasq remains the primary resolver. In proxy mode its
 default upstream is V2Ray DNS at `127.0.0.1#5353`; only the
 `xn--ngstr-lra8j.com` suffix is forwarded to MosDNS at `127.0.0.1#5354`.
-MosDNS sends matching Google Play GGC names to domestic DNS and adds their
-answers to v2rayB's nft set. Other names in that suffix fall back to V2Ray DNS.
+MosDNS sends matching `rrN---sn-...` Google Play GGC names to domestic DNS and
+adds their answers to v2rayB's nft set. Other names in that suffix fall back to
+V2Ray DNS.
 
 A global ordered direct-DNS upstream list supplies node bootstrap, subscription
 hostname resolution and the MosDNS direct branch. v2rayB writes the bootstrap,

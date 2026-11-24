@@ -192,7 +192,7 @@ INSERT OR IGNORE INTO schema_migrations(version) VALUES (7);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (8);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (9);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (10);
-INSERT OR IGNORE INTO schema_migrations(version) VALUES (12);
-PRAGMA user_version = 12;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (13);
+PRAGMA user_version = 13;
 
 COMMIT;
