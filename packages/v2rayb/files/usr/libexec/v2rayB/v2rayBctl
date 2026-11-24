@@ -309,6 +309,9 @@ validate_profile_policy() {
 	format_ports "$ports" >/dev/null || die "invalid profile transparent proxy port list"
 	case "$bypass_china" in 0|1) ;; *) die "profile bypass_china must be 0 or 1" ;; esac
 	case "$use_v2ray_dns" in 0|1) ;; *) die "profile use_v2ray_dns must be 0 or 1" ;; esac
+	if [ -n "$force_proxy_domains" ] && [ "$use_v2ray_dns" != 1 ]; then
+		die "force proxy domains require V2Ray DNS as the dnsmasq default"
+	fi
 	case "$mosdns_enabled" in 0|1) ;; *) die "profile mosdns_enabled must be 0 or 1" ;; esac
 	case "$proxy_router_traffic" in 0|1) ;; *) die "profile proxy_router_traffic must be 0 or 1" ;; esac
 	is_uint "$transparent_proxy_port" && [ "$transparent_proxy_port" -ge 1 ] 2>/dev/null && [ "$transparent_proxy_port" -le 65535 ] 2>/dev/null ||

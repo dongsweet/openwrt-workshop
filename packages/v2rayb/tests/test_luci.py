@@ -277,11 +277,14 @@ def main():
     assert "`${_('Probe port')} ${row[15] || '12346'}`" in view_source
     assert "force-proxy-in" not in ctl_source
     assert "force_proxy4" in ctl_source
+    assert "server=/%s/#\\n' \"$domain\"" in init_source
     assert "force_proxy_domains" in rpc_source
     assert "callSetSetting('force_proxy_domains'" not in view_source
     assert "field(_('Force proxy domains'), forceProxyDomains" in view_source
     assert "force_proxy_domains: forcedDomains" in view_source
     assert "force_proxy_domains: fields.force_proxy_domains || ''" in rpc_source
+    assert "Force proxy domains require V2Ray DNS as the dnsmasq default" in rpc_source
+    assert "force proxy domains require V2Ray DNS as the dnsmasq default" in ctl_source
     assert "Direct match: Direct DNS + direct sets." in view_source
     assert "Fallback: V2Ray DNS, no direct sets." in view_source
     assert "E('h4', {}, _('Fixed evaluation order and actions'))" not in view_source

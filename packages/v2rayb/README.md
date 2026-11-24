@@ -127,11 +127,12 @@ Stop and restore normal DNS:
 ## Force Proxy Domains
 
 The profile policy's **Force proxy domains** setting is separate from
-source-address bypass and follows profile selection. Each listed domain remains
-on the normal dnsmasq/V2Ray DNS path, while
-dnsmasq also inserts its IPv4 and IPv6 answers into the force_proxy4 and
-force_proxy6 nft sets. nftables checks those sets before source bypass, direct
-IP, and pass returns, then redirects matching TCP traffic to the existing
+source-address bypass and follows profile selection. Each listed domain uses
+the V2Ray tunnel DNS listener for resolution, so its answers come from the
+tunnel endpoint rather than a more general domestic-DNS rule. dnsmasq also
+inserts its IPv4 and IPv6 answers into the force_proxy4 and force_proxy6 nft
+sets. nftables checks those sets before source bypass, direct IP, and pass
+returns, then redirects matching TCP traffic to the existing
 transparent proxy listener. The same domain list is emitted as an exact Xray
 routing rule ahead of `geoip:cn`, with route-only TLS/HTTP sniffing enabled, so a
 mainland CDN answer cannot be routed direct again after nft redirection. No

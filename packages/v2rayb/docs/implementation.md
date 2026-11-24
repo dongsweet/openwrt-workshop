@@ -8,11 +8,14 @@ builds both the core and LuCI packages.
 - SQLite-backed manual nodes, profiles, and runtime settings.
 - Generated proxy-engine and MosDNS configs under `/tmp/v2rayB/active/`.
 - A global IPv4/CIDR source bypass that preserves policy-routed LAN traffic.
-- A per-profile force-proxy domain list backed by dnsmasq nftset population and
-  nftables rules ordered before direct/pass returns. The generated engine config
-  uses route-only TLS/HTTP sniffing and exact domain routing before `geoip:cn`,
-  preventing a forced domain from becoming direct again inside the engine;
-  switching profiles also switches this policy.
+- A per-profile force-proxy domain list backed by tunnel-DNS resolution,
+  dnsmasq nftset population, and nftables rules ordered before direct/pass
+  returns. Each forced domain uses `server=/domain/#` so a same-domain domestic
+  resolver rule cannot capture it; this requires V2Ray DNS as the dnsmasq
+  default. The generated engine config uses route-only TLS/HTTP sniffing and
+  exact domain routing before `geoip:cn`, preventing a forced domain from
+  becoming direct again inside the engine; switching profiles also switches
+  this policy.
 - DNS switching with rollback, an owned nftables table, and an optional
   proxy-connectivity watchdog. Every runtime dnsmasq config transition uses
   restart, never reload, because HUP does not reliably parse newly created

@@ -202,10 +202,14 @@ write_force_proxy_dns_expected() {
 		: > "$FORCE_PROXY_DNS_EXPECTED"
 		return 0
 	fi
+	[ "$(dns_policy_value use_v2ray_dns)" = 1 ] || return 1
 	{
 		printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.'
 		printf '%s\n' "$force_domains" | tr ',' '\n' | while IFS= read -r domain; do
 			[ -n "$domain" ] || continue
+			# Override any same-domain domestic server rule and force the
+			# domain back onto the tunnel-backed standard resolver.
+			printf 'server=/%s/#\n' "$domain"
 			printf 'nftset=/%s/4#inet#v2rayB#force_proxy4\n' "$domain"
 			printf 'nftset=/%s/6#inet#v2rayB#force_proxy6\n' "$domain"
 		done

@@ -217,6 +217,7 @@ printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 	'nftset=/alternate.example.net/6#inet#v2rayB#pass6' > "$SUBSCRIPTION_DNS_EXPECTED"
 cp "$SUBSCRIPTION_DNS_EXPECTED" "$SUBSCRIPTION_DNS_FILE"
 printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
+	'server=/services.googleapis.cn/#' \
 	'nftset=/services.googleapis.cn/4#inet#v2rayB#force_proxy4' \
 	'nftset=/services.googleapis.cn/6#inet#v2rayB#force_proxy6' > "$FORCE_PROXY_DNS_EXPECTED"
 cp "$FORCE_PROXY_DNS_EXPECTED" "$FORCE_PROXY_DNS_FILE"
@@ -248,6 +249,7 @@ TEST_FORCE_PROXY_DOMAINS='new.example.com'
 export TEST_FORCE_PROXY_DOMAINS
 load_dns_policy
 set_proxy_dns
+grep -q '^server=/new.example.com/#$' "$FORCE_PROXY_DNS_FILE"
 grep -q 'nftset=/new.example.com/4#inet#v2rayB#force_proxy4' "$FORCE_PROXY_DNS_FILE"
 ! grep -q 'old.example.com' "$FORCE_PROXY_DNS_FILE"
 TEST_FORCE_PROXY_DOMAINS=''
@@ -307,6 +309,7 @@ MOCK_SERVER="$(cat "$DNS_BACKUP/server")"
 MOCK_NORESOLV=1
 set_proxy_dns
 cmp -s "$MOSDNS_FORWARD_FILE" "$MOSDNS_FORWARD_EXPECTED"
+grep -q '^server=/services.googleapis.cn/#$' "$FORCE_PROXY_DNS_FILE"
 grep -q '^nftset=/services.googleapis.cn/4#inet#v2rayB#force_proxy4$' "$FORCE_PROXY_DNS_FILE"
 grep -q '^nftset=/services.googleapis.cn/6#inet#v2rayB#force_proxy6$' "$FORCE_PROXY_DNS_FILE"
 cmp -s "$BOOTSTRAP_DNS_FILE" "$BOOTSTRAP_DNS_EXPECTED"

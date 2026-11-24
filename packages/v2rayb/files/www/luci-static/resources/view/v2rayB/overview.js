@@ -197,7 +197,7 @@ const _zh = {
 	'For MosDNS direct queries.': '用于 MosDNS 的直连查询。',
 	'Force-proxy answers': '强制代理解析结果',
 	'Force proxy domains': '强制代理域名',
-	'Domains listed here always use the proxy, even if their resolved IP is in a direct/pass set. One domain per line; empty disables this rule.': '此处域名无论解析到什么 IP 都优先走代理，即使该 IP 同时命中直连/放行集合。每行一个域名；留空表示关闭。',
+	'Domains listed here always use the proxy and tunnel DNS, even if their resolved IP is in a direct/pass set. This requires V2Ray DNS as the dnsmasq default. One domain per line; empty disables this rule.': '此处域名始终走代理和隧道 DNS，即使该 IP 同时命中直连/放行集合。这要求将 V2Ray DNS 设为 dnsmasq 默认；每行一个域名，留空表示关闭。',
 
 	'Forwarded suffix': '转发域名后缀',
 	'gRPC service name': 'gRPC 服务名称',
@@ -1183,7 +1183,7 @@ function showProfileModal(onSaved, nodes, defaults, existing) {
 			field(_('Proxy router-originated TCP'), proxyRouterTraffic,
 				_('Includes TCP connections started by this router. UDP and DNS are not proxied.')),
 			field(_('Force proxy domains'), forceProxyDomains,
-				_('Domains listed here always use the proxy, even if their resolved IP is in a direct/pass set. One domain per line; empty disables this rule.'))
+				_('Domains listed here always use the proxy and tunnel DNS, even if their resolved IP is in a direct/pass set. This requires V2Ray DNS as the dnsmasq default. One domain per line; empty disables this rule.'))
 		]),
 		E('div', { class: 'cbi-section' }, [
 			E('h3', {}, _('DNS routing')),

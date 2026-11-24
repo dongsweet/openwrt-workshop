@@ -124,6 +124,11 @@ service_version="$("$sqlite" "$V2RAYB_DB" "SELECT value FROM settings WHERE key=
 "$ctl" get-applied-profile | grep -q '^1	original-profile	'
 "$ctl" get-applied-profile | grep -q 'services.googleapis.cn,example.com$'
 [ "$("$sqlite" "$V2RAYB_DB" "SELECT COUNT(*) FROM settings WHERE key IN ('force_proxy_domains','draft_force_proxy_domains');")" = 0 ]
+if "$ctl" update-profile 1 original-profile 1 223.5.5.5:53 '80,443' 1 0 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 '' 'services.googleapis.cn' >/dev/null 2>&1; then
+	echo "force proxy domains unexpectedly accepted with a direct DNS default" >&2
+	exit 1
+fi
+"$ctl" status | grep -q '^draft_pending=0$'
 
 # A failed runtime apply can restore the committed database while retaining
 # the draft for correction or explicit discard.
