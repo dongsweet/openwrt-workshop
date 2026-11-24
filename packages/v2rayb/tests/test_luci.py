@@ -264,6 +264,9 @@ def main():
     assert "let appliedProfileRows = profiles.filter" in view_source
     assert "function notePendingProfileRow(row)" in view_source
     assert "notePendingProfileRow(profiles[index])" in view_source
+    assert "profile.mosdns_domains, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port, profile.force_proxy_domains ]" in view_source
+    assert "profile.mosdns_domains, profile.proxy_router_traffic,\n\t\t\t\tprofile.transparent_proxy_port" in view_source
+    assert "profile.mosdns_domains, profile.mosdns_match_rules,\n" not in view_source
     assert "await callUpdateProfile(" in view_source
     assert "await callAddProfile(" in view_source
     assert "await onSaved(profile)" in view_source

@@ -1623,7 +1623,7 @@ return view.extend({
 							const node = nodes.find(item => item[0] === profile.node_id);
 							const index = profiles.findIndex(item => item[0] === row[0]);
 							if (index >= 0) {
-								profiles[index] = [ row[0], profile.name, profile.engine, node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.mosdns_match_rules, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port, profile.force_proxy_domains ];
+								profiles[index] = [ row[0], profile.name, profile.engine, node ? node[1] : '', row[4], profile.node_id, profile.direct_dns, profile.transparent_proxy_ports, profile.bypass_china, profile.use_v2ray_dns, profile.mosdns_enabled, profile.mosdns_domains, profile.proxy_router_traffic, profile.transparent_proxy_port, profile.probe_enabled, profile.probe_port, profile.force_proxy_domains ];
 								notePendingProfileRow(profiles[index]);
 							}
 							pageView.localProfileDetails[row[0]] = Object.assign({ id: row[0], enabled: row[4] }, profile);
@@ -1985,9 +1985,9 @@ return view.extend({
 				node ? node[1] : '', '1', profile.node_id, profile.direct_dns,
 				profile.transparent_proxy_ports, profile.bypass_china,
 				profile.use_v2ray_dns, profile.mosdns_enabled,
-				profile.mosdns_domains, profile.mosdns_match_rules,
-				profile.proxy_router_traffic, profile.transparent_proxy_port,
-				profile.probe_enabled, profile.probe_port, profile.force_proxy_domains
+				profile.mosdns_domains, profile.proxy_router_traffic,
+				profile.transparent_proxy_port, profile.probe_enabled,
+				profile.probe_port, profile.force_proxy_domains
 			];
 			const id = row[0];
 			const index = profiles.findIndex(item => item[0] === id);
