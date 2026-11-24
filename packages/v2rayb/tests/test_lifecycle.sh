@@ -241,14 +241,18 @@ printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
 restore_dnsmasq
 [ ! -e "$SUBSCRIPTION_DNS_FILE" ]
 
-setup_case modified-subscription-rule
-printf '%s\n' '# User-owned rule' \
-	'server=/keep.example.com/9.9.9.9' > "$SUBSCRIPTION_DNS_FILE"
-if restore_dnsmasq; then
-	echo "modified subscription rule was unexpectedly removed" >&2
-	exit 1
-fi
-grep -q 'server=/keep.example.com/9.9.9.9' "$SUBSCRIPTION_DNS_FILE"
+setup_case managed-rule-refresh
+printf '%s\n' '# Managed by v2rayB; removed when proxy mode stops.' \
+	'nftset=/old.example.com/4#inet#v2rayB#force_proxy4' > "$FORCE_PROXY_DNS_FILE"
+TEST_FORCE_PROXY_DOMAINS='new.example.com'
+export TEST_FORCE_PROXY_DOMAINS
+load_dns_policy
+set_proxy_dns
+grep -q 'nftset=/new.example.com/4#inet#v2rayB#force_proxy4' "$FORCE_PROXY_DNS_FILE"
+! grep -q 'old.example.com' "$FORCE_PROXY_DNS_FILE"
+TEST_FORCE_PROXY_DOMAINS=''
+restore_dnsmasq
+[ ! -e "$FORCE_PROXY_DNS_FILE" ]
 
 setup_case legacy-force-proxy
 printf '%s\n' \

@@ -1359,7 +1359,7 @@ cmd_apply_draft_run() {
 	else
 		apply_job_set_stage "$apply_job_dir" stopping-service
 		apply_job_step_output="$("$INIT_SCRIPT" stop 2>&1)" || {
-			apply_job_fail_and_rollback "$apply_job_dir" "Applied, but service stop failed" "$apply_job_step_output" "$apply_job_before_state" "$apply_job_before_enabled"
+			apply_job_fail_keep_config "$apply_job_dir" "Service was disabled, but takeover cleanup did not complete: ${apply_job_step_output:-unknown error}" ""
 			return 1
 		}
 	fi
@@ -1374,7 +1374,7 @@ cmd_apply_draft_run() {
 		}
 	else
 		[ "$apply_job_now_state" = normal ] || {
-			apply_job_fail_and_rollback "$apply_job_dir" "Service action returned without returning to normal mode" "" "$apply_job_before_state" "$apply_job_before_enabled"
+			apply_job_fail_keep_config "$apply_job_dir" "Service was disabled, but runtime state is $apply_job_now_state; configuration was kept" ""
 			return 1
 		}
 	fi

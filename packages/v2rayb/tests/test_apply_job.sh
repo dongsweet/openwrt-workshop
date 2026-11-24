@@ -96,8 +96,9 @@ printf '%s\n' "$status" | grep -q '^finished_at=.'
 printf '%s\n' "$status" | grep -q '^--output--$'
 printf '%s\n' "$status" | grep -q '^--error--$'
 
-# A service failure rolls the database back and reports the failed stage.
+# Disabling the service keeps the committed configuration even when cleanup fails.
 printf 'normal\n' > "$TEST_DIR/state/state"
+"$ctl" set-setting service_enabled 0 >/dev/null
 : > "$TEST_DIR/init.fail.stop"
 job="$("$ctl" apply-draft-start)"
 status=''
@@ -115,19 +116,13 @@ if ! printf '%s\n' "$status" | grep -q '^status=failed$'; then
 	find "$TEST_DIR" -maxdepth 4 -type f -print -exec sh -c 'echo ---; cat "$1"' _ {} \; >&2
 	exit 1
 fi
-printf '%s\n' "$status" | grep -q '^stage=restoring-service$'
-printf '%s\n' "$status" | grep -q 'service stop failed'
+printf '%s\n' "$status" | grep -q '^stage=service-start-failed$'
+printf '%s\n' "$status" | grep -q 'takeover cleanup did not complete'
 [ ! -e "$TEST_DIR/init.fail.stop" ]
-"$ctl" status | grep -q '^draft_pending=1$'
+"$ctl" status | grep -q '^draft_pending=0$'
+"$ctl" status | grep -q '^service_enabled=0$'
 "$ctl" list-nodes | grep -q 'newer.example.com'
 [ ! -e "$TEST_DIR/state/db-before-apply" ]
-
-# Clean up the failed draft and return to the original applied image.
-rm -f "$TEST_DIR/init.fail.stop"
-"$ctl" revert-draft
-"$ctl" status | grep -q '^draft_pending=0$'
-"$ctl" list-nodes | grep -q 'new.example.com'
-! "$ctl" list-nodes | grep -q 'newer.example.com'
 
 # A suspended profile change must use a full restart, not reuse the old engine.
 "$ctl" set-setting service_enabled 1 >/dev/null

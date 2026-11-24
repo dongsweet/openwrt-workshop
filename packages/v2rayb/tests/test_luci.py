@@ -192,7 +192,8 @@ def main():
     assert "apply_job_fail_keep_config" in ctl_source
     assert "service-start-failed" in ctl_source
     assert "Configuration applied, but proxy startup failed; the new configuration was kept" in ctl_source
-    assert "case 'service-start-failed': return _('Proxy startup failed')" in view_source
+    assert "case 'service-start-failed': return _('Service cleanup incomplete')" in view_source
+    assert "service cleanup did not complete" in view_source
     assert "result.stage === 'service-start-failed'" in view_source
     assert "The new configuration is retained" in view_source
     assert "resuming-service" not in ctl_source

@@ -98,7 +98,9 @@ const _zh = {
 	'Configuration changes applied.': '配置变更已应用。',
 	'Configuration apply failed.': '配置应用失败。',
 	'Configuration was applied, but proxy startup failed. The new configuration is retained.': '配置已应用，但代理启动失败；新配置已保留。',
+	'Configuration was applied, but service cleanup did not complete. The new configuration is retained.': '配置已应用，但服务清理未完成；新配置已保留。',
 	'Proxy startup failed': '代理启动失败',
+	'Service cleanup incomplete': '服务清理未完成',
 	'Preparing configuration': '正在准备配置',
 	'Queued': '等待执行',
 	'Rendering configuration': '正在生成配置',
@@ -660,7 +662,7 @@ function applyStageText(stage) {
 	case 'verifying': return _('Verifying service');
 	case 'rolling-back': return _('Rolling back changes');
 	case 'restoring-service': return _('Restoring service');
-	case 'service-start-failed': return _('Proxy startup failed');
+	case 'service-start-failed': return _('Service cleanup incomplete');
 	case 'complete': return _('Configuration changes applied.');
 	default: return _('Applying configuration changes…');
 	}
@@ -720,7 +722,7 @@ async function resumeApplyJob(jobId) {
 		}
 		else if (result.stage === 'service-start-failed') {
 			ui.addNotification(null, E('p', {},
-				_('Configuration was applied, but proxy startup failed. The new configuration is retained.')), 'warning');
+				_('Configuration was applied, but service cleanup did not complete. The new configuration is retained.')), 'warning');
 			window.setTimeout(reloadPage, 1200);
 		}
 		else
