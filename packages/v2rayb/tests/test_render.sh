@@ -107,6 +107,13 @@ done
 "$ctl" apply-draft
 "$ctl" get-applied-profile | grep -q 'services.googleapis.cn,example.com$'
 "$ctl" render-all
+grep -q '"sniffing":{"enabled":true,"destOverride":\["http","tls"\],"routeOnly":true}' "$TEST_DIR/runtime/active/v2ray.json"
+grep -q '"domain":\["full:services.googleapis.cn","full:example.com"\],"outboundTag":"proxy"' "$TEST_DIR/runtime/active/v2ray.json"
+awk '
+	index($0, "\"domain\":[\"full:services.googleapis.cn") { force = NR }
+	/geoip:cn/ { china = NR }
+	END { exit !(force && china && force < china) }
+' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q 'set force_proxy4 { type ipv4_addr; flags timeout; timeout 12h; }' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q 'set force_proxy6 { type ipv6_addr; flags timeout; timeout 12h; }' "$TEST_DIR/runtime/active/nftables.nft"
 awk '
@@ -123,6 +130,8 @@ second_id="$("$ctl" list-profiles | awk -F '\t' '$2 == "second-profile" { print 
 ! "$ctl" get-applied-profile | grep -q 'services.googleapis.cn'
 "$ctl" render-all
 ! grep -q 'force_proxy4' "$TEST_DIR/runtime/active/nftables.nft"
+! grep -q '"sniffing"' "$TEST_DIR/runtime/active/v2ray.json"
+! grep -q '"full:services.googleapis.cn"' "$TEST_DIR/runtime/active/v2ray.json"
 "$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 ''
 "$ctl" select-profile 1
 "$ctl" apply-draft

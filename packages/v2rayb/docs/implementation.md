@@ -9,8 +9,10 @@ builds both the core and LuCI packages.
 - Generated proxy-engine and MosDNS configs under `/tmp/v2rayB/active/`.
 - A global IPv4/CIDR source bypass that preserves policy-routed LAN traffic.
 - A per-profile force-proxy domain list backed by dnsmasq nftset population and
-  nftables rules ordered before direct/pass returns; switching profiles also
-  switches this policy.
+  nftables rules ordered before direct/pass returns. The generated engine config
+  uses route-only TLS/HTTP sniffing and exact domain routing before `geoip:cn`,
+  preventing a forced domain from becoming direct again inside the engine;
+  switching profiles also switches this policy.
 - DNS switching with rollback, an owned nftables table, and an optional
   proxy-connectivity watchdog. Every runtime dnsmasq config transition uses
   restart, never reload, because HUP does not reliably parse newly created
