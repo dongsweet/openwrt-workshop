@@ -26,7 +26,8 @@ V2RAY_GROUP="${V2RAYB_V2RAY_GROUP:-nogroup}"
 V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 XRAY_BIN="${V2RAYB_XRAY_BIN:-/usr/bin/xray}"
 HEALTH_PROBE_URL="${V2RAYB_HEALTH_PROBE_URL:-https://www.gstatic.com/generate_204}"
-TPROXY_ROUTE_TABLE=5642
+TPROXY_RULE_PREF=5642
+TPROXY_ROUTE_TABLE=164
 TPROXY_FWMARK=0x5642
 LOCK_INHERITED=0
 
@@ -110,8 +111,8 @@ udp_tproxy_enabled() {
 
 udp_tproxy_cleanup() {
 	command -v ip >/dev/null 2>&1 || return 0
-	while ip rule del pref "$TPROXY_ROUTE_TABLE" 2>/dev/null; do :; done
-	while ip -6 rule del pref "$TPROXY_ROUTE_TABLE" 2>/dev/null; do :; done
+	while ip rule del pref "$TPROXY_RULE_PREF" 2>/dev/null; do :; done
+	while ip -6 rule del pref "$TPROXY_RULE_PREF" 2>/dev/null; do :; done
 	ip route flush table "$TPROXY_ROUTE_TABLE" 2>/dev/null || :
 	ip -6 route flush table "$TPROXY_ROUTE_TABLE" 2>/dev/null || :
 	return 0
@@ -139,9 +140,9 @@ udp_tproxy_setup() {
 		return 1
 	}
 	udp_tproxy_cleanup
-	ip rule add pref "$TPROXY_ROUTE_TABLE" fwmark "$TPROXY_FWMARK" lookup "$TPROXY_ROUTE_TABLE" || return 1
+	ip rule add pref "$TPROXY_RULE_PREF" fwmark "$TPROXY_FWMARK" lookup "$TPROXY_ROUTE_TABLE" || return 1
 	ip route add local default dev lo table "$TPROXY_ROUTE_TABLE" || return 1
-	ip -6 rule add pref "$TPROXY_ROUTE_TABLE" fwmark "$TPROXY_FWMARK" lookup "$TPROXY_ROUTE_TABLE" || {
+	ip -6 rule add pref "$TPROXY_RULE_PREF" fwmark "$TPROXY_FWMARK" lookup "$TPROXY_ROUTE_TABLE" || {
 		udp_tproxy_cleanup
 		return 1
 	}

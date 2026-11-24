@@ -190,15 +190,15 @@ udp_tproxy_setup
 grep -qx 'modprobe nft_tproxy' "$TPROXY_CALL_LOG"
 grep -qx 'modprobe nf_socket_ipv4' "$TPROXY_CALL_LOG"
 grep -qx 'modprobe nf_socket_ipv6' "$TPROXY_CALL_LOG"
-grep -qx 'ip rule add pref 5642 fwmark 0x5642 lookup 5642' "$TPROXY_CALL_LOG"
-grep -qx 'ip route add local default dev lo table 5642' "$TPROXY_CALL_LOG"
-grep -qx 'ip -6 rule add pref 5642 fwmark 0x5642 lookup 5642' "$TPROXY_CALL_LOG"
-grep -qx 'ip -6 route add local default dev lo table 5642' "$TPROXY_CALL_LOG"
+grep -qx 'ip rule add pref 5642 fwmark 0x5642 lookup 164' "$TPROXY_CALL_LOG"
+grep -qx 'ip route add local default dev lo table 164' "$TPROXY_CALL_LOG"
+grep -qx 'ip -6 rule add pref 5642 fwmark 0x5642 lookup 164' "$TPROXY_CALL_LOG"
+grep -qx 'ip -6 route add local default dev lo table 164' "$TPROXY_CALL_LOG"
 apply_takeover_rules
 grep -qx 'called' "$APPLY_NFT_LOG"
 udp_tproxy_cleanup
 grep -qx 'ip rule del pref 5642' "$TPROXY_CALL_LOG"
-grep -qx 'ip route flush table 5642' "$TPROXY_CALL_LOG"
+grep -qx 'ip route flush table 164' "$TPROXY_CALL_LOG"
 
 setup_case udp-tproxy-module-missing
 TEST_TRANSPARENT_UDP_PORTS='443'
