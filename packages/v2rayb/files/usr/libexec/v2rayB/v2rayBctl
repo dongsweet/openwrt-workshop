@@ -1596,6 +1596,21 @@ active_profile_match_rules() {
 	db_sql "SELECT COALESCE(pol.mosdns_match_rules, '') FROM profiles p LEFT JOIN policies pol ON pol.id=p.policy_id WHERE p.id=$profile_id;" | sed -n '1p'
 }
 
+mark_engine_outbound() {
+	_engine_body="$1"
+	case "$_engine_body" in
+		*'"streamSettings":{'*'"sockopt":{'*)
+			printf '%s\n' "$_engine_body" | sed 's/"sockopt":{/"sockopt":{"mark":22083,/'
+			;;
+		*'"streamSettings":{'*)
+			printf '%s\n' "$_engine_body" | sed 's/"streamSettings":{/"streamSettings":{"sockopt":{"mark":22083},/'
+			;;
+		*)
+			printf '%s,"streamSettings":{"sockopt":{"mark":22083}}\n' "$_engine_body"
+			;;
+	esac
+}
+
 cmd_render_v2ray() {
 	ensure_db
 	row="$(active_profile | tr '\t' '\036')"
@@ -1631,6 +1646,9 @@ EOF
 		is_uint "$profile_udp_port" && [ "$profile_udp_port" -ge 1 ] 2>/dev/null && [ "$profile_udp_port" -le 65535 ] 2>/dev/null ||
 			die "invalid UDP transparent proxy listener port"
 		udp_enabled=1
+	fi
+	if [ "$udp_enabled" = 1 ]; then
+		data_body="$(mark_engine_outbound "$data_body")"
 	fi
 
 	tmp="$ACTIVE_DIR/v2ray.json.tmp.$$"
@@ -1943,7 +1961,11 @@ EOF
 		is_uint "$profile_udp_port" && [ "$profile_udp_port" -ge 1 ] 2>/dev/null && [ "$profile_udp_port" -le 65535 ] 2>/dev/null ||
 			die "invalid UDP transparent proxy listener port"
 	fi
-	v2ray_uid="$(id -u "$V2RAY_USER" 2>/dev/null || true)"
+	if [ -n "$udp_proxy_port_set" ]; then
+		v2ray_uid=0
+	else
+		v2ray_uid="$(id -u "$V2RAY_USER" 2>/dev/null || true)"
+	fi
 	is_uint "$v2ray_uid" || die "V2Ray service user does not exist: $V2RAY_USER"
 	tmp="$ACTIVE_DIR/nftables.nft.tmp.$$"
 	{
@@ -2021,7 +2043,11 @@ EOF
 		if [ "$proxy_router_traffic" = 1 ]; then
 			printf '%s\n' '  chain output {'
 			printf '%s\n' '    type nat hook output priority -100; policy accept;'
-			printf '    meta skuid %s return\n' "$v2ray_uid"
+			if [ -n "$udp_proxy_port_set" ]; then
+				printf '%s\n' '    meta mark 0x5643 return'
+			else
+				printf '    meta skuid %s return\n' "$v2ray_uid"
+			fi
 			if [ -n "$force_domains" ]; then
 				printf '    ip daddr @force_proxy4 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$proxy_port"
 				printf '    ip6 daddr @force_proxy6 tcp dport %s redirect to :%s\n' "$proxy_port_set" "$proxy_port"

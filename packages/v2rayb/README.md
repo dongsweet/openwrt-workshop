@@ -223,6 +223,8 @@ listener port (default `12347`). It applies to LAN-originated traffic, uses the
 same pass/direct/China routing decisions, and adds the required fwmark policy
 routing. The engine runs as root only while UDP TPROXY is enabled because this
 OpenWrt image cannot otherwise grant `CAP_NET_ADMIN` for `IP_TRANSPARENT`.
+Its proxy outbound is marked `22083`; the router-output redirect returns on that
+mark to prevent the engine's own connections from looping back into itself.
 nftables TPROXY and socket-match kernel modules are package dependencies.
 
 ## Test Scope
