@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=v2rayb
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=153
+PKG_RELEASE:=154
 PKG_MAINTAINER:=local
 PKG_LICENSE:=MIT
 PKGARCH:=all
@@ -17,7 +17,7 @@ define Package/v2rayb
   SECTION:=net
   CATEGORY:=Network
   TITLE:=v2rayB unified proxy control plane
-  DEPENDS:=+sqlite3-cli +v2ray-core +v2ray-geoip +xray-core +mosdns +nftables-json +bind-dig +curl +coreutils-base64
+  DEPENDS:=+sqlite3-cli +v2ray-core +v2ray-geoip +xray-core +mosdns +nftables-json +bind-dig +curl +coreutils-base64 +kmod-nft-tproxy +kmod-nf-socket
 endef
 
 define Package/v2rayb/description

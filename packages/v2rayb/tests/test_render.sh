@@ -96,17 +96,27 @@ fi
 "$ctl" render-all
 ! grep -q 'bypass_source4' "$TEST_DIR/runtime/active/nftables.nft"
 
-"$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 'services.googleapis.cn example.com,services.googleapis.cn'
+"$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 'services.googleapis.cn example.com,services.googleapis.cn' '443' 12347
 "$ctl" get-profile 1 | grep -q '^force_proxy_domains=services.googleapis.cn,example.com$'
+"$ctl" get-profile 1 | grep -q '^transparent_proxy_udp_ports=443$'
+"$ctl" get-profile 1 | grep -q '^transparent_proxy_udp_port=12347$'
+"$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346
+"$ctl" get-profile 1 | grep -q '^force_proxy_domains=services.googleapis.cn,example.com$'
+"$ctl" get-profile 1 | grep -q '^transparent_proxy_udp_ports=443$'
+"$ctl" get-profile 1 | grep -q '^transparent_proxy_udp_port=12347$'
 for domains in 'example..com' '.example.com' 'example.com.' 'bad/domain'; do
-	if "$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 "$domains" >/dev/null 2>&1; then
+	if "$ctl" set-profile-policy 1 223.5.5.5:53 '80,443' 1 1 1 'xn--ngstr-lra8j.com' '' 0 12345 1 12346 "$domains" '443' 12347 >/dev/null 2>&1; then
 		echo "invalid force proxy domain list unexpectedly accepted: $domains" >&2
 		exit 1
 	fi
 done
 "$ctl" apply-draft
-"$ctl" get-applied-profile | grep -q 'services.googleapis.cn,example.com$'
+"$ctl" get-applied-profile | grep -q 'services.googleapis.cn,example.com'
 "$ctl" render-all
+grep -q '{"tag":"udp-in","listen":"0.0.0.0","port":12347,"protocol":"dokodemo-door","settings":{"network":"udp"},"streamSettings":{"sockopt":{"tproxy":"tproxy"}},"sniffing":{"enabled":true,"destOverride":\["quic"\],"routeOnly":true}}' "$TEST_DIR/runtime/active/v2ray.json"
+grep -q '"inboundTag":\["redir-in","udp-in"\],"outboundTag":"proxy"' "$TEST_DIR/runtime/active/v2ray.json"
+grep -q 'type filter hook prerouting priority mangle' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'udp dport { 443 } meta mark set 0x5642 tproxy to :12347 accept' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q '"sniffing":{"enabled":true,"destOverride":\["http","tls"\],"routeOnly":true}' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q '"domain":\["full:services.googleapis.cn","full:example.com"\],"outboundTag":"proxy"' "$TEST_DIR/runtime/active/v2ray.json"
 awk '

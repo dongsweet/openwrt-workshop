@@ -217,6 +217,14 @@ proxy listener port (default `12345`), and its optional connectivity-probe port
 (default `12346`). China IP traffic can use V2Ray's `geoip:cn` direct outbound
 rule.
 
+UDP transparent proxying is disabled by default. A profile may enable a separate
+ordered UDP destination-port list (for example `443`) and a dedicated TPROXY
+listener port (default `12347`). It applies to LAN-originated traffic, uses the
+same pass/direct/China routing decisions, and adds the required fwmark policy
+routing. The engine runs as root only while UDP TPROXY is enabled because this
+OpenWrt image cannot otherwise grant `CAP_NET_ADMIN` for `IP_TRANSPARENT`.
+nftables TPROXY and socket-match kernel modules are package dependencies.
+
 ## Test Scope
 
 Verify MosDNS `nftset` behavior, the device's resolver, engine switching, and LAN
@@ -226,7 +234,7 @@ production-ready.
 ## Google Play CDN Scope
 
 Only hostnames matching
-`r+[0-9]+(---|\.)sn-(2x3|ni5|j5o)\w{5}\.xn--ngstr-lra8j\.com` receive domestic
+`rr[0-9]+(---|\.)sn-(2x3|ni5|j5o)\w{5}\.xn--ngstr-lra8j\.com` receive domestic
 DNS answers and nftset insertion for mainland Google CDN nodes, based on the
 [referenced analysis](https://blog.l3zc.com/2025/03/chinese-cdn-used-by-playstore/).
 dnsmasq forwards that suffix to MosDNS so it can apply the exact match. The rule

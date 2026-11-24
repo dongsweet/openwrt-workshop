@@ -62,6 +62,17 @@ dnsmasq_restart_config() {
 	[ "${DNS_RESTART_FAIL:-0}" = 0 ]
 }
 dnsmasq_ready() { return 0; }
+modprobe() {
+	[ -n "${TPROXY_CALL_LOG:-}" ] && printf 'modprobe %s\n' "$*" >> "$TPROXY_CALL_LOG"
+	[ "${TPROXY_MODPROBE_FAIL:-0}" = 0 ]
+}
+ip() {
+	[ -n "${TPROXY_CALL_LOG:-}" ] && printf 'ip %s\n' "$*" >> "$TPROXY_CALL_LOG"
+	case " $* " in
+		*" del "*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
 
 spawn_managed() {
 	mkdir -p "$PID_DIR"
@@ -96,6 +107,10 @@ setup_case() {
 	TEST_SUBSCRIPTION_DOMAINS='sub.example.com,alternate.example.net'
 	TEST_FORCE_PROXY_DOMAINS=''
 	TEST_TRANSPARENT_PROXY_PORT='12345'
+	TEST_TRANSPARENT_UDP_PORTS=''
+	TEST_TRANSPARENT_UDP_PORT='12347'
+	TPROXY_CALL_LOG=''
+	TPROXY_MODPROBE_FAIL=0
 	TEST_PROBE_ENABLED='1'
 	TEST_PROBE_PORT='12346'
 	TEST_DIRECT_DNS_UPSTREAMS='223.5.5.5:53'
@@ -105,7 +120,7 @@ setup_case() {
 	DNS_RESTART_FAIL=0
 	export RUNTIME PID_DIR FAIL_NFT DNSMASQ_DIR UCI_CALL_LOG UCI_COMMIT_FAIL MOSDNS_FORWARD_FILE MOSDNS_FORWARD_EXPECTED \
 		BOOTSTRAP_DNS_FILE BOOTSTRAP_DNS_EXPECTED SUBSCRIPTION_DNS_FILE SUBSCRIPTION_DNS_EXPECTED FORCE_PROXY_DNS_FILE FORCE_PROXY_DNS_EXPECTED LEGACY_FORCE_PROXY_FILE \
-		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_FORCE_PROXY_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT TEST_DIRECT_DNS_UPSTREAMS TEST_ENGINE
+		MOCK_SERVER MOCK_NORESOLV MOCK_UCI_GET_SPACE TEST_DNSMASQ_DEFAULT TEST_MOSDNS_ENABLED TEST_MOSDNS_DOMAINS TEST_BOOTSTRAP_DOMAIN TEST_SUBSCRIPTION_DOMAINS TEST_FORCE_PROXY_DOMAINS TEST_TRANSPARENT_PROXY_PORT TEST_TRANSPARENT_UDP_PORTS TEST_TRANSPARENT_UDP_PORT TEST_PROBE_ENABLED TEST_PROBE_PORT TEST_DIRECT_DNS_UPSTREAMS TEST_ENGINE TPROXY_CALL_LOG TPROXY_MODPROBE_FAIL
 	mkdir -p "$DNS_BACKUP" "$DNSMASQ_DIR" "$PID_DIR"
 	: > "$DNS_BACKUP/server"
 	: > "$DNS_BACKUP/noresolv"
@@ -154,6 +169,8 @@ case "$1" in
 			"mosdns_domains=$TEST_MOSDNS_DOMAINS" \
 			'mosdns_listen=127.0.0.1#5354' 'v2ray_dns_listen=127.0.0.1#5353' \
 			"transparent_proxy_port=$TEST_TRANSPARENT_PROXY_PORT" \
+			"transparent_proxy_udp_ports=$TEST_TRANSPARENT_UDP_PORTS" \
+			"transparent_proxy_udp_port=$TEST_TRANSPARENT_UDP_PORT" \
 			"probe_enabled=$TEST_PROBE_ENABLED" "probe_port=$TEST_PROBE_PORT" \
 			"subscription_domains=$TEST_SUBSCRIPTION_DOMAINS" \
 			"force_proxy_domains=$TEST_FORCE_PROXY_DOMAINS"
@@ -162,6 +179,46 @@ case "$1" in
 esac
 EOF
 chmod +x "$TEST_DIR/ctl"
+
+setup_case udp-tproxy
+TEST_TRANSPARENT_UDP_PORTS='443'
+TPROXY_CALL_LOG="$RUNTIME/tproxy.calls"
+APPLY_NFT_LOG="$RUNTIME/apply-nft.calls"
+export TEST_TRANSPARENT_UDP_PORTS TPROXY_CALL_LOG APPLY_NFT_LOG
+load_dns_policy
+udp_tproxy_setup
+grep -qx 'modprobe nft_tproxy' "$TPROXY_CALL_LOG"
+grep -qx 'modprobe nf_socket_ipv4' "$TPROXY_CALL_LOG"
+grep -qx 'modprobe nf_socket_ipv6' "$TPROXY_CALL_LOG"
+grep -qx 'ip rule add pref 5642 fwmark 0x5642 lookup 5642' "$TPROXY_CALL_LOG"
+grep -qx 'ip route add local default dev lo table 5642' "$TPROXY_CALL_LOG"
+grep -qx 'ip -6 rule add pref 5642 fwmark 0x5642 lookup 5642' "$TPROXY_CALL_LOG"
+grep -qx 'ip -6 route add local default dev lo table 5642' "$TPROXY_CALL_LOG"
+apply_takeover_rules
+grep -qx 'called' "$APPLY_NFT_LOG"
+udp_tproxy_cleanup
+grep -qx 'ip rule del pref 5642' "$TPROXY_CALL_LOG"
+grep -qx 'ip route flush table 5642' "$TPROXY_CALL_LOG"
+
+setup_case udp-tproxy-module-missing
+TEST_TRANSPARENT_UDP_PORTS='443'
+TPROXY_CALL_LOG="$RUNTIME/tproxy.calls"
+TPROXY_MODPROBE_FAIL=1
+export TEST_TRANSPARENT_UDP_PORTS TPROXY_CALL_LOG TPROXY_MODPROBE_FAIL
+load_dns_policy
+if udp_tproxy_setup; then
+	echo "UDP TPROXY unexpectedly started without its kernel module" >&2
+	exit 1
+fi
+! grep -q 'ip rule add' "$TPROXY_CALL_LOG"
+
+setup_case udp-tproxy-disabled
+TEST_TRANSPARENT_UDP_PORTS=''
+TPROXY_CALL_LOG="$RUNTIME/tproxy.calls"
+export TEST_TRANSPARENT_UDP_PORTS TPROXY_CALL_LOG
+load_dns_policy
+udp_tproxy_setup
+! grep -q 'modprobe' "$TPROXY_CALL_LOG"
 
 setup_case dns-restart
 DNS_RESTART_FAIL=1

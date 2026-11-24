@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS policies (
     direct_dns              TEXT,
     transparent_proxy_ports TEXT,
     transparent_proxy_port  INTEGER NOT NULL DEFAULT 12345 CHECK (transparent_proxy_port BETWEEN 1 AND 65535),
+    transparent_proxy_udp_ports TEXT,
+    transparent_proxy_udp_port  INTEGER NOT NULL DEFAULT 12347 CHECK (transparent_proxy_udp_port BETWEEN 1 AND 65535),
     probe_enabled           INTEGER NOT NULL DEFAULT 1 CHECK (probe_enabled IN (0, 1)),
     probe_port              INTEGER NOT NULL DEFAULT 12346 CHECK (probe_port BETWEEN 1 AND 65535),
     bypass_china            INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)),
@@ -118,6 +120,8 @@ CREATE TABLE IF NOT EXISTS draft_policies (
     direct_dns              TEXT,
     transparent_proxy_ports TEXT,
     transparent_proxy_port  INTEGER NOT NULL DEFAULT 12345 CHECK (transparent_proxy_port BETWEEN 1 AND 65535),
+    transparent_proxy_udp_ports TEXT,
+    transparent_proxy_udp_port  INTEGER NOT NULL DEFAULT 12347 CHECK (transparent_proxy_udp_port BETWEEN 1 AND 65535),
     probe_enabled           INTEGER NOT NULL DEFAULT 1 CHECK (probe_enabled IN (0, 1)),
     probe_port              INTEGER NOT NULL DEFAULT 12346 CHECK (probe_port BETWEEN 1 AND 65535),
     bypass_china            INTEGER NOT NULL DEFAULT 1 CHECK (bypass_china IN (0, 1)),
@@ -192,7 +196,10 @@ INSERT OR IGNORE INTO schema_migrations(version) VALUES (7);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (8);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (9);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (10);
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (11);
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (12);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (13);
-PRAGMA user_version = 13;
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (14);
+PRAGMA user_version = 14;
 
 COMMIT;

@@ -13,6 +13,9 @@ builds both the core and LuCI packages.
   uses route-only TLS/HTTP sniffing and exact domain routing before `geoip:cn`,
   preventing a forced domain from becoming direct again inside the engine;
   switching profiles also switches this policy.
+- Optional per-profile UDP TPROXY on an independent destination-port list and
+  listener port. It uses fwmark `0x5642`, routing table `5642`, `nft_tproxy`,
+  and IPv4/IPv6 local routes; cleanup is part of every takeover withdrawal.
 - DNS switching with rollback, an owned nftables table, and an optional
   proxy-connectivity watchdog. Every runtime dnsmasq config transition uses
   restart, never reload, because HUP does not reliably parse newly created

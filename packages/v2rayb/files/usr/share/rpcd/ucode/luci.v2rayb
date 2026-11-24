@@ -95,7 +95,7 @@ function valid_source_name(value) {
 	return length(value) > 0 && length(value) <= 256 && !match(value, /[\t\r\n]/);
 }
 
-function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, force_proxy_domains) {
+function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules, proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, force_proxy_domains, udp_ports, udp_port) {
 	if (direct_dns == '' || length(direct_dns) > 255)
 		return 'Invalid direct DNS endpoint';
 	if (ports == '' || length(ports) > 255 ||
@@ -127,6 +127,18 @@ function valid_profile_policy(direct_dns, ports, bypass_china, use_v2ray_dns, mo
 		return 'Connectivity probe port is out of range';
 	if (probe_enabled == '1' && listener_port == health_port)
 		return 'Transparent proxy and probe ports must differ';
+	if (udp_ports != '' && (length(udp_ports) > 255 ||
+	    !match(udp_ports, /^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$/)))
+		return 'Invalid UDP transparent proxy port list';
+	if (!match(udp_port, /^[0-9]+$/))
+		return 'Invalid UDP transparent proxy listener port';
+	let udp_listener_port = +udp_port;
+	if (udp_listener_port < 1 || udp_listener_port > 65535)
+		return 'UDP transparent proxy listener port is out of range';
+	if (listener_port == udp_listener_port)
+		return 'TCP and UDP transparent proxy listener ports must differ';
+	if (probe_enabled == '1' && udp_listener_port == health_port)
+		return 'UDP transparent proxy and probe ports must differ';
 	if (force_proxy_domains != '') {
 		if (length(force_proxy_domains) > 8192)
 			return 'Force proxy domain list is too long';
@@ -422,6 +434,8 @@ const methods = {
 					probe_enabled: fields.probe_enabled || '1',
 					probe_port: fields.probe_port || '12346',
 					force_proxy_domains: fields.force_proxy_domains || '',
+					udp_ports: fields.udp_ports || '',
+					udp_port: fields.udp_port || '12347',
 					engine: fields.engine || 'v2ray'
 				}
 			};
@@ -598,7 +612,7 @@ const methods = {
 	},
 
 	add_profile: {
-		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346', engine: 'v2ray', force_proxy_domains: '' },
+		args: { name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346', engine: 'v2ray', force_proxy_domains: '', udp_ports: '', udp_port: '12347' },
 		call: function(request) {
 			let name = string_arg(request, 'name');
 			let node_id = string_arg(request, 'node_id');
@@ -614,6 +628,8 @@ const methods = {
 			let probe_enabled = string_arg(request, 'probe_enabled') || '1';
 			let probe_port = string_arg(request, 'probe_port') || '12346';
 			let force_proxy_domains = string_arg(request, 'force_proxy_domains');
+			let udp_ports = string_arg(request, 'udp_ports');
+			let udp_port = string_arg(request, 'udp_port') || '12347';
 			let engine = string_arg(request, 'engine') || 'v2ray';
 			if (engine != 'v2ray' && engine != 'xray')
 				return { success: false, error: 'Select a valid proxy engine' };
@@ -623,7 +639,7 @@ const methods = {
 				return { success: false, error: 'Select a valid primary node' };
 			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, force_proxy_domains);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, force_proxy_domains, udp_ports, udp_port);
 			if (policy_error != null)
 				return { success: false, error: policy_error };
 
@@ -639,7 +655,7 @@ const methods = {
 
 			let result = ctl([ 'add-profile', name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, engine, force_proxy_domains ]);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, engine, force_proxy_domains, udp_ports, udp_port ]);
 			if (result.code != 0)
 				return failed(result);
 
@@ -690,7 +706,7 @@ const methods = {
 	},
 
 	update_profile: {
-		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346', engine: 'v2ray', force_proxy_domains: '' },
+		args: { profile_id: '', name: '', node_id: '', direct_dns: '', transparent_proxy_ports: '', bypass_china: '1', use_v2ray_dns: '1', mosdns_enabled: '1', mosdns_domains: 'xn--ngstr-lra8j.com', mosdns_match_rules: '', proxy_router_traffic: '0', transparent_proxy_port: '12345', probe_enabled: '1', probe_port: '12346', engine: 'v2ray', force_proxy_domains: '', udp_ports: '', udp_port: '12347' },
 		call: function(request) {
 			let profile_id = string_arg(request, 'profile_id');
 			let name = string_arg(request, 'name');
@@ -707,6 +723,8 @@ const methods = {
 			let probe_enabled = string_arg(request, 'probe_enabled') || '1';
 			let probe_port = string_arg(request, 'probe_port') || '12346';
 			let force_proxy_domains = string_arg(request, 'force_proxy_domains');
+			let udp_ports = string_arg(request, 'udp_ports');
+			let udp_port = string_arg(request, 'udp_port') || '12347';
 			let engine = string_arg(request, 'engine') || 'v2ray';
 			if (engine != 'v2ray' && engine != 'xray')
 				return { success: false, error: 'Select a valid proxy engine' };
@@ -716,12 +734,12 @@ const methods = {
 				return { success: false, error: 'Invalid profile name' };
 			let policy_error = valid_profile_policy(direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, force_proxy_domains);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, force_proxy_domains, udp_ports, udp_port);
 			if (policy_error != null)
 				return { success: false, error: policy_error };
 			let result = ctl([ 'update-profile', profile_id, name, node_id, direct_dns, transparent_proxy_ports, bypass_china,
 				use_v2ray_dns, mosdns_enabled, mosdns_domains, mosdns_match_rules,
-				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, engine, force_proxy_domains ]);
+				proxy_router_traffic, transparent_proxy_port, probe_enabled, probe_port, engine, force_proxy_domains, udp_ports, udp_port ]);
 			return result.code == 0 ? { success: true, profile_id: profile_id } : failed(result);
 		}
 	},

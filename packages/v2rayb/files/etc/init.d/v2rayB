@@ -26,6 +26,8 @@ V2RAY_GROUP="${V2RAYB_V2RAY_GROUP:-nogroup}"
 V2RAY_BIN="${V2RAYB_V2RAY_BIN:-/usr/bin/v2ray}"
 XRAY_BIN="${V2RAYB_XRAY_BIN:-/usr/bin/xray}"
 HEALTH_PROBE_URL="${V2RAYB_HEALTH_PROBE_URL:-https://www.gstatic.com/generate_204}"
+TPROXY_ROUTE_TABLE=5642
+TPROXY_FWMARK=0x5642
 LOCK_INHERITED=0
 
 log() {
@@ -100,6 +102,61 @@ dnsmasq_restart_config() {
 	# the DNS socket before callers continue importing traffic policy.
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1 || return 1
 	dnsmasq_ready
+}
+
+udp_tproxy_enabled() {
+	[ -n "$(dns_policy_value transparent_proxy_udp_ports)" ]
+}
+
+udp_tproxy_cleanup() {
+	command -v ip >/dev/null 2>&1 || return 0
+	while ip rule del pref "$TPROXY_ROUTE_TABLE" 2>/dev/null; do :; done
+	while ip -6 rule del pref "$TPROXY_ROUTE_TABLE" 2>/dev/null; do :; done
+	ip route flush table "$TPROXY_ROUTE_TABLE" 2>/dev/null || :
+	ip -6 route flush table "$TPROXY_ROUTE_TABLE" 2>/dev/null || :
+	return 0
+}
+
+udp_tproxy_setup() {
+	if ! udp_tproxy_enabled; then
+		udp_tproxy_cleanup
+		return 0
+	fi
+	command -v ip >/dev/null 2>&1 || {
+		log "iproute2 is required for UDP transparent proxy"
+		return 1
+	}
+	modprobe nft_tproxy >/dev/null 2>&1 || {
+		log "nft_tproxy kernel module is unavailable"
+		return 1
+	}
+	modprobe nf_socket_ipv4 >/dev/null 2>&1 || {
+		log "nf_socket_ipv4 kernel module is unavailable"
+		return 1
+	}
+	modprobe nf_socket_ipv6 >/dev/null 2>&1 || {
+		log "nf_socket_ipv6 kernel module is unavailable"
+		return 1
+	}
+	udp_tproxy_cleanup
+	ip rule add pref "$TPROXY_ROUTE_TABLE" fwmark "$TPROXY_FWMARK" lookup "$TPROXY_ROUTE_TABLE" || return 1
+	ip route add local default dev lo table "$TPROXY_ROUTE_TABLE" || return 1
+	ip -6 rule add pref "$TPROXY_ROUTE_TABLE" fwmark "$TPROXY_FWMARK" lookup "$TPROXY_ROUTE_TABLE" || {
+		udp_tproxy_cleanup
+		return 1
+	}
+	ip -6 route add local default dev lo table "$TPROXY_ROUTE_TABLE" || {
+		udp_tproxy_cleanup
+		return 1
+	}
+}
+
+apply_takeover_rules() {
+	udp_tproxy_setup || return 1
+	"$CTL" apply-nft || {
+		udp_tproxy_cleanup
+		return 1
+	}
 }
 
 remove_legacy_force_proxy_rule() {
@@ -469,9 +526,17 @@ start_engine() {
 	mkdir -p "$PID_DIR" || return 1
 	max_fd="$(ulimit -Hn 2>/dev/null || true)"
 	is_pid "$max_fd" && ulimit -n "$max_fd" 2>/dev/null || true
+	engine_user="$V2RAY_USER"
+	engine_group="$V2RAY_GROUP"
+	if udp_tproxy_enabled; then
+		# IP_TRANSPARENT is required by the TPROXY inbound. OpenWrt's
+		# start-stop-daemon cannot grant CAP_NET_ADMIN to an unprivileged user.
+		engine_user=root
+		engine_group=root
+	fi
 	for log_name in v2ray.log v2ray-error.log; do
 		touch "$RUNTIME/$log_name" || return 1
-		chown "$V2RAY_USER:$V2RAY_GROUP" "$RUNTIME/$log_name" || return 1
+		chown "$engine_user:$engine_group" "$RUNTIME/$log_name" || return 1
 		chmod 600 "$RUNTIME/$log_name" || return 1
 	done
 	rm -f "$PID_DIR/v2ray.pid"
@@ -491,10 +556,17 @@ start_engine() {
 		return 1
 	}
 	# shellcheck disable=SC2086
-	env $engine_env start-stop-daemon -S -b -c "$V2RAY_USER:$V2RAY_GROUP" \
-		-x "$engine_bin" -O "$RUNTIME/v2ray.log" \
-		-m -p "$PID_DIR/v2ray.pid" -- \
-		run -c "$RUNTIME/active/v2ray.json" || return 1
+	if [ "$engine_user" = root ]; then
+		env $engine_env start-stop-daemon -S -b \
+			-x "$engine_bin" -O "$RUNTIME/v2ray.log" \
+			-m -p "$PID_DIR/v2ray.pid" -- \
+			run -c "$RUNTIME/active/v2ray.json" || return 1
+	else
+		env $engine_env start-stop-daemon -S -b -c "$engine_user:$engine_group" \
+			-x "$engine_bin" -O "$RUNTIME/v2ray.log" \
+			-m -p "$PID_DIR/v2ray.pid" -- \
+			run -c "$RUNTIME/active/v2ray.json" || return 1
+	fi
 	is_pid "$(sed -n '1p' "$PID_DIR/v2ray.pid" 2>/dev/null || true)"
 }
 
@@ -545,6 +617,7 @@ rollback_start() {
 		release_lock
 		return 1
 	fi
+	udp_tproxy_cleanup
 	if [ "$final_state" = suspended ]; then
 		if ! stop_pid mosdns; then
 			"$CTL" set-state degraded >/dev/null 2>&1 || true
@@ -625,7 +698,7 @@ start_service() {
 	else
 		log "connectivity probe disabled; importing traffic and DNS without verification"
 	fi
-	"$CTL" apply-nft || { rollback_start; return 1; }
+	apply_takeover_rules || { rollback_start; return 1; }
 	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
 		start_mosdns
 		port_ready 5354 || { rollback_start; return 1; }
@@ -661,6 +734,7 @@ stop_service() {
 		release_lock
 		return 1
 	fi
+	udp_tproxy_cleanup
 	if ! stop_instances; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
 		log "managed processes did not stop; retry stop after inspecting procd"
@@ -696,6 +770,7 @@ suspend_service_locked() {
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
 		return 1
 	fi
+	udp_tproxy_cleanup
 	if ! stop_pid mosdns; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
 		return 1
@@ -736,6 +811,7 @@ recovery_rollback() {
 		release_lock
 		return 1
 	fi
+	udp_tproxy_cleanup
 	if ! stop_pid mosdns; then
 		"$CTL" set-state degraded >/dev/null 2>&1 || true
 		log "recovery rollback could not stop MosDNS; watchdog cleanup retry remains pending"
@@ -760,7 +836,7 @@ recovery_rollback() {
 }
 
 refresh_takeover() {
-	"$CTL" apply-nft || return 1
+	apply_takeover_rules || return 1
 	if [ "$(dns_policy_value mosdns_enabled)" = 1 ]; then
 		stop_pid mosdns || return 1
 		start_mosdns || return 1
