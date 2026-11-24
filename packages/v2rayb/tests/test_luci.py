@@ -266,7 +266,8 @@ def main():
     assert "transparent_proxy_udp_ports: udpPorts.value" in view_source
     assert "transparent_proxy_udp_port: String(udpListenerPort)" in view_source
     assert "profile.transparent_proxy_udp_ports, profile.transparent_proxy_udp_port" in view_source
-    assert "udp_port: fields.udp_port || '12347'" in rpc_source
+    assert "transparent_proxy_udp_ports: fields.transparent_proxy_udp_ports || ''" in rpc_source
+    assert "transparent_proxy_udp_port: fields.transparent_proxy_udp_port || '12347'" in rpc_source
     assert "force_proxy_domains, udp_ports, udp_port" in rpc_source
     assert '"tproxy":"tproxy"' in ctl_source
     assert 'destOverride":["quic"]' in ctl_source

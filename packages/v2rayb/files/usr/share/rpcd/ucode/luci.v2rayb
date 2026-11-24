@@ -434,8 +434,8 @@ const methods = {
 					probe_enabled: fields.probe_enabled || '1',
 					probe_port: fields.probe_port || '12346',
 					force_proxy_domains: fields.force_proxy_domains || '',
-					udp_ports: fields.udp_ports || '',
-					udp_port: fields.udp_port || '12347',
+					transparent_proxy_udp_ports: fields.transparent_proxy_udp_ports || '',
+					transparent_proxy_udp_port: fields.transparent_proxy_udp_port || '12347',
 					engine: fields.engine || 'v2ray'
 				}
 			};

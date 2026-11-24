@@ -115,6 +115,7 @@ done
 "$ctl" render-all
 grep -q '{"tag":"udp-in","listen":"0.0.0.0","port":12347,"protocol":"dokodemo-door","settings":{"network":"udp"},"streamSettings":{"sockopt":{"tproxy":"tproxy"}},"sniffing":{"enabled":true,"destOverride":\["quic"\],"routeOnly":true}}' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q '"streamSettings":{"sockopt":{"mark":22083},"network":"tcp"}' "$TEST_DIR/runtime/active/v2ray.json"
+grep -q '{"tag":"direct","protocol":"freedom","settings":{},"streamSettings":{"sockopt":{"mark":22083}}}' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q 'meta mark 0x5643 return' "$TEST_DIR/runtime/active/nftables.nft"
 ! grep -q 'meta skuid 0 return' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q '"inboundTag":\["redir-in","udp-in"\],"outboundTag":"proxy"' "$TEST_DIR/runtime/active/v2ray.json"

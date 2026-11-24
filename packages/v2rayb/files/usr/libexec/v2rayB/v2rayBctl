@@ -1683,7 +1683,11 @@ EOF
 		fi
 		printf '%s\n' '  ],'
 		printf '  "outbounds": [{"tag":"proxy","protocol":"%s",%s},\n' "$protocol" "$data_body"
-		printf '%s\n' '    {"tag":"direct","protocol":"freedom","settings":{}},'
+		if [ "$udp_enabled" = 1 ]; then
+			printf '%s\n' '    {"tag":"direct","protocol":"freedom","settings":{},"streamSettings":{"sockopt":{"mark":22083}}},'
+		else
+			printf '%s\n' '    {"tag":"direct","protocol":"freedom","settings":{}},'
+		fi
 		printf '%s\n' '    {"tag":"blocked","protocol":"blackhole","settings":{}}],'
 		printf '%s\n' '  "routing": {"domainStrategy":"IPIfNonMatch","rules":['
 		printf '    {"type":"field","inboundTag":[%s],"outboundTag":"proxy"},\n' "$proxy_inbounds"
