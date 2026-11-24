@@ -116,7 +116,10 @@ done
 grep -q '{"tag":"udp-in","listen":"0.0.0.0","port":12347,"protocol":"dokodemo-door","settings":{"network":"udp"},"streamSettings":{"sockopt":{"tproxy":"tproxy"}},"sniffing":{"enabled":true,"destOverride":\["quic"\],"routeOnly":true}}' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q '"inboundTag":\["redir-in","udp-in"\],"outboundTag":"proxy"' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q 'type filter hook prerouting priority mangle' "$TEST_DIR/runtime/active/nftables.nft"
-grep -q 'udp dport { 443 } meta mark set 0x5642 tproxy to :12347 accept' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'ip daddr @force_proxy4 udp dport { 443 } meta mark set 0x5642 tproxy ip to :12347 accept' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'ip6 daddr @force_proxy6 udp dport { 443 } meta mark set 0x5642 tproxy ip6 to :12347 accept' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'meta nfproto ipv4 udp dport { 443 } meta mark set 0x5642 tproxy ip to :12347 accept' "$TEST_DIR/runtime/active/nftables.nft"
+grep -q 'meta nfproto ipv6 udp dport { 443 } meta mark set 0x5642 tproxy ip6 to :12347 accept' "$TEST_DIR/runtime/active/nftables.nft"
 grep -q '"sniffing":{"enabled":true,"destOverride":\["http","tls"\],"routeOnly":true}' "$TEST_DIR/runtime/active/v2ray.json"
 grep -q '"domain":\["full:services.googleapis.cn","full:example.com"\],"outboundTag":"proxy"' "$TEST_DIR/runtime/active/v2ray.json"
 awk '

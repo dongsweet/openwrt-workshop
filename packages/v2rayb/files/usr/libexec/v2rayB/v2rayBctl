@@ -2000,8 +2000,8 @@ EOF
 			printf '%s\n' '  chain udp_prerouting {'
 			printf '%s\n' '    type filter hook prerouting priority mangle; policy accept;'
 			if [ -n "$force_domains" ]; then
-				printf '    ip daddr @force_proxy4 udp dport %s meta mark set 0x5642 tproxy to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
-				printf '    ip6 daddr @force_proxy6 udp dport %s meta mark set 0x5642 tproxy to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
+				printf '    ip daddr @force_proxy4 udp dport %s meta mark set 0x5642 tproxy ip to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
+				printf '    ip6 daddr @force_proxy6 udp dport %s meta mark set 0x5642 tproxy ip6 to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
 			fi
 			if [ -n "$bypass_source_elements" ]; then
 				printf '%s\n' '    ip saddr @bypass_source4 return'
@@ -2014,7 +2014,8 @@ EOF
 			printf '%s\n' '    ip6 daddr @direct_static6 return'
 			printf '%s\n' '    ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } return'
 			printf '%s\n' '    ip6 daddr { ::1, fc00::/7, fe80::/10, ff00::/8 } return'
-			printf '    udp dport %s meta mark set 0x5642 tproxy to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
+			printf '    meta nfproto ipv4 udp dport %s meta mark set 0x5642 tproxy ip to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
+			printf '    meta nfproto ipv6 udp dport %s meta mark set 0x5642 tproxy ip6 to :%s accept\n' "$udp_proxy_port_set" "$profile_udp_port"
 			printf '%s\n' '  }'
 		fi
 		if [ "$proxy_router_traffic" = 1 ]; then
