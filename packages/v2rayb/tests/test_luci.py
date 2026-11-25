@@ -448,6 +448,11 @@ def main():
     assert "callSetSetting('watchdog_restart_engine'" in view_source
     assert "draft_watchdog_restart_engine" in ctl_source
     assert "key != 'watchdog_restart_engine'" in rpc_source
+    assert "const nodePane = [" in view_source
+    assert "const profilePane = [" in view_source
+    assert "{ id: 'nodes', title: _('Nodes'), nodes: nodePane }" in view_source
+    assert "{ id: 'profiles', title: _('Profiles'), nodes: profilePane }" in view_source
+    assert "{ id: 'nodes', title: _('Nodes and profiles'), nodes: nodesPane }" not in view_source
     assert "field(_('Proxy engine'), profileEngine" in view_source
     assert "const profileEngine = E('select'" in view_source
     assert "profile.probe_port, profile.engine, profile.force_proxy_domains" in view_source

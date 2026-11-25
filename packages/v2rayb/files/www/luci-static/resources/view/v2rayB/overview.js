@@ -2043,7 +2043,7 @@ return view.extend({
 		refreshNodeGroupOptions();
 		nodeProbeButton = E('button', { class: 'cbi-button cbi-button-action', type: 'button', click: startNodeProbe }, _('Test current group'));
 		nodeProbeHint = E('span', { class: 'v2rayb-help' }, _('Tests TCP and TLS connection from the router; it does not change the active profile.'));
-		const nodesPane = [
+		const nodePane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Subscriptions')),
 				sourceTable,
@@ -2061,7 +2061,9 @@ return view.extend({
 				E('div', { class: 'v2rayb-create' }, [
 					E('button', { class: 'cbi-button cbi-button-add', type: 'button', click: () => showNodeModal(pageView, onNodeSaved) }, _('Add'))
 				])
-			]),
+			])
+		];
+		const profilePane = [
 			E('div', { class: 'cbi-section' }, [
 				E('h3', {}, _('Profiles')),
 				profileTable,
@@ -2324,7 +2326,8 @@ return view.extend({
 			]),
 			renderTabs([
 				{ id: 'overview', title: _('Overview'), nodes: overview },
-				{ id: 'nodes', title: _('Nodes and profiles'), nodes: nodesPane },
+				{ id: 'nodes', title: _('Nodes'), nodes: nodePane },
+				{ id: 'profiles', title: _('Profiles'), nodes: profilePane },
 				{ id: 'runtime', title: _('DNS and proxy'), nodes: runtimePane },
 				{ id: 'diagnostics', title: _('Diagnostics'), nodes: diagnosticsPane, onActivate: loadV2rayConfig },
 				{ id: 'logs', title: _('Logs'), nodes: logsPane, onActivate: loadLogs }
